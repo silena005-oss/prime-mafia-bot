@@ -76,6 +76,7 @@ const menu_vedushchego = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+            [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
         ]
     }
@@ -95,6 +96,7 @@ const menu_vladeltsa = {
         inline_keyboard: [
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
+            [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
         ]
@@ -319,7 +321,54 @@ bot.on('message', async function(msg) {
         return;
     }
 
-    // ===== ПОИСК В БАЗЕ ИГРОКОВ =====
+    // ===== КОНСТРУКТОР РОЛЕЙ: ввод названия =====
+    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('rol_nazvanie_')) {
+        const klub_id = sostoyanie[tg_id].replace('rol_nazvanie_', '');
+        const nazvanie = text.trim();
+        if (nazvanie.length < 2) {
+            bot.sendMessage(chatId, '❌ Название должно быть минимум 2 символа.');
+            return;
+        }
+        delete sostoyanie[tg_id];
+        // Сохраняем временно название и переходим к выбору стороны
+        ozhidanie_registracii[tg_id] = { shag: 'rol_storona', klub_id, nazvanie };
+        const soobsh = await bot.sendMessage(chatId, '🎭 *Создание роли*\n\n*Название:* ' + nazvanie + '\n\nВыбери сторону:', {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '👨‍👩‍👧 Мирные', callback_data: 'rol_st_mirnye' }],
+                    [{ text: '🔫 Мафия', callback_data: 'rol_st_mafiya' }],
+                    [{ text: '🎯 Сам за себя', callback_data: 'rol_st_solo' }],
+                    [{ text: '⬅️ Отмена', callback_data: 'roli_klub_' + klub_id }]
+                ]
+            }
+        });
+        return;
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: ввод количества раз =====
+    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('rol_kolichestvo_')) {
+        const klub_id = sostoyanie[tg_id].replace('rol_kolichestvo_', '');
+        delete sostoyanie[tg_id];
+        const dannye = ozhidanie_registracii[tg_id];
+        if (!dannye || dannye.shag !== 'rol_kolichestvo') {
+            bot.sendMessage(chatId, '❌ Ошибка. Начни заново.');
+            return;
+        }
+        const kolichestvo = text.trim();
+        const chislo = parseInt(kolichestvo);
+        if (isNaN(chislo) || chislo < 1 || chislo > 99) {
+            bot.sendMessage(chatId, '❌ Введи число от 1 до 99.');
+            sostoyanie[tg_id] = 'rol_kolichestvo_' + klub_id;
+            return;
+        }
+        dannye.kolichestvo_raz = chislo;
+        dannye.shag = 'gotovo';
+        await sohranit_rol(chatId, tg_id, klub_id, dannye);
+        return;
+    }
+
+
     if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('baza_poisk_')) {
         const klub_id = sostoyanie[tg_id].replace('baza_poisk_', '');
         const zapros = text.trim();
@@ -742,6 +791,155 @@ bot.on('callback_query', async function(query) {
         }
         await pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id);
     }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: выбор клуба =====
+    else if (data === 'roli_vybor_kluba') {
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        // Ищем клубы где пользователь — собственник или ведущий
+        const { data: chleny } = await supabase
+            .from('chleny_klubov')
+            .select('klub_id, rol, kluby(id, nazvaniye)')
+            .eq('igrok_id', igrok?.id)
+            .in('rol', ['vladyelets', 'vedushchii']);
+
+        const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
+
+        if (!kluby || kluby.length === 0) {
+            bot.editMessageText('🎭 *Управление ролями*\n\n❌ У вас нет клубов.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+
+        if (kluby.length === 1) {
+            await pokazat_roli_kluba(chatId, messageId, kluby[0].id);
+            return;
+        }
+
+        const knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'roli_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+        bot.editMessageText('🎭 *Управление ролями*\n\nВыбери клуб:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('roli_klub_')) {
+        const klub_id = data.replace('roli_klub_', '');
+        await pokazat_roli_kluba(chatId, messageId, klub_id);
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: добавить роль =====
+    else if (data.startsWith('rol_dobavit_')) {
+        const klub_id = data.replace('rol_dobavit_', '');
+        sostoyanie[telegram_id] = 'rol_nazvanie_' + klub_id;
+        bot.editMessageText('🎭 *Новая роль*\n\nВведи название роли:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'roli_klub_' + klub_id }]] }
+        });
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: выбор стороны =====
+    else if (data.startsWith('rol_st_')) {
+        const storona_kod = data.replace('rol_st_', '');
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye || dannye.shag !== 'rol_storona') return;
+
+        const storony = { mirnye: '👨‍👩‍👧 Мирные', mafiya: '🔫 Мафия', solo: '🎯 Сам за себя' };
+        dannye.storona = storona_kod;
+        dannye.storona_text = storony[storona_kod] || storona_kod;
+        dannye.shag = 'rol_deystvie';
+
+        bot.editMessageText(
+            '🎭 *Новая роль*\n\n*Название:* ' + dannye.nazvanie + '\n*Сторона:* ' + dannye.storona_text + '\n\nВыбери действие:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔪 Убить', callback_data: 'rol_dey_ubit' }],
+                    [{ text: '💊 Спасти', callback_data: 'rol_dey_spasti' }],
+                    [{ text: '🔍 Проверить', callback_data: 'rol_dey_proverit' }],
+                    [{ text: '✨ Иное', callback_data: 'rol_dey_inoe' }],
+                    [{ text: '⬅️ Отмена', callback_data: 'roli_klub_' + dannye.klub_id }]
+                ]
+            }
+        });
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: выбор действия =====
+    else if (data.startsWith('rol_dey_')) {
+        const deystvie_kod = data.replace('rol_dey_', '');
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye || dannye.shag !== 'rol_deystvie') return;
+
+        if (deystvie_kod === 'inoe') {
+            // Иное — сохраняем как есть и сразу к количеству раз
+            dannye.deystvie = 'inoe';
+            dannye.deystvie_text = '✨ Иное';
+            dannye.shag = 'rol_kolichestvo';
+            sostoyanie[telegram_id] = 'rol_kolichestvo_' + dannye.klub_id;
+            bot.editMessageText(
+                '🎭 *Новая роль*\n\n*Название:* ' + dannye.nazvanie +
+                '\n*Сторона:* ' + dannye.storona_text +
+                '\n*Действие:* ' + dannye.deystvie_text +
+                '\n\n_Напомни: опиши правила этой роли и пришли нам для добавления в систему._\n\nСколько раз за игру (введи число или напиши "каждую ночь"):', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🔁 Каждую ночь', callback_data: 'rol_kol_kazhduu' }],
+                    [{ text: '⬅️ Отмена', callback_data: 'roli_klub_' + dannye.klub_id }]
+                ]}
+            });
+            return;
+        }
+
+        const deystviya = { ubit: '🔪 Убить', spasti: '💊 Спасти', proverit: '🔍 Проверить' };
+        dannye.deystvie = deystvie_kod;
+        dannye.deystvie_text = deystviya[deystvie_kod] || deystvie_kod;
+        dannye.shag = 'rol_kolichestvo';
+        sostoyanie[telegram_id] = 'rol_kolichestvo_' + dannye.klub_id;
+
+        bot.editMessageText(
+            '🎭 *Новая роль*\n\n*Название:* ' + dannye.nazvanie +
+            '\n*Сторона:* ' + dannye.storona_text +
+            '\n*Действие:* ' + dannye.deystvie_text +
+            '\n\nСколько раз за игру?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🔁 Каждую ночь', callback_data: 'rol_kol_kazhduu' }],
+                [{ text: '⬅️ Отмена', callback_data: 'roli_klub_' + dannye.klub_id }]
+            ]}
+        });
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: каждую ночь =====
+    else if (data === 'rol_kol_kazhduu') {
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye || dannye.shag !== 'rol_kolichestvo') return;
+        delete sostoyanie[telegram_id];
+        dannye.kolichestvo_raz = 'каждую ночь';
+        dannye.shag = 'gotovo';
+        await sohranit_rol(chatId, telegram_id, dannye.klub_id, dannye);
+    }
+
+    // ===== КОНСТРУКТОР РОЛЕЙ: удалить роль =====
+    else if (data.startsWith('rol_udalit_')) {
+        const parts = data.replace('rol_udalit_', '').split('_');
+        const klub_id = parts[0];
+        const rol_index = parseInt(parts[1]);
+
+        const { data: klub } = await supabase
+            .from('kluby').select('nastroyki').eq('id', klub_id).single();
+
+        const nastroyki = klub?.nastroyki || {};
+        const roli = nastroyki.kastomnye_roli || [];
+        roli.splice(rol_index, 1);
+        nastroyki.kastomnye_roli = roli;
+
+        await supabase.from('kluby').update({ nastroyki }).eq('id', klub_id);
+        await pokazat_roli_kluba(chatId, messageId, klub_id);
+    }
 });
 
 // ============================================
@@ -1000,4 +1198,104 @@ async function pokazat_vybor_goroda(chatId, messageId, strana, stranitsa, kod_st
         chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: knopki }
     });
+}
+
+// ============================================
+// КОНСТРУКТОР РОЛЕЙ — функции
+// ============================================
+
+async function pokazat_roli_kluba(chatId, messageId, klub_id) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('nazvaniye, nastroyki')
+        .eq('id', klub_id)
+        .single();
+
+    if (!klub) {
+        bot.editMessageText('❌ Клуб не найден.', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'roli_vybor_kluba' }]] }
+        });
+        return;
+    }
+
+    const roli = klub.nastroyki?.kastomnye_roli || [];
+    const storony = { mirnye: '👨‍👩‍👧', mafiya: '🔫', solo: '🎯' };
+
+    let tekst = '🎭 *Роли клуба — ' + klub.nazvaniye + '*\n\n';
+
+    if (roli.length === 0) {
+        tekst += '_Кастомных ролей пока нет._\n\n_Стандартные роли: Дон, Мафия, Шериф, Доктор и другие._';
+    } else {
+        tekst += '_Кастомные роли:_\n\n';
+        roli.forEach((r, i) => {
+            const emoji = storony[r.storona] || '❓';
+            tekst += (i + 1) + '. ' + emoji + ' *' + r.nazvanie + '*';
+            tekst += ' — ' + (r.deystvie_text || r.deystvie);
+            tekst += ', ' + r.kolichestvo_raz + ' раз\n';
+        });
+    }
+
+    const knopki = [];
+
+    // Кнопки удаления для каждой роли
+    roli.forEach((r, i) => {
+        knopki.push([{ text: '🗑 Удалить: ' + r.nazvanie, callback_data: 'rol_udalit_' + klub_id + '_' + i }]);
+    });
+
+    knopki.push([{ text: '➕ Добавить роль', callback_data: 'rol_dobavit_' + klub_id }]);
+    knopki.push([{ text: '⬅️ Назад', callback_data: 'roli_vybor_kluba' }]);
+
+    bot.editMessageText(tekst, {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
+}
+
+async function sohranit_rol(chatId, tg_id, klub_id, dannye) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('nastroyki')
+        .eq('id', klub_id)
+        .single();
+
+    const nastroyki = klub?.nastroyki || {};
+    const roli = nastroyki.kastomnye_roli || [];
+
+    roli.push({
+        nazvanie: dannye.nazvanie,
+        storona: dannye.storona,
+        storona_text: dannye.storona_text,
+        deystvie: dannye.deystvie,
+        deystvie_text: dannye.deystvie_text,
+        kolichestvo_raz: dannye.kolichestvo_raz
+    });
+
+    nastroyki.kastomnye_roli = roli;
+
+    const { error } = await supabase
+        .from('kluby')
+        .update({ nastroyki })
+        .eq('id', klub_id);
+
+    delete ozhidanie_registracii[tg_id];
+
+    if (error) {
+        console.error('Ошибка сохранения роли:', error);
+        bot.sendMessage(chatId, '❌ Ошибка сохранения роли. Попробуй ещё раз.');
+        return;
+    }
+
+    const soobsh = await bot.sendMessage(chatId,
+        '✅ *Роль добавлена!*\n\n' +
+        '🎭 *' + dannye.nazvanie + '*\n' +
+        'Сторона: ' + dannye.storona_text + '\n' +
+        'Действие: ' + (dannye.deystvie_text || dannye.deystvie) + '\n' +
+        'Раз за игру: ' + dannye.kolichestvo_raz,
+        { parse_mode: 'Markdown' }
+    );
+
+    setTimeout(async () => {
+        await pokazat_roli_kluba(chatId, soobsh.message_id, klub_id);
+    }, 500);
 }
