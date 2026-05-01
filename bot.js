@@ -879,54 +879,47 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
     });
 }
 async function pokazat_vybor_strany(chatId, messageId) {
-    const { data: strany_raw } = await supabase
-        .from('goroda')
-        .select('strana');
-
-    const unique_strany = [...new Set((strany_raw || []).map(s => s.strana))];
-
-    const flagi = {
-        'Россия': '🇷🇺',
-        'Беларусь': '🇧🇾',
-        'Казахстан': '🇰🇿',
-        'Узбекистан': '🇺🇿',
-        'Кыргызстан': '🇰🇬',
-        'Армения': '🇦🇲',
-        'Грузия': '🇬🇪',
-        'Азербайджан': '🇦🇿'
-    };
-
-    const poryadok = ['Россия', 'Беларусь', 'Казахстан', 'Узбекистан', 'Кыргызстан', 'Армения', 'Грузия', 'Азербайджан'];
-    unique_strany.sort((a, b) => {
-        const ai = poryadok.indexOf(a);
-        const bi = poryadok.indexOf(b);
-        if (ai === -1 && bi === -1) return a.localeCompare(b, 'ru');
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-    });
+    console.log('[pokazat_vybor_strany] вызвана для chatId=' + chatId);
+    
+    const strany = [
+        { kod: 'RU', nazvaniye: 'Россия', flag: '🇷🇺' },
+        { kod: 'BY', nazvaniye: 'Беларусь', flag: '🇧🇾' },
+        { kod: 'KZ', nazvaniye: 'Казахстан', flag: '🇰🇿' },
+        { kod: 'UZ', nazvaniye: 'Узбекистан', flag: '🇺🇿' },
+        { kod: 'KG', nazvaniye: 'Кыргызстан', flag: '🇰🇬' },
+        { kod: 'AM', nazvaniye: 'Армения', flag: '🇦🇲' },
+        { kod: 'GE', nazvaniye: 'Грузия', flag: '🇬🇪' },
+        { kod: 'AZ', nazvaniye: 'Азербайджан', flag: '🇦🇿' }
+    ];
 
     const knopki = [];
-    for (let i = 0; i < unique_strany.length; i += 2) {
+    for (let i = 0; i < strany.length; i += 2) {
         const ryad = [];
         ryad.push({
-            text: (flagi[unique_strany[i]] || '🌍') + ' ' + unique_strany[i],
-            callback_data: 'vybor_strany_' + unique_strany[i] + '|0'
+            text: strany[i].flag + ' ' + strany[i].nazvaniye,
+            callback_data: 'vstrana_' + strany[i].kod + '_0'
         });
-        if (unique_strany[i + 1]) {
+        if (strany[i + 1]) {
             ryad.push({
-                text: (flagi[unique_strany[i + 1]] || '🌍') + ' ' + unique_strany[i + 1],
-                callback_data: 'vybor_strany_' + unique_strany[i + 1] + '|0'
+                text: strany[i + 1].flag + ' ' + strany[i + 1].nazvaniye,
+                callback_data: 'vstrana_' + strany[i + 1].kod + '_0'
             });
         }
         knopki.push(ryad);
     }
     knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
 
-    bot.editMessageText('➕ *Создание клуба*\n\n🌍 Выбери страну:', {
-        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: knopki }
-    });
+    console.log('[pokazat_vybor_strany] knopki сформированы, рядов: ' + knopki.length);
+
+    try {
+        await bot.editMessageText('➕ *Создание клуба*\n\n🌍 Выбери страну:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+        console.log('[pokazat_vybor_strany] editMessageText OK');
+    } catch (err) {
+        console.error('[pokazat_vybor_strany] Ошибка:', err.message);
+    }
 }
 
 async function pokazat_vybor_goroda(chatId, messageId, strana, stranitsa) {
