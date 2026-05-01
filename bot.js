@@ -279,9 +279,15 @@ bot.on('message', async function(msg) {
             return;
         }
 
+        const gorod_id = ozhidanie_registracii[tg_id].gorod_id || null;
+
+        // Создаём клуб с gorod_id
+        const insert_data = { nazvaniye, owner_tg_id: tg_id };
+        if (gorod_id) insert_data.gorod_id = gorod_id;
+
         const { data: novyi_klub, error: klub_err } = await supabase
             .from('kluby')
-            .insert({ nazvaniye, owner_tg_id: tg_id, gorod_id: ozhidanie_registracii[tg_id]?.gorod_id || null })
+            .insert(insert_data)
             .select()
             .single();
 
@@ -292,6 +298,7 @@ bot.on('message', async function(msg) {
             return;
         }
 
+        // Находим самого игрока (собственника)
         const { data: igrok } = await supabase
             .from('igroki')
             .select('id')
@@ -311,7 +318,7 @@ bot.on('message', async function(msg) {
         );
         return;
     }
-    
+
     // ===== ПОИСК В БАЗЕ ИГРОКОВ =====
     if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('baza_poisk_')) {
         const klub_id = sostoyanie[tg_id].replace('baza_poisk_', '');
@@ -635,42 +642,58 @@ bot.on('callback_query', async function(query) {
         // Кнопка-индикатор страницы — ничего не делаем
         return;
     }
-    // ===== СОБСТВЕННИК: создать клуб =====
+
+    // ===== СОБСТВЕННИК: создать клуб (начинаем с выбора страны) =====
     else if (data === 'sozdat_klub') {
-            pokazat_vybor_strany(chatId, messageId);
-        }
-        // ===== СОБСТВЕННИК: выбор страны при создании клуба =====
-        else if (data.startsWith('vybor_strany_')) {
-            const strana = data.replace('vybor_strany_', '');
-            const chasti = strana.split('|');
-            const strana_nazvanie = chasti[0];
-            const stranitsa = parseInt(chasti[1] || '0');
-            await pokazat_vybor_goroda(chatId, messageId, strana_nazvanie, stranitsa);
-        }
+        await pokazat_vybor_strany(chatId, messageId);
+    }
 
-        // ===== СОБСТВЕННИК: выбор города при создании клуба =====
-        else if (data.startsWith('vybor_goroda_')) {
-            const gorod_id = data.replace('vybor_goroda_', '');
-            ozhidanie_registracii[telegram_id] = { shag: 'sozdat_klub_nazvanie', gorod_id: gorod_id };
-            const { data: gorod } = await supabase
-                .from('goroda')
-                .select('nazvaniye, strana')
-                .eq('id', gorod_id)
-                .single();
-            const gorod_text = gorod ? gorod.nazvaniye + ', ' + gorod.strana : 'выбран';
-            bot.editMessageText('➕ *Создание клуба*\n\n📍 Город: ' + gorod_text + '\n\nТеперь введи название клуба:', {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+    // ===== ВЫБОР СТРАНЫ =====
+    else if (data.startsWith('vstrana_')) {
+        // Формат: vstrana_<код>_<страница>
+        const ostatok = data.replace('vstrana_', '');
+        const podstroka = ostatok.split('_');
+        const kod_strany = podstroka[0];
+        const stranitsa = parseInt(podstroka[1]) || 0;
+        const kody = {
+            'RU': 'Россия',
+            'BY': 'Беларусь',
+            'KZ': 'Казахстан',
+            'UZ': 'Узбекистан',
+            'KG': 'Кыргызстан',
+            'AM': 'Армения',
+            'GE': 'Грузия',
+            'AZ': 'Азербайджан'
+        };
+        const strana = kody[kod_strany];
+        if (!strana) {
+            bot.editMessageText('❌ Неизвестная страна.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'sozdat_klub' }]] }
             });
+            return;
         }
+        await pokazat_vybor_goroda(chatId, messageId, strana, stranitsa, kod_strany);
+    }
 
-        // ===== СОБСТВЕННИК: моего города нет =====
-        else if (data === 'goroda_net') {
-            bot.editMessageText('❓ *Моего города нет*\n\nНапиши в поддержку — мы добавим твой город в течение 24 часов.\n\n_Используй кнопку «💬 Поддержка» в главном меню._', {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [[{ text: '⬅️ К выбору страны', callback_data: 'sozdat_klub' }]] }
-            });
-        }
+    // ===== ВЫБОР ГОРОДА =====
+    else if (data.startsWith('vgorod_')) {
+        // Формат: vgorod_<gorod_id>
+        const gorod_id = data.replace('vgorod_', '');
+        ozhidanie_registracii[telegram_id] = { shag: 'sozdat_klub_nazvanie', gorod_id: gorod_id };
+        bot.editMessageText('➕ *Создание клуба*\n\nГород выбран ✅\n\nТеперь введи название клуба:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+        });
+    }
+
+    // ===== МОЕГО ГОРОДА НЕТ =====
+    else if (data === 'goroda_net') {
+        bot.editMessageText('ℹ️ *Моего города нет*\n\nНапиши нам в поддержку, и мы добавим твой город:\n\n📧 silena005@gmail.com\n💬 @prime\\_mafia\\_sochi', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'sozdat_klub' }]] }
+        });
+    }
 
     // ===== СОБСТВЕННИК: карточка игрока =====
     else if (data.startsWith('igrok_')) {
@@ -822,6 +845,10 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
     });
 }
 
+// ============================================
+// КАРТОЧКА ИГРОКА
+// ============================================
+
 async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
     const { data: igrok } = await supabase
         .from('igroki')
@@ -878,60 +905,56 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
         reply_markup: { inline_keyboard: knopki }
     });
 }
+
+// ============================================
+// ВЫБОР СТРАНЫ И ГОРОДА (ПРИ СОЗДАНИИ КЛУБА)
+// ============================================
+
 async function pokazat_vybor_strany(chatId, messageId) {
-    console.log('[pokazat_vybor_strany] вызвана для chatId=' + chatId);
-    
     const strany = [
-        { kod: 'RU', nazvaniye: 'Россия', flag: '🇷🇺' },
-        { kod: 'BY', nazvaniye: 'Беларусь', flag: '🇧🇾' },
-        { kod: 'KZ', nazvaniye: 'Казахстан', flag: '🇰🇿' },
-        { kod: 'UZ', nazvaniye: 'Узбекистан', flag: '🇺🇿' },
-        { kod: 'KG', nazvaniye: 'Кыргызстан', flag: '🇰🇬' },
-        { kod: 'AM', nazvaniye: 'Армения', flag: '🇦🇲' },
-        { kod: 'GE', nazvaniye: 'Грузия', flag: '🇬🇪' },
-        { kod: 'AZ', nazvaniye: 'Азербайджан', flag: '🇦🇿' }
+        { kod: 'RU', flag: '🇷🇺', nazvaniye: 'Россия' },
+        { kod: 'BY', flag: '🇧🇾', nazvaniye: 'Беларусь' },
+        { kod: 'KZ', flag: '🇰🇿', nazvaniye: 'Казахстан' },
+        { kod: 'UZ', flag: '🇺🇿', nazvaniye: 'Узбекистан' },
+        { kod: 'KG', flag: '🇰🇬', nazvaniye: 'Кыргызстан' },
+        { kod: 'AM', flag: '🇦🇲', nazvaniye: 'Армения' },
+        { kod: 'GE', flag: '🇬🇪', nazvaniye: 'Грузия' },
+        { kod: 'AZ', flag: '🇦🇿', nazvaniye: 'Азербайджан' }
     ];
 
-    const knopki = [];
-    for (let i = 0; i < strany.length; i += 2) {
-        const ryad = [];
-        ryad.push({
-            text: strany[i].flag + ' ' + strany[i].nazvaniye,
-            callback_data: 'vstrana_' + strany[i].kod + '_0'
-        });
-        if (strany[i + 1]) {
-            ryad.push({
-                text: strany[i + 1].flag + ' ' + strany[i + 1].nazvaniye,
-                callback_data: 'vstrana_' + strany[i + 1].kod + '_0'
-            });
-        }
-        knopki.push(ryad);
-    }
+    const knopki = strany.map(s => [{
+        text: s.flag + ' ' + s.nazvaniye,
+        callback_data: 'vstrana_' + s.kod + '_0'
+    }]);
     knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
 
-    console.log('[pokazat_vybor_strany] knopki сформированы, рядов: ' + knopki.length);
-
-    try {
-        await bot.editMessageText('➕ *Создание клуба*\n\n🌍 Выбери страну:', {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: knopki }
-        });
-        console.log('[pokazat_vybor_strany] editMessageText OK');
-    } catch (err) {
-        console.error('[pokazat_vybor_strany] Ошибка:', err.message);
-    }
+    bot.editMessageText('➕ *Создание клуба*\n\nВыбери страну:', {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
 }
 
-async function pokazat_vybor_goroda(chatId, messageId, strana, stranitsa) {
+async function pokazat_vybor_goroda(chatId, messageId, strana, stranitsa, kod_strany) {
     const NA_STRANITSE = 10;
 
-    const { data: goroda_spisok, error } = await supabase
+    // Если kod_strany не передан — выведём из названия страны
+    if (!kod_strany) {
+        const obratno = {
+            'Россия': 'RU', 'Беларусь': 'BY', 'Казахстан': 'KZ',
+            'Узбекистан': 'UZ', 'Кыргызстан': 'KG', 'Армения': 'AM',
+            'Грузия': 'GE', 'Азербайджан': 'AZ'
+        };
+        kod_strany = obratno[strana] || 'RU';
+    }
+
+    const { data: goroda, error } = await supabase
         .from('goroda')
         .select('id, nazvaniye')
         .eq('strana', strana)
         .order('nazvaniye', { ascending: true });
 
-    if (error || !goroda_spisok) {
+    if (error) {
+        console.error('Ошибка загрузки городов:', error);
         bot.editMessageText('❌ Ошибка загрузки городов.', {
             chat_id: chatId, message_id: messageId,
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'sozdat_klub' }]] }
@@ -939,38 +962,39 @@ async function pokazat_vybor_goroda(chatId, messageId, strana, stranitsa) {
         return;
     }
 
-    const vsego = goroda_spisok.length;
+    const vsego = (goroda || []).length;
+    if (vsego === 0) {
+        bot.editMessageText('⚠️ Список городов пуст. Напиши в поддержку.', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'sozdat_klub' }]] }
+        });
+        return;
+    }
+
     const stranits_vsego = Math.max(1, Math.ceil(vsego / NA_STRANITSE));
     if (stranitsa >= stranits_vsego) stranitsa = stranits_vsego - 1;
     if (stranitsa < 0) stranitsa = 0;
 
     const ot = stranitsa * NA_STRANITSE;
-    const do_ = Math.min(ot + NA_STRANITSE, vsego);
-    const na_stranitse = goroda_spisok.slice(ot, do_);
+    const na_stranitse = goroda.slice(ot, ot + NA_STRANITSE);
 
-    let tekst = '➕ *Создание клуба*\n\n';
-    tekst += '🏙 Выбери город — *' + strana + '*\n';
-    tekst += '_Всего городов: ' + vsego + ' • Страница ' + (stranitsa + 1) + '/' + stranits_vsego + '_';
-
-    const knopki = [];
-
-    na_stranitse.forEach((g) => {
-        knopki.push([{
-            text: g.nazvaniye,
-            callback_data: 'vybor_goroda_' + g.id
-        }]);
-    });
+    const knopki = na_stranitse.map(g => [{
+        text: g.nazvaniye,
+        callback_data: 'vgorod_' + g.id
+    }]);
 
     if (stranits_vsego > 1) {
         const navig = [];
-        if (stranitsa > 0) navig.push({ text: '⬅️', callback_data: 'vybor_strany_' + strana + '|' + (stranitsa - 1) });
+        if (stranitsa > 0) navig.push({ text: '⬅️', callback_data: 'vstrana_' + kod_strany + '_' + (stranitsa - 1) });
         navig.push({ text: (stranitsa + 1) + '/' + stranits_vsego, callback_data: 'baza_noop' });
-        if (stranitsa < stranits_vsego - 1) navig.push({ text: '➡️', callback_data: 'vybor_strany_' + strana + '|' + (stranitsa + 1) });
+        if (stranitsa < stranits_vsego - 1) navig.push({ text: '➡️', callback_data: 'vstrana_' + kod_strany + '_' + (stranitsa + 1) });
         knopki.push(navig);
     }
 
-    knopki.push([{ text: '❓ Моего города нет', callback_data: 'goroda_net' }]);
+    knopki.push([{ text: '❔ Моего города нет', callback_data: 'goroda_net' }]);
     knopki.push([{ text: '⬅️ К выбору страны', callback_data: 'sozdat_klub' }]);
+
+    const tekst = '➕ *Создание клуба*\n\nСтрана: *' + strana + '*\nВыбери город:';
 
     bot.editMessageText(tekst, {
         chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
