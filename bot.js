@@ -304,7 +304,7 @@ bot.on('message', async function(msg) {
         const klub_id = sostoyanie[tg_id].replace('anons_data_', '');
         delete sostoyanie[tg_id];
         ozhidanie_registracii[tg_id] = { shag: 'anons_vremya', klub_id, data_igry: text.trim() };
-        bot.sendMessage(chatId, '📢 *Создание анонса*\n\n*Дата:* ' + text.trim() + '\n\nВведи время игры (например: 19:00):', {
+        bot.sendMessage(chatId, '📢 *Создание анонса*\n\n*Дата:* ' + text.trim() + '\n\n🕐 Введи время игры:\n_Пример: 19:00_', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
         });
@@ -317,7 +317,7 @@ bot.on('message', async function(msg) {
         dannye.vremya = text.trim();
         dannye.shag = 'anons_adres';
         bot.sendMessage(chatId,
-            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n\nВведи адрес клуба:', {
+            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n\n📍 Введи место проведения:\n_Пример: Ресторан Паскаль, ул. Воровского 19, 2 этаж_', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
         });
@@ -330,7 +330,7 @@ bot.on('message', async function(msg) {
         dannye.adres = text.trim();
         dannye.shag = 'anons_komment';
         bot.sendMessage(chatId,
-            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n*Адрес:* ' + dannye.adres + '\n\nДобавь комментарий (или нажми "Пропустить"):', {
+            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n*Адрес:* ' + dannye.adres + '\n\n💬 Добавь комментарий:\n_Пример: Играем 3 игры, стоимость 1000₽, дресс-код приветствуется_\n_Или нажми "Пропустить"_', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '➡️ Пропустить', callback_data: 'anons_skip_komment' }],
@@ -1142,7 +1142,7 @@ bot.on('callback_query', async function(query) {
 
         if (kluby.length === 1) {
             sostoyanie[telegram_id] = 'anons_data_' + kluby[0].id;
-            bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nВведи дату игры (например: 15 мая или 15.05.2026):', {
+            bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\n📅 Введи дату игры:\n_Пример: 15 мая или 15.05.2026_', {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
             });
@@ -1161,7 +1161,7 @@ bot.on('callback_query', async function(query) {
         const klub_id = data.replace('anons_klub_', '');
         const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
         sostoyanie[telegram_id] = 'anons_data_' + klub_id;
-        bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nВведи дату игры (например: 15 мая или 15.05.2026):', {
+        bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\n📅 Введи дату игры:\n_Пример: 15 мая или 15.05.2026_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
         });
