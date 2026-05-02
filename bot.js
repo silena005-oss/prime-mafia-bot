@@ -76,6 +76,7 @@ const menu_vedushchego = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+            [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
         ]
@@ -96,6 +97,7 @@ const menu_vladeltsa = {
         inline_keyboard: [
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
+            [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
@@ -318,6 +320,56 @@ bot.on('message', async function(msg) {
             `✅ *Клуб создан!*\n\n🎴 ${nazvaniye}\n\nТеперь ты собственник этого клуба.`,
             { parse_mode: 'Markdown', ...menu_vladeltsa }
         );
+        return;
+    }
+
+    // ===== АНОНС: ввод даты =====
+    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('anons_data_')) {
+        const klub_id = sostoyanie[tg_id].replace('anons_data_', '');
+        delete sostoyanie[tg_id];
+        ozhidanie_registracii[tg_id] = { shag: 'anons_vremya', klub_id, data_igry: text.trim() };
+        bot.sendMessage(chatId, '📢 *Создание анонса*\n\n*Дата:* ' + text.trim() + '\n\nВведи время игры (например: 19:00):', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+        });
+        return;
+    }
+
+    // ===== АНОНС: ввод времени =====
+    if (ozhidanie_registracii[tg_id]?.shag === 'anons_vremya') {
+        const dannye = ozhidanie_registracii[tg_id];
+        dannye.vremya = text.trim();
+        dannye.shag = 'anons_adres';
+        bot.sendMessage(chatId,
+            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n\nВведи адрес клуба:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+        });
+        return;
+    }
+
+    // ===== АНОНС: ввод адреса =====
+    if (ozhidanie_registracii[tg_id]?.shag === 'anons_adres') {
+        const dannye = ozhidanie_registracii[tg_id];
+        dannye.adres = text.trim();
+        dannye.shag = 'anons_komment';
+        bot.sendMessage(chatId,
+            '📢 *Создание анонса*\n\n*Дата:* ' + dannye.data_igry + '\n*Время:* ' + dannye.vremya + '\n*Адрес:* ' + dannye.adres + '\n\nДобавь комментарий (или нажми "Пропустить"):', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '➡️ Пропустить', callback_data: 'anons_skip_komment' }],
+                [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
+            ]}
+        });
+        return;
+    }
+
+    // ===== АНОНС: ввод комментария =====
+    if (ozhidanie_registracii[tg_id]?.shag === 'anons_komment') {
+        const dannye = ozhidanie_registracii[tg_id];
+        dannye.kommentariy = text.trim();
+        delete ozhidanie_registracii[tg_id];
+        await sohranit_anons(chatId, tg_id, dannye);
         return;
     }
 
@@ -790,6 +842,114 @@ bot.on('callback_query', async function(query) {
             return;
         }
         await pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id);
+    }
+
+    // ===== АНОНС: выбор клуба =====
+    else if (data === 'anons_vybor_kluba') {
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        const { data: chleny } = await supabase
+            .from('chleny_klubov')
+            .select('klub_id, rol, kluby(id, nazvaniye)')
+            .eq('igrok_id', igrok?.id)
+            .in('rol', ['vladyelets', 'vedushchiy']);
+
+        const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
+
+        if (!kluby || kluby.length === 0) {
+            bot.editMessageText('📢 *Создать анонс*\n\n❌ У вас нет клубов.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+
+        if (kluby.length === 1) {
+            sostoyanie[telegram_id] = 'anons_data_' + kluby[0].id;
+            bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nВведи дату игры (например: 15 мая или 15.05.2026):', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+
+        const knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'anons_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+        bot.editMessageText('📢 *Создать анонс*\n\nВыбери клуб:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('anons_klub_')) {
+        const klub_id = data.replace('anons_klub_', '');
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+        sostoyanie[telegram_id] = 'anons_data_' + klub_id;
+        bot.editMessageText('📢 *Создание анонса*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nВведи дату игры (например: 15 мая или 15.05.2026):', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+        });
+    }
+
+    // ===== АНОНС: пропустить комментарий =====
+    else if (data === 'anons_skip_komment') {
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye || dannye.shag !== 'anons_komment') return;
+        dannye.kommentariy = '';
+        delete ozhidanie_registracii[telegram_id];
+        await sohranit_anons(chatId, telegram_id, dannye);
+    }
+
+    // ===== АНОНС: записаться на игру =====
+    else if (data.startsWith('anons_zapisatsya_')) {
+        const anons_id = data.replace('anons_zapisatsya_', '');
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        if (!igrok) {
+            bot.answerCallbackQuery(query.id, { text: '❌ Сначала зарегистрируйся через /start', show_alert: true });
+            return;
+        }
+
+        // Проверяем не записан ли уже
+        const { data: sushchestvuyushchaya } = await supabase
+            .from('zapisi_na_anons')
+            .select('id, status')
+            .eq('anons_id', anons_id)
+            .eq('igrok_id', igrok.id)
+            .single();
+
+        if (sushchestvuyushchaya && sushchestvuyushchaya.status === 'aktivna') {
+            bot.answerCallbackQuery(query.id, { text: '✅ Ты уже записан на эту игру!', show_alert: true });
+            return;
+        }
+
+        const { error } = await supabase
+            .from('zapisi_na_anons')
+            .insert({ anons_id, igrok_id: igrok.id, status: 'aktivna' });
+
+        if (error) {
+            bot.answerCallbackQuery(query.id, { text: '❌ Ошибка записи. Попробуй ещё раз.', show_alert: true });
+            return;
+        }
+
+        bot.answerCallbackQuery(query.id, { text: '🎉 Ты записан на игру!', show_alert: true });
+    }
+
+    // ===== АНОНС: отменить запись =====
+    else if (data.startsWith('anons_otmenit_')) {
+        const anons_id = data.replace('anons_otmenit_', '');
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        await supabase
+            .from('zapisi_na_anons')
+            .update({ status: 'otmenena' })
+            .eq('anons_id', anons_id)
+            .eq('igrok_id', igrok?.id);
+
+        bot.answerCallbackQuery(query.id, { text: '✅ Запись отменена.', show_alert: true });
     }
 
     // ===== КОНСТРУКТОР РОЛЕЙ: выбор клуба =====
@@ -1298,4 +1458,53 @@ async function sohranit_rol(chatId, tg_id, klub_id, dannye) {
     setTimeout(async () => {
         await pokazat_roli_kluba(chatId, soobsh.message_id, klub_id);
     }, 500);
+}
+
+// ============================================
+// АНОНСЫ — функции
+// ============================================
+
+async function sohranit_anons(chatId, tg_id, dannye) {
+    const { data: igrok } = await supabase
+        .from('igroki').select('id').eq('tg_id', tg_id).single();
+
+    const { data: klub } = await supabase
+        .from('kluby').select('nazvaniye, gorod, strana').eq('id', dannye.klub_id).single();
+
+    const { data: anons, error } = await supabase
+        .from('anonsy')
+        .insert({
+            klub_id: dannye.klub_id,
+            vedushchiy_id: igrok?.id,
+            data_igry: dannye.data_igry,
+            vremya: dannye.vremya,
+            adres: dannye.adres,
+            kommentariy: dannye.kommentariy || null,
+            status: 'aktiven'
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Ошибка сохранения анонса:', error);
+        bot.sendMessage(chatId, '❌ Ошибка создания анонса. Попробуй ещё раз.');
+        return;
+    }
+
+    const tekst =
+        '📢 *Анонс создан!*\n\n' +
+        '🎴 *' + (klub?.nazvaniye || '') + '*\n' +
+        '📅 ' + dannye.data_igry + ' в ' + dannye.vremya + '\n' +
+        '📍 ' + dannye.adres +
+        (dannye.kommentariy ? '\n💬 ' + dannye.kommentariy : '') +
+        '\n\n_Игроки из ' + (klub?.gorod || 'вашего города') + ' увидят этот анонс в своём меню._';
+
+    bot.sendMessage(chatId, tekst, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
+            ]
+        }
+    });
 }
