@@ -87,6 +87,8 @@ const menu_igroka = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
+            [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
+            [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
         ]
     }
@@ -227,51 +229,25 @@ bot.on('message', async function(msg) {
     // ===== РЕГИСТРАЦИЯ: шаг 2 — телефон (через contact) =====
     if (msg.contact && ozhidanie_registracii[tg_id]?.shag === 'telefon') {
         const telefon = msg.contact.phone_number;
-        const imya = ozhidanie_registracii[tg_id].imya;
-        const tg_username = msg.from.username || '';
+        ozhidanie_registracii[tg_id].telefon = telefon;
+        ozhidanie_registracii[tg_id].shag = 'gorod';
 
-        // Сохраняем в Supabase
-        const { data, error } = await supabase
-            .from('igroki')
-            .insert({
-                tg_id: tg_id,
-                tg_username: tg_username,
-                imya: imya,
-                telefon: telefon
-            })
-            .select()
-            .single();
-
-        delete ozhidanie_registracii[tg_id];
-
-        if (error) {
-            console.error('Ошибка сохранения игрока:', error);
-            bot.sendMessage(chatId, '❌ Ошибка регистрации. Попробуй ещё раз — /start', {
-                reply_markup: { remove_keyboard: true }
-            });
-            return;
-        }
-
-        bot.sendMessage(chatId,
-            `🎉 *Регистрация завершена!*\n\n` +
-            `👤 ${imya}\n` +
-            `📱 ${telefon}\n\n` +
-            `Добро пожаловать в Prime Mafia!`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: { remove_keyboard: true, ...menu_igroka }.reply_markup
-                    ? { remove_keyboard: true }
-                    : { remove_keyboard: true }
+        bot.sendMessage(chatId, '📍 *Последний шаг — выбери свою страну:*', {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                remove_keyboard: true,
+                inline_keyboard: [
+                    [{ text: '🇷🇺 Россия', callback_data: 'reg_strana_Россия' }],
+                    [{ text: '🇧🇾 Беларусь', callback_data: 'reg_strana_Беларусь' }],
+                    [{ text: '🇰🇿 Казахстан', callback_data: 'reg_strana_Казахстан' }],
+                    [{ text: '🇺🇿 Узбекистан', callback_data: 'reg_strana_Узбекистан' }],
+                    [{ text: '🇰🇬 Кыргызстан', callback_data: 'reg_strana_Кыргызстан' }],
+                    [{ text: '🇦🇲 Армения', callback_data: 'reg_strana_Армения' }],
+                    [{ text: '🇬🇪 Грузия', callback_data: 'reg_strana_Грузия' }],
+                    [{ text: '🇦🇿 Азербайджан', callback_data: 'reg_strana_Азербайджан' }]
+                ]
             }
-        );
-
-        // Показываем меню игрока
-        setTimeout(() => {
-            bot.sendMessage(chatId, '🎴 *Меню игрока*\n\nЧто хочешь сделать?', {
-                parse_mode: 'Markdown', ...menu_igroka
-            });
-        }, 500);
-
+        });
         return;
     }
 
@@ -545,6 +521,298 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
             chat_id: chatId, message_id: messageId,
             parse_mode: 'Markdown', ...menu_vladeltsa
+        });
+    }
+
+    // ===== РЕГИСТРАЦИЯ: выбор страны =====
+    else if (data.startsWith('reg_strana_')) {
+        const strana = data.replace('reg_strana_', '');
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye || dannye.shag !== 'gorod') return;
+        dannye.strana = strana;
+        dannye.shag = 'gorod_vybor';
+
+        // Грузим города этой страны
+        const { data: goroda } = await supabase
+            .from('goroda')
+            .select('id, nazvaniye')
+            .eq('strana', strana)
+            .order('nazvaniye');
+
+        if (!goroda || goroda.length === 0) {
+            bot.editMessageText('❌ Нет городов для этой страны.', {
+                chat_id: chatId, message_id: messageId
+            });
+            return;
+        }
+
+        const NA_STRANITSE = 10;
+        const pervye = goroda.slice(0, NA_STRANITSE);
+        const knopki = [];
+        for (let i = 0; i < pervye.length; i += 2) {
+            const para = [{ text: pervye[i].nazvaniye, callback_data: 'reg_gorod_' + pervye[i].id + '_' + pervye[i].nazvaniye }];
+            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'reg_gorod_' + pervye[i + 1].id + '_' + pervye[i + 1].nazvaniye });
+            knopki.push(para);
+        }
+        if (goroda.length > NA_STRANITSE) {
+            knopki.push([{ text: '➡️ Ещё города', callback_data: 'reg_goroda_' + strana + '_1' }]);
+        }
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'reg_nazad_strana' }]);
+
+        bot.editMessageText('📍 Выбери свой город (' + strana + '):', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('reg_goroda_')) {
+        const parts = data.replace('reg_goroda_', '').split('_');
+        const strana = parts.slice(0, -1).join('_');
+        const stranitsa = parseInt(parts[parts.length - 1]);
+        const NA_STRANITSE = 10;
+
+        const { data: goroda } = await supabase
+            .from('goroda').select('id, nazvaniye').eq('strana', strana).order('nazvaniye');
+
+        const slice = goroda.slice(stranitsa * NA_STRANITSE, (stranitsa + 1) * NA_STRANITSE);
+        const knopki = [];
+        for (let i = 0; i < slice.length; i += 2) {
+            const para = [{ text: slice[i].nazvaniye, callback_data: 'reg_gorod_' + slice[i].id + '_' + slice[i].nazvaniye }];
+            if (slice[i + 1]) para.push({ text: slice[i + 1].nazvaniye, callback_data: 'reg_gorod_' + slice[i + 1].id + '_' + slice[i + 1].nazvaniye });
+            knopki.push(para);
+        }
+        if ((stranitsa + 1) * NA_STRANITSE < goroda.length) {
+            knopki.push([{ text: '➡️ Ещё', callback_data: 'reg_goroda_' + strana + '_' + (stranitsa + 1) }]);
+        }
+        if (stranitsa > 0) {
+            knopki.push([{ text: '⬅️ Назад', callback_data: 'reg_goroda_' + strana + '_' + (stranitsa - 1) }]);
+        }
+        bot.editMessageText('📍 Выбери свой город (' + strana + '):', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('reg_gorod_')) {
+        const parts = data.replace('reg_gorod_', '').split('_');
+        const gorod_id = parts[0];
+        const gorod_name = parts.slice(1).join('_');
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye) return;
+
+        const tg_username = query.from.username || '';
+
+        const { data: novyi_igrok, error } = await supabase
+            .from('igroki')
+            .insert({
+                tg_id: telegram_id,
+                tg_username,
+                imya: dannye.imya,
+                telefon: dannye.telefon,
+                gorod: gorod_name,
+                gorod_id: gorod_id
+            })
+            .select().single();
+
+        delete ozhidanie_registracii[telegram_id];
+
+        if (error) {
+            console.error('Ошибка регистрации:', error);
+            bot.editMessageText('❌ Ошибка регистрации. Напиши /start и попробуй снова.', {
+                chat_id: chatId, message_id: messageId
+            });
+            return;
+        }
+
+        bot.editMessageText(
+            '🎉 *Регистрация завершена!*\n\n' +
+            '👤 ' + dannye.imya + '\n' +
+            '📍 ' + gorod_name + '\n\n' +
+            'Добро пожаловать в Prime Mafia!',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+        );
+
+        setTimeout(() => {
+            bot.sendMessage(chatId, '🎴 *Меню игрока*\n\nЧто хочешь сделать?', {
+                parse_mode: 'Markdown', ...menu_igroka
+            });
+        }, 500);
+    }
+
+    else if (data === 'reg_nazad_strana') {
+        bot.editMessageText('📍 *Выбери свою страну:*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🇷🇺 Россия', callback_data: 'reg_strana_Россия' }],
+                    [{ text: '🇧🇾 Беларусь', callback_data: 'reg_strana_Беларусь' }],
+                    [{ text: '🇰🇿 Казахстан', callback_data: 'reg_strana_Казахстан' }],
+                    [{ text: '🇺🇿 Узбекистан', callback_data: 'reg_strana_Узбекистан' }],
+                    [{ text: '🇰🇬 Кыргызстан', callback_data: 'reg_strana_Кыргызстан' }],
+                    [{ text: '🇦🇲 Армения', callback_data: 'reg_strana_Армения' }],
+                    [{ text: '🇬🇪 Грузия', callback_data: 'reg_strana_Грузия' }],
+                    [{ text: '🇦🇿 Азербайджан', callback_data: 'reg_strana_Азербайджан' }]
+                ]
+            }
+        });
+    }
+
+    // ===== ИГРОК: анонсы по городу =====
+    else if (data === 'anonsy_goroda') {
+        const { data: igrok } = await supabase
+            .from('igroki').select('gorod').eq('tg_id', telegram_id).single();
+
+        if (!igrok?.gorod) {
+            bot.editMessageText('📢 *Анонсы игр*\n\n❌ Город не указан. Укажи город в настройках.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
+                    [{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]
+                ]}
+            });
+            return;
+        }
+
+        const { data: anonsy } = await supabase
+            .from('anonsy')
+            .select('id, data_igry, vremya, adres, kommentariy, kluby(nazvaniye)')
+            .eq('status', 'aktiven')
+            .order('data_igry', { ascending: true })
+            .limit(10);
+
+        // Фильтруем по городу клуба
+        const filtr = (anonsy || []).filter(a => {
+            // Пока фильтруем через adres содержащий город (упрощённо)
+            // В будущем — через gorod_id клуба
+            return true;
+        });
+
+        if (filtr.length === 0) {
+            bot.editMessageText('📢 *Анонсы игр в ' + igrok.gorod + '*\n\n_Пока нет запланированных игр._', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]] }
+            });
+            return;
+        }
+
+        let tekst = '📢 *Анонсы игр в ' + igrok.gorod + '*\n\n';
+        const knopki = [];
+
+        filtr.forEach((a, i) => {
+            tekst += (i + 1) + '. 🎴 *' + (a.kluby?.nazvaniye || 'Клуб') + '*\n';
+            tekst += '   📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+            tekst += '   📍 ' + (a.adres || '') + '\n';
+            if (a.kommentariy) tekst += '   💬 ' + a.kommentariy + '\n';
+            tekst += '\n';
+            knopki.push([{ text: '✍️ Записаться: ' + (a.kluby?.nazvaniye || 'Игра ' + (i+1)), callback_data: 'anons_zapisatsya_' + a.id }]);
+        });
+
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]);
+
+        bot.editMessageText(tekst, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    // ===== ИГРОК: настройки =====
+    else if (data === 'nastroyki_igroka') {
+        const { data: igrok } = await supabase
+            .from('igroki').select('imya, gorod').eq('tg_id', telegram_id).single();
+
+        bot.editMessageText(
+            '⚙️ *Настройки*\n\n' +
+            '👤 ' + (igrok?.imya || '') + '\n' +
+            '📍 Город: ' + (igrok?.gorod || 'не указан'), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🏙 Сменить город', callback_data: 'smenit_gorod' }],
+                [{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]
+            ]}
+        });
+    }
+
+    // ===== ИГРОК: сменить город =====
+    else if (data === 'smenit_gorod') {
+        bot.editMessageText('📍 *Выбери новую страну:*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🇷🇺 Россия', callback_data: 'smena_strana_Россия' }],
+                    [{ text: '🇧🇾 Беларусь', callback_data: 'smena_strana_Беларусь' }],
+                    [{ text: '🇰🇿 Казахстан', callback_data: 'smena_strana_Казахстан' }],
+                    [{ text: '🇺🇿 Узбекистан', callback_data: 'smena_strana_Узбекистан' }],
+                    [{ text: '🇰🇬 Кыргызстан', callback_data: 'smena_strana_Кыргызстан' }],
+                    [{ text: '🇦🇲 Армения', callback_data: 'smena_strana_Армения' }],
+                    [{ text: '🇬🇪 Грузия', callback_data: 'smena_strana_Грузия' }],
+                    [{ text: '🇦🇿 Азербайджан', callback_data: 'smena_strana_Азербайджан' }],
+                    [{ text: '⬅️ Назад', callback_data: 'nastroyki_igroka' }]
+                ]
+            }
+        });
+    }
+
+    else if (data.startsWith('smena_strana_')) {
+        const strana = data.replace('smena_strana_', '');
+        const { data: goroda } = await supabase
+            .from('goroda').select('id, nazvaniye').eq('strana', strana).order('nazvaniye');
+
+        const NA_STRANITSE = 10;
+        const pervye = goroda.slice(0, NA_STRANITSE);
+        const knopki = [];
+        for (let i = 0; i < pervye.length; i += 2) {
+            const para = [{ text: pervye[i].nazvaniye, callback_data: 'smena_gorod_' + pervye[i].nazvaniye }];
+            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'smena_gorod_' + pervye[i + 1].nazvaniye });
+            knopki.push(para);
+        }
+        if (goroda.length > NA_STRANITSE) {
+            knopki.push([{ text: '➡️ Ещё', callback_data: 'smena_goroda_' + strana + '_1' }]);
+        }
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'smenit_gorod' }]);
+
+        bot.editMessageText('📍 Выбери город (' + strana + '):', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('smena_goroda_')) {
+        const parts = data.replace('smena_goroda_', '').split('_');
+        const strana = parts.slice(0, -1).join('_');
+        const stranitsa = parseInt(parts[parts.length - 1]);
+        const NA_STRANITSE = 10;
+
+        const { data: goroda } = await supabase
+            .from('goroda').select('id, nazvaniye').eq('strana', strana).order('nazvaniye');
+
+        const slice = goroda.slice(stranitsa * NA_STRANITSE, (stranitsa + 1) * NA_STRANITSE);
+        const knopki = [];
+        for (let i = 0; i < slice.length; i += 2) {
+            const para = [{ text: slice[i].nazvaniye, callback_data: 'smena_gorod_' + slice[i].nazvaniye }];
+            if (slice[i + 1]) para.push({ text: slice[i + 1].nazvaniye, callback_data: 'smena_gorod_' + slice[i + 1].nazvaniye });
+            knopki.push(para);
+        }
+        if ((stranitsa + 1) * NA_STRANITSE < goroda.length) {
+            knopki.push([{ text: '➡️ Ещё', callback_data: 'smena_goroda_' + strana + '_' + (stranitsa + 1) }]);
+        }
+        if (stranitsa > 0) {
+            knopki.push([{ text: '⬅️ Назад', callback_data: 'smena_goroda_' + strana + '_' + (stranitsa - 1) }]);
+        }
+        bot.editMessageText('📍 Выбери город (' + strana + '):', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('smena_gorod_')) {
+        const gorod = data.replace('smena_gorod_', '');
+        await supabase.from('igroki').update({ gorod }).eq('tg_id', telegram_id);
+
+        bot.editMessageText('✅ *Город изменён на ' + gorod + '*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '⬅️ В настройки', callback_data: 'nastroyki_igroka' }]
+            ]}
         });
     }
 
