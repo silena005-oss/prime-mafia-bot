@@ -550,8 +550,8 @@ bot.on('callback_query', async function(query) {
         const pervye = goroda.slice(0, NA_STRANITSE);
         const knopki = [];
         for (let i = 0; i < pervye.length; i += 2) {
-            const para = [{ text: pervye[i].nazvaniye, callback_data: 'reg_gorod_' + pervye[i].id + '_' + pervye[i].nazvaniye }];
-            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'reg_gorod_' + pervye[i + 1].id + '_' + pervye[i + 1].nazvaniye });
+            const para = [{ text: pervye[i].nazvaniye, callback_data: 'rg_' + pervye[i].id }];
+            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'rg_' + pervye[i + 1].id });
             knopki.push(para);
         }
         if (goroda.length > NA_STRANITSE) {
@@ -577,8 +577,8 @@ bot.on('callback_query', async function(query) {
         const slice = goroda.slice(stranitsa * NA_STRANITSE, (stranitsa + 1) * NA_STRANITSE);
         const knopki = [];
         for (let i = 0; i < slice.length; i += 2) {
-            const para = [{ text: slice[i].nazvaniye, callback_data: 'reg_gorod_' + slice[i].id + '_' + slice[i].nazvaniye }];
-            if (slice[i + 1]) para.push({ text: slice[i + 1].nazvaniye, callback_data: 'reg_gorod_' + slice[i + 1].id + '_' + slice[i + 1].nazvaniye });
+            const para = [{ text: slice[i].nazvaniye, callback_data: 'rg_' + slice[i].id }];
+            if (slice[i + 1]) para.push({ text: slice[i + 1].nazvaniye, callback_data: 'rg_' + slice[i + 1].id });
             knopki.push(para);
         }
         if ((stranitsa + 1) * NA_STRANITSE < goroda.length) {
@@ -593,12 +593,15 @@ bot.on('callback_query', async function(query) {
         });
     }
 
-    else if (data.startsWith('reg_gorod_')) {
-        const parts = data.replace('reg_gorod_', '').split('_');
-        const gorod_id = parts[0];
-        const gorod_name = parts.slice(1).join('_');
+    else if (data.startsWith('rg_')) {
+        const gorod_id = data.replace('rg_', '');
         const dannye = ozhidanie_registracii[telegram_id];
         if (!dannye) return;
+
+        // Берём название города из Supabase
+        const { data: gorod_data } = await supabase
+            .from('goroda').select('nazvaniye').eq('id', gorod_id).single();
+        const gorod_name = gorod_data?.nazvaniye || 'Неизвестно';
 
         const tg_username = query.from.username || '';
 
@@ -761,8 +764,8 @@ bot.on('callback_query', async function(query) {
         const pervye = goroda.slice(0, NA_STRANITSE);
         const knopki = [];
         for (let i = 0; i < pervye.length; i += 2) {
-            const para = [{ text: pervye[i].nazvaniye, callback_data: 'smena_gorod_' + pervye[i].nazvaniye }];
-            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'smena_gorod_' + pervye[i + 1].nazvaniye });
+            const para = [{ text: pervye[i].nazvaniye, callback_data: 'sg_' + pervye[i].id }];
+            if (pervye[i + 1]) para.push({ text: pervye[i + 1].nazvaniye, callback_data: 'sg_' + pervye[i + 1].id });
             knopki.push(para);
         }
         if (goroda.length > NA_STRANITSE) {
@@ -785,11 +788,11 @@ bot.on('callback_query', async function(query) {
         const { data: goroda } = await supabase
             .from('goroda').select('id, nazvaniye').eq('strana', strana).order('nazvaniye');
 
-        const slice = goroda.slice(stranitsa * NA_STRANITSE, (stranitsa + 1) * NA_STRANITSE);
+        const slice2 = goroda.slice(stranitsa * NA_STRANITSE, (stranitsa + 1) * NA_STRANITSE);
         const knopki = [];
-        for (let i = 0; i < slice.length; i += 2) {
-            const para = [{ text: slice[i].nazvaniye, callback_data: 'smena_gorod_' + slice[i].nazvaniye }];
-            if (slice[i + 1]) para.push({ text: slice[i + 1].nazvaniye, callback_data: 'smena_gorod_' + slice[i + 1].nazvaniye });
+        for (let i = 0; i < slice2.length; i += 2) {
+            const para = [{ text: slice2[i].nazvaniye, callback_data: 'sg_' + slice2[i].id }];
+            if (slice2[i + 1]) para.push({ text: slice2[i + 1].nazvaniye, callback_data: 'sg_' + slice2[i + 1].id });
             knopki.push(para);
         }
         if ((stranitsa + 1) * NA_STRANITSE < goroda.length) {
@@ -804,9 +807,13 @@ bot.on('callback_query', async function(query) {
         });
     }
 
-    else if (data.startsWith('smena_gorod_')) {
-        const gorod = data.replace('smena_gorod_', '');
-        await supabase.from('igroki').update({ gorod }).eq('tg_id', telegram_id);
+    else if (data.startsWith('sg_')) {
+        const gorod_id = data.replace('sg_', '');
+        const { data: gorod_data } = await supabase
+            .from('goroda').select('nazvaniye').eq('id', gorod_id).single();
+        const gorod = gorod_data?.nazvaniye || 'Неизвестно';
+
+        await supabase.from('igroki').update({ gorod, gorod_id }).eq('tg_id', telegram_id);
 
         bot.editMessageText('✅ *Город изменён на ' + gorod + '*', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
