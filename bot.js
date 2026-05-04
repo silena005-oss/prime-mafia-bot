@@ -100,6 +100,7 @@ const menu_vladeltsa = {
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
+            [{ text: '📋 Мои анонсы', callback_data: 'moi_anonsy_vse' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
@@ -296,6 +297,33 @@ bot.on('message', async function(msg) {
             `✅ *Клуб создан!*\n\n🎴 ${nazvaniye}\n\nТеперь ты собственник этого клуба.`,
             { parse_mode: 'Markdown', ...menu_vladeltsa }
         );
+        return;
+    }
+
+    // ===== РЕДАКТИРОВАНИЕ АНОНСА: обновление полей =====
+    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('anons_upd_')) {
+        const parts = sostoyanie[tg_id].replace('anons_upd_', '').split('_');
+        const pole = parts[0]; // data, vremya, adres, komment
+        const anons_id = parts.slice(1).join('_');
+        delete sostoyanie[tg_id];
+
+        const update = {};
+        if (pole === 'data') update.data_igry = text.trim();
+        if (pole === 'vremya') update.vremya = text.trim();
+        if (pole === 'adres') update.adres = text.trim();
+        if (pole === 'komment') update.kommentariy = text.trim();
+
+        const { error } = await supabase.from('anonsy').update(update).eq('id', anons_id);
+
+        if (error) {
+            bot.sendMessage(chatId, '❌ Ошибка обновления. Попробуй ещё раз.');
+            return;
+        }
+
+        const soobsh = await bot.sendMessage(chatId, '✅ Обновлено!');
+        setTimeout(async () => {
+            await pokazat_kartochku_anонса(chatId, soobsh.message_id, anons_id);
+        }, 500);
         return;
     }
 
@@ -1176,6 +1204,142 @@ bot.on('callback_query', async function(query) {
         await sohranit_anons(chatId, telegram_id, dannye);
     }
 
+    // ===== МОИ АНОНСЫ =====
+    else if (data === 'moi_anonsy_vse' || data.startsWith('moi_anonsy_')) {
+        const klub_id = data === 'moi_anonsy_vse' ? null : data.replace('moi_anonsy_', '');
+
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        let query = supabase
+            .from('anonsy')
+            .select('id, data_igry, vremya, adres, kommentariy, status, kluby(nazvaniye)')
+            .eq('vedushchiy_id', igrok?.id)
+            .order('data_igry', { ascending: false })
+            .limit(10);
+
+        if (klub_id) query = query.eq('klub_id', klub_id);
+
+        const { data: anonsy } = await query;
+
+        if (!anonsy || anonsy.length === 0) {
+            bot.editMessageText('📋 *Мои анонсы*\n\n_Анонсов пока нет._', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '📢 Создать анонс', callback_data: 'anons_vybor_kluba' }],
+                    [{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]
+                ]}
+            });
+            return;
+        }
+
+        let tekst = '📋 *Мои анонсы*\n\n';
+        const knopki = [];
+
+        anonsy.forEach((a, i) => {
+            const status_emoji = a.status === 'aktiven' ? '🟢' : '🔴';
+            tekst += (i + 1) + '. ' + status_emoji + ' *' + (a.kluby?.nazvaniye || '') + '*\n';
+            tekst += '   📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+            tekst += '   📍 ' + (a.adres || '') + '\n\n';
+            knopki.push([{ text: status_emoji + ' ' + a.data_igry + ' ' + (a.vremya || '') + ' — ' + (a.kluby?.nazvaniye || ''), callback_data: 'anons_card_' + a.id }]);
+        });
+
+        knopki.push([{ text: '📢 Создать новый', callback_data: 'anons_vybor_kluba' }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+
+        bot.editMessageText(tekst, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    // ===== КАРТОЧКА АНОНСА =====
+    else if (data.startsWith('anons_card_')) {
+        const anons_id = data.replace('anons_card_', '');
+        await pokazat_kartochku_anонса(chatId, messageId, anons_id);
+    }
+
+    // ===== УДАЛИТЬ АНОНС: подтверждение =====
+    else if (data.startsWith('anons_delete_confirm_')) {
+        const anons_id = data.replace('anons_delete_confirm_', '');
+        bot.editMessageText('🗑 *Удалить анонс?*\n\nЭто действие нельзя отменить. Все записи на этот анонс также будут удалены.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '✅ Да, удалить', callback_data: 'anons_delete_' + anons_id }],
+                [{ text: '⬅️ Отмена', callback_data: 'anons_card_' + anons_id }]
+            ]}
+        });
+    }
+
+    else if (data.startsWith('anons_delete_')) {
+        const anons_id = data.replace('anons_delete_', '');
+        const { error } = await supabase.from('anonsy').delete().eq('id', anons_id);
+
+        if (error) {
+            bot.editMessageText('❌ Ошибка удаления.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'moi_anonsy_vse' }]] }
+            });
+            return;
+        }
+
+        bot.editMessageText('✅ *Анонс удалён.*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '📋 Мои анонсы', callback_data: 'moi_anonsy_vse' }], [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]] }
+        });
+    }
+
+    // ===== РЕДАКТИРОВАТЬ АНОНС =====
+    else if (data.startsWith('anons_edit_')) {
+        const anons_id = data.replace('anons_edit_', '');
+        bot.editMessageText('✏️ *Редактирование анонса*\n\nЧто хочешь изменить?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📅 Дата', callback_data: 'anons_edit_data_' + anons_id }],
+                [{ text: '🕐 Время', callback_data: 'anons_edit_vremya_' + anons_id }],
+                [{ text: '📍 Место проведения', callback_data: 'anons_edit_adres_' + anons_id }],
+                [{ text: '💬 Комментарий', callback_data: 'anons_edit_komment_' + anons_id }],
+                [{ text: '⬅️ Назад', callback_data: 'anons_card_' + anons_id }]
+            ]}
+        });
+    }
+
+    else if (data.startsWith('anons_edit_data_')) {
+        const anons_id = data.replace('anons_edit_data_', '');
+        sostoyanie[telegram_id] = 'anons_upd_data_' + anons_id;
+        bot.editMessageText('📅 Введи новую дату:\n_Пример: 15 мая или 15.05.2026_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'anons_edit_' + anons_id }]] }
+        });
+    }
+
+    else if (data.startsWith('anons_edit_vremya_')) {
+        const anons_id = data.replace('anons_edit_vremya_', '');
+        sostoyanie[telegram_id] = 'anons_upd_vremya_' + anons_id;
+        bot.editMessageText('🕐 Введи новое время:\n_Пример: 19:00_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'anons_edit_' + anons_id }]] }
+        });
+    }
+
+    else if (data.startsWith('anons_edit_adres_')) {
+        const anons_id = data.replace('anons_edit_adres_', '');
+        sostoyanie[telegram_id] = 'anons_upd_adres_' + anons_id;
+        bot.editMessageText('📍 Введи новое место проведения:\n_Пример: Ресторан Паскаль, ул. Воровского 19_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'anons_edit_' + anons_id }]] }
+        });
+    }
+
+    else if (data.startsWith('anons_edit_komment_')) {
+        const anons_id = data.replace('anons_edit_komment_', '');
+        sostoyanie[telegram_id] = 'anons_upd_komment_' + anons_id;
+        bot.editMessageText('💬 Введи новый комментарий:\n_Пример: Играем 3 игры, стоимость 1000₽_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'anons_edit_' + anons_id }]] }
+        });
+    }
+
     // ===== АНОНС: записаться на игру =====
     else if (data.startsWith('anons_zapisatsya_')) {
         const anons_id = data.replace('anons_zapisatsya_', '');
@@ -1778,8 +1942,43 @@ async function sohranit_anons(chatId, tg_id, dannye) {
         parse_mode: 'Markdown',
         reply_markup: {
             inline_keyboard: [
+                [{ text: '✏️ Редактировать', callback_data: 'anons_edit_' + anons.id }],
+                [{ text: '🗑 Удалить анонс', callback_data: 'anons_delete_confirm_' + anons.id }],
+                [{ text: '📋 Мои анонсы', callback_data: 'moi_anonsy_' + dannye.klub_id }],
                 [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
             ]
         }
+    });
+}
+
+async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
+    const { data: a } = await supabase
+        .from('anonsy')
+        .select('id, data_igry, vremya, adres, kommentariy, status, klub_id, kluby(nazvaniye)')
+        .eq('id', anons_id)
+        .single();
+
+    if (!a) {
+        bot.editMessageText('❌ Анонс не найден.', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'moi_anonsy_vse' }]] }
+        });
+        return;
+    }
+
+    const status_emoji = a.status === 'aktiven' ? '🟢 Активен' : '🔴 Неактивен';
+    let tekst = '📢 *' + (a.kluby?.nazvaniye || '') + '*\n\n';
+    tekst += '📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+    tekst += '📍 ' + (a.adres || '') + '\n';
+    if (a.kommentariy) tekst += '💬 ' + a.kommentariy + '\n';
+    tekst += '\nСтатус: ' + status_emoji;
+
+    bot.editMessageText(tekst, {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '✏️ Редактировать', callback_data: 'anons_edit_' + a.id }],
+            [{ text: '🗑 Удалить', callback_data: 'anons_delete_confirm_' + a.id }],
+            [{ text: '⬅️ Мои анонсы', callback_data: 'moi_anonsy_' + a.klub_id }]
+        ]}
     });
 }
