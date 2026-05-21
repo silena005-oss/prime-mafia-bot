@@ -466,11 +466,26 @@ bot.on('message', async function(msg) {
         delete sostoyanie[tg_id];
         const query = text.trim();
 
-        const { data: igroki } = await supabase
-            .from('igroki')
-            .select('id, imya, tg_username, telefon')
-            .or(`imya.ilike.%${query}%,tg_username.ilike.%${query}%,telefon.ilike.%${query}%`)
-            .limit(5);
+        // Нормализуем если это телефон — берём последние 10 цифр
+        const tolko_cifry = query.replace(/\D/g, '');
+        const poisk_telefon = tolko_cifry.length >= 10 ? tolko_cifry.slice(-10) : null;
+
+        let igroki;
+        if (poisk_telefon) {
+            const { data } = await supabase
+                .from('igroki')
+                .select('id, imya, tg_username, telefon')
+                .ilike('telefon', '%' + poisk_telefon + '%')
+                .limit(5);
+            igroki = data;
+        } else {
+            const { data } = await supabase
+                .from('igroki')
+                .select('id, imya, tg_username, telefon')
+                .or(`imya.ilike.%${query}%,tg_username.ilike.%${query}%`)
+                .limit(5);
+            igroki = data;
+        }
 
         if (!igroki || igroki.length === 0) {
             bot.sendMessage(chatId, '❌ Игрок не найден. Попробуй ещё раз:', {
