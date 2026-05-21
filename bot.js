@@ -427,6 +427,39 @@ bot.on('message', async function(msg) {
     }
 
 
+    // ===== НАЗНАЧИТЬ ВЕДУЩЕГО: контакт =====
+    if (msg.contact && sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('naznach_poisk_')) {
+        const klub_id = sostoyanie[tg_id].replace('naznach_poisk_', '');
+        delete sostoyanie[tg_id];
+        const telefon = msg.contact.phone_number.replace(/\D/g, '');
+
+        const { data: igroki } = await supabase
+            .from('igroki')
+            .select('id, imya, tg_username, telefon')
+            .ilike('telefon', '%' + telefon.slice(-10) + '%')
+            .limit(3);
+
+        if (!igroki || igroki.length === 0) {
+            bot.sendMessage(chatId,
+                '❌ Игрок с этим номером не найден в базе.\n\nВведи имя или @username:', {
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            });
+            sostoyanie[tg_id] = 'naznach_poisk_' + klub_id;
+            return;
+        }
+
+        const knopki = igroki.map(i => [{
+            text: i.imya + (i.tg_username ? ' @' + i.tg_username : '') + ' ' + (i.telefon || ''),
+            callback_data: 'naznach_podtverd_' + klub_id + '_' + i.id
+        }]);
+        knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
+
+        bot.sendMessage(chatId, '✅ Нашёл! Выбери кого назначить ведущим:', {
+            reply_markup: { inline_keyboard: knopki }
+        });
+        return;
+    }
+
     // ===== НАЗНАЧИТЬ ВЕДУЩЕГО: поиск по имени/телефону =====
     if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('naznach_poisk_')) {
         const klub_id = sostoyanie[tg_id].replace('naznach_poisk_', '');
@@ -1490,7 +1523,7 @@ bot.on('callback_query', async function(query) {
             // Сразу к поиску
             sostoyanie[telegram_id] = 'naznach_poisk_' + kluby[0].id;
             bot.editMessageText(
-                '🎤 *Назначить ведущего*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nВведи имя, @username или номер телефона игрока:', {
+                '🎤 *Назначить ведущего*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nВведи имя, @username или номер телефона игрока\n_или перешли его контакт из телефонной книги:_', {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
             });
@@ -1510,7 +1543,7 @@ bot.on('callback_query', async function(query) {
         const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
         sostoyanie[telegram_id] = 'naznach_poisk_' + klub_id;
         bot.editMessageText(
-            '🎤 *Назначить ведущего*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nВведи имя, @username или номер телефона игрока:', {
+            '🎤 *Назначить ведущего*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nВведи имя, @username или номер телефона игрока\n_или перешли его контакт из телефонной книги:_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
         });
