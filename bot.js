@@ -76,6 +76,7 @@ const menu_vedushchego = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+            [{ text: '📋 Внести результаты', callback_data: 'vnesti_rezultaty' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
@@ -853,39 +854,265 @@ bot.on('callback_query', async function(query) {
 
     // ===== ВЕДУЩИЙ: создать игру =====
     else if (data === 'sozdat_igru') {
-        bot.editMessageText('🎲 *На сколько игроков игра?*', {
-            chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_kolichestva
+        // Сначала выбираем клуб
+        const { data: igrok } = await supabase
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
+
+        const { data: chleny } = await supabase
+            .from('chleny_klubov')
+            .select('klub_id, rol, kluby(id, nazvaniye)')
+            .eq('igrok_id', igrok?.id)
+            .in('rol', ['vladyelets', 'vedushchiy']);
+
+        const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
+
+        if (!kluby || kluby.length === 0) {
+            bot.editMessageText('❌ У вас нет клубов.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]] }
+            });
+            return;
+        }
+
+        // Сохраняем клуб если один
+        if (kluby.length === 1) {
+            bot.editMessageText('🎲 *Создание игры*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nЭта игра по анонсу?', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '📢 По анонсу', callback_data: 'igra_anons_' + kluby[0].id }],
+                    [{ text: '🎲 Без анонса', callback_data: 'igra_bez_anons_' + kluby[0].id }],
+                    [{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]
+                ]}
+            });
+            return;
+        }
+
+        const knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'igra_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]);
+        bot.editMessageText('🎲 *Создание игры*\n\nВыбери клуб:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
         });
     }
 
-    else if (data.startsWith('create_')) {
-        const kolichestvo = parseInt(data.replace('create_', ''));
+    else if (data.startsWith('igra_klub_')) {
+        const klub_id = data.replace('igra_klub_', '');
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+        bot.editMessageText('🎲 *Создание игры*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nЭта игра по анонсу?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📢 По анонсу', callback_data: 'igra_anons_' + klub_id }],
+                [{ text: '🎲 Без анонса', callback_data: 'igra_bez_anons_' + klub_id }],
+                [{ text: '⬅️ Назад', callback_data: 'sozdat_igru' }]
+            ]}
+        });
+    }
+
+    else if (data.startsWith('igra_anons_')) {
+        const klub_id = data.replace('igra_anons_', '');
+
+        // Загружаем активные анонсы клуба
+        const { data: anonsy } = await supabase
+            .from('anonsy')
+            .select('id, data_igry, vremya, adres')
+            .eq('klub_id', klub_id)
+            .eq('status', 'aktiven')
+            .order('data_igry', { ascending: true })
+            .limit(10);
+
+        if (!anonsy || anonsy.length === 0) {
+            bot.editMessageText('🎲 *Создание игры*\n\n❌ Нет активных анонсов.\n\nСначала создай анонс или начни игру без анонса.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '📢 Создать анонс', callback_data: 'anons_vybor_kluba' }],
+                    [{ text: '🎲 Без анонса', callback_data: 'igra_bez_anons_' + klub_id }],
+                    [{ text: '⬅️ Назад', callback_data: 'sozdat_igru' }]
+                ]}
+            });
+            return;
+        }
+
+        const knopki = anonsy.map(a => [{
+            text: '📅 ' + a.data_igry + ' ' + (a.vremya || '') + ' — ' + (a.adres || ''),
+            callback_data: 'igra_vybr_anons_' + klub_id + '_' + a.id
+        }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'igra_klub_' + klub_id }]);
+
+        bot.editMessageText('🎲 *Выбери анонс:*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('igra_vybr_anons_')) {
+        const parts = data.replace('igra_vybr_anons_', '').split('_');
+        const klub_id = parts[0];
+        const anons_id = parts[1];
+        bot.editMessageText('🎲 *Создание игры*\n\nНа сколько игроков?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '8', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_8' },
+                     { text: '9', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_9' },
+                     { text: '10', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_10' },
+                     { text: '11', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_11' }],
+                    [{ text: '12', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_12' },
+                     { text: '13', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_13' },
+                     { text: '14', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_14' },
+                     { text: '15', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_15' }],
+                    [{ text: '16', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_16' },
+                     { text: '17', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_17' },
+                     { text: '18', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_18' }],
+                    [{ text: '19', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_19' },
+                     { text: '20', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_20' }],
+                    [{ text: '⬅️ Назад', callback_data: 'igra_anons_' + klub_id }]
+                ]
+            }
+        });
+    }
+
+    else if (data.startsWith('igra_bez_anons_')) {
+        const klub_id = data.replace('igra_bez_anons_', '');
+        bot.editMessageText('🎲 *Создание игры*\n\nНа сколько игроков?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '8', callback_data: 'igra_n_' + klub_id + '_null_8' },
+                     { text: '9', callback_data: 'igra_n_' + klub_id + '_null_9' },
+                     { text: '10', callback_data: 'igra_n_' + klub_id + '_null_10' },
+                     { text: '11', callback_data: 'igra_n_' + klub_id + '_null_11' }],
+                    [{ text: '12', callback_data: 'igra_n_' + klub_id + '_null_12' },
+                     { text: '13', callback_data: 'igra_n_' + klub_id + '_null_13' },
+                     { text: '14', callback_data: 'igra_n_' + klub_id + '_null_14' },
+                     { text: '15', callback_data: 'igra_n_' + klub_id + '_null_15' }],
+                    [{ text: '16', callback_data: 'igra_n_' + klub_id + '_null_16' },
+                     { text: '17', callback_data: 'igra_n_' + klub_id + '_null_17' },
+                     { text: '18', callback_data: 'igra_n_' + klub_id + '_null_18' }],
+                    [{ text: '19', callback_data: 'igra_n_' + klub_id + '_null_19' },
+                     { text: '20', callback_data: 'igra_n_' + klub_id + '_null_20' }],
+                    [{ text: '⬅️ Назад', callback_data: 'igra_klub_' + klub_id }]
+                ]
+            }
+        });
+    }
+
+    else if (data.startsWith('igra_n_')) {
+        const parts = data.replace('igra_n_', '').split('_');
+        const klub_id = parts[0];
+        const anons_id = parts[1]; // 'null' или uuid
+        const kolichestvo = parseInt(parts[2]);
         const kod = sgenerirovat_kod();
 
+        // Сохраняем игру в памяти
         igry[kod] = {
-            kod: kod,
-            kolichestvo: kolichestvo,
+            kod,
+            klub_id,
+            anons_id: anons_id === 'null' ? null : anons_id,
+            kolichestvo,
             vedushchii_id: telegram_id,
             igroki: [],
-            roli_razdany: false
+            roli_razdany: false,
+            rezhim_rolei: null // 'karty' или 'bot'
         };
 
         const text = '✅ *Игра создана!*\n\n' +
                      '🎴 Код игры: *' + kod + '*\n' +
                      '👥 Мест: ' + kolichestvo + '\n\n' +
-                     '*Передай код игрокам.*\n' +
-                     'Подключено: 0/' + kolichestvo + '\n\n' +
-                     '_Жди пока все подключатся..._';
+                     'Выбери режим раздачи ролей:';
 
         bot.editMessageText(text, {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }],
-                    [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+                    [{ text: '🃏 Физические карты (Паскаль)', callback_data: 'rezhim_karty_' + kod }],
+                    [{ text: '📱 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
+                    [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }]
                 ]
             }
+        });
+    }
+
+    else if (data.startsWith('rezhim_karty_')) {
+        const kod = data.replace('rezhim_karty_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        igra.rezhim_rolei = 'karty';
+
+        bot.editMessageText(
+            '🃏 *Режим: физические карты*\n\n' +
+            '🎴 Код игры: *' + kod + '*\n' +
+            '👥 Мест: ' + igra.kolichestvo + '\n\n' +
+            'Передай код игрокам чтобы они подключились.\n' +
+            'Подключено: 0/' + igra.kolichestvo, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }],
+                    [{ text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }],
+                    [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]
+                ]
+            }
+        });
+    }
+
+    else if (data.startsWith('rezhim_bot_')) {
+        const kod = data.replace('rezhim_bot_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        igra.rezhim_rolei = 'bot';
+
+        bot.editMessageText(
+            '📱 *Режим: роли в боте*\n\n' +
+            '🎴 Код игры: *' + kod + '*\n' +
+            '👥 Мест: ' + igra.kolichestvo + '\n\n' +
+            'Передай код игрокам. Каждый получит свою роль в личку.\n' +
+            'Подключено: 0/' + igra.kolichestvo, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }],
+                    [{ text: '🎭 Раздать роли', callback_data: 'razdat_' + kod }],
+                    [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]
+                ]
+            }
+        });
+    }
+
+    else if (data.startsWith('obnovit_igru_')) {
+        const kod = data.replace('obnovit_igru_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+
+        let spisok = '';
+        igra.igroki.forEach((ig, i) => {
+            spisok += (i + 1) + '. ' + ig.imya + '\n';
+        });
+
+        const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 Физические карты' : '📱 В боте';
+        const tekst = rezhim + '\n\n🎴 Код: *' + kod + '*\n' +
+            '👥 Подключено: ' + igra.igroki.length + '/' + igra.kolichestvo +
+            (spisok ? '\n\n' + spisok : '\n\n_Никто ещё не подключился_');
+
+        const knopki = igra.rezhim_rolei === 'bot'
+            ? [[{ text: '🔄 Обновить', callback_data: 'obnovit_igru_' + kod }],
+               [{ text: '🎭 Раздать роли', callback_data: 'razdat_' + kod }],
+               [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]]
+            : [[{ text: '🔄 Обновить', callback_data: 'obnovit_igru_' + kod }],
+               [{ text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }],
+               [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]];
+
+        bot.editMessageText(tekst, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    // ===== ВНЕСТИ РЕЗУЛЬТАТЫ =====
+    else if (data === 'vnesti_rezultaty') {
+        bot.editMessageText(
+            '📋 *Внести результаты игры*\n\n_Функция в разработке._\n\nСкоро здесь можно будет внести результаты прошедшей игры: состав, победитель, баллы игроков.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]] }
         });
     }
 
