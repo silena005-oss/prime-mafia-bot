@@ -2017,10 +2017,15 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
 
     if (filtr) {
         const f = filtr.toLowerCase();
-        igroki_spisok = igroki_spisok.filter(i =>
-            (i.imya || '').toLowerCase().includes(f) ||
-            (i.tg_username || '').toLowerCase().includes(f)
-        );
+        const tolko_cifry = filtr.replace(/\D/g, '');
+        const poisk_telefon = tolko_cifry.length >= 6 ? tolko_cifry.slice(-10) : null;
+
+        igroki_spisok = igroki_spisok.filter(i => {
+            if ((i.imya || '').toLowerCase().includes(f)) return true;
+            if ((i.tg_username || '').toLowerCase().includes(f)) return true;
+            if (poisk_telefon && (i.telefon || '').replace(/\D/g, '').slice(-10).includes(poisk_telefon)) return true;
+            return false;
+        });
     }
 
     igroki_spisok.sort((a, b) => (a.imya || '').localeCompare(b.imya || '', 'ru'));
