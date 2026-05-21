@@ -1600,7 +1600,10 @@ bot.on('callback_query', async function(query) {
         }
 
         const { data: igrok } = await supabase
-            .from('igroki').select('imya').eq('id', igrok_id).single();
+            .from('igroki').select('imya, tg_id').eq('id', igrok_id).single();
+
+        const { data: klub } = await supabase
+            .from('kluby').select('nazvaniye').eq('id', klub_id).single();
 
         bot.editMessageText('✅ *' + (igrok?.imya || 'Игрок') + '* назначен ведущим!', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -1609,6 +1612,16 @@ bot.on('callback_query', async function(query) {
                 [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
             ]}
         });
+
+        // Уведомляем ведущего
+        if (igrok?.tg_id) {
+            bot.sendMessage(igrok.tg_id,
+                '🎤 *Вас назначили ведущим!*\n\n' +
+                '🎴 Клуб: *' + (klub?.nazvaniye || '') + '*\n\n' +
+                'Теперь вам доступно меню ведущего. Напиши /start чтобы открыть его.',
+                { parse_mode: 'Markdown' }
+            );
+        }
     }
 
     // ===== МОИ АНОНСЫ =====
