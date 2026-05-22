@@ -17,6 +17,9 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 console.log('🎴 PrimeMafia бот запущен!');
 
+// ID администратора для загрузки картинок
+const ADMIN_TG_ID = parseInt(process.env.ADMIN_TG_ID || '0');
+
 // ============================================
 // СОСТАВЫ
 // ============================================
@@ -266,6 +269,7 @@ const menu_igroka = {
         inline_keyboard: [
             [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
             [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
+            [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
             [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
             [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
@@ -325,7 +329,29 @@ const menu_kolichestva = {
 // КОМАНДА /start
 // ============================================
 
-bot.onText(/\/start/, async function(msg) {
+bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
+    // Deep link: /start join_КОД
+    const param = match?.[1]?.trim();
+    if (param && param.startsWith('join_')) {
+        const kod_join = param.replace('join_', '');
+        const igra_join = igry[kod_join];
+        if (!igra_join) { bot.sendMessage(msg.chat.id, '\u274C Игра не найдена или уже завершена.'); return; }
+        const tg_id_j = msg.from.id;
+        if (igra_join.igroki.find(i => i.telegram_id === tg_id_j)) {
+            bot.sendMessage(msg.chat.id, '\u2705 Ты уже в этой игре!'); return;
+        }
+        if (igra_join.igroki.length >= igra_join.kolichestvo) {
+            bot.sendMessage(msg.chat.id, '\u274C Все места заняты'); return;
+        }
+        const { data: igrok_j } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', tg_id_j).single();
+        const name_j = igrok_j?.igrovoy_nik || igrok_j?.imya || msg.from.first_name || 'Игрок';
+        const nomer_j = igra_join.igroki.length + 1;
+        igra_join.igroki.push({ telegram_id: tg_id_j, name: name_j, nomer: nomer_j, status: 'v_igre', foly: 0, igrok_id: igrok_j?.id || null });
+        await sohranit_igru(kod_join);
+        bot.sendMessage(msg.chat.id, '\u2705 Ты в игре! *\u2116' + nomer_j + ' ' + name_j + '*\n\n\uD83C\uDFB4 Игра: *' + kod_join + '*\n\uD83D\uDC65 ' + igra_join.igroki.length + '/' + igra_join.kolichestvo + '\n\n_Ожидай — ведущий скоро начнёт_', { parse_mode: 'Markdown' });
+        if (igra_join.vedushchii_id) bot.sendMessage(igra_join.vedushchii_id, '\uD83D\uDC4B *' + name_j + '* вошёл! ' + igra_join.igroki.length + '/' + igra_join.kolichestvo, { parse_mode: 'Markdown' }).catch(() => {});
+        return;
+    }
     const chatId = msg.chat.id;
     const tg_id = msg.from.id;
     const tg_username = msg.from.username || '';
@@ -376,6 +402,91 @@ bot.onText(/\/start/, async function(msg) {
 // ============================================
 // ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ
 // ============================================
+
+
+// ============================================
+// ЗАГРУЗКА КАРТИНОК РОЛЕЙ (только для админа)
+// ============================================
+
+// Маппинг file_id ролей (заполняется через /upload_role)
+const roli_foto = {};
+
+bot.on('photo', async (msg) => {
+    const tg_id = msg.from.id;
+    if (ADMIN_TG_ID && tg_id !== ADMIN_TG_ID) return;
+
+    // Проверяем caption — должно быть название роли
+    const caption = msg.caption?.trim();
+    if (!caption) {
+        bot.sendMessage(msg.chat.id, 
+            '📸 Фото получено, но нет подписи!\n\nОтправь фото с подписью = название роли\nПример подпись: *Дон*',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    // Берём лучшее качество (последний элемент массива)
+    const file_id = msg.photo[msg.photo.length - 1].file_id;
+    roli_foto[caption] = file_id;
+
+    // Сохраняем в Supabase для постоянства
+    try {
+        await supabase.from('nastroyki_app').upsert({
+            klyuch: 'rol_foto_' + caption,
+            znachenie: file_id
+        }, { onConflict: 'klyuch' });
+    } catch(e) {
+        console.log('Supabase save error (table may not exist):', e.message);
+    }
+
+    bot.sendMessage(msg.chat.id,
+        '✅ *' + caption + '* — file_id сохранён!\n\n`' + file_id + '`',
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// Команда /roles_status — показать какие роли загружены
+bot.onText(/\/roles_status/, async (msg) => {
+    const tg_id = msg.from.id;
+    if (ADMIN_TG_ID && tg_id !== ADMIN_TG_ID) return;
+
+    // Загружаем из Supabase
+    const { data: rows } = await supabase.from('nastroyki_app')
+        .select('klyuch, znachenie')
+        .like('klyuch', 'rol_foto_%');
+
+    const loaded = (rows || []).map(r => r.klyuch.replace('rol_foto_', ''));
+    const all_roli = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери',
+                      'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
+                      'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+                      'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
+                      'Мстительный родственник', 'Маньяк', 'Мирный'];
+
+    let t = '📸 *Статус загрузки картинок:*\n\n';
+    all_roli.forEach(r => {
+        t += (loaded.includes(r) ? '✅' : '❌') + ' ' + r + '\n';
+    });
+    t += '\n*Загружено: ' + loaded.length + '/' + all_roli.length + '*';
+
+    bot.sendMessage(msg.chat.id, t, { parse_mode: 'Markdown' });
+});
+
+// Загрузка file_id при старте бота из Supabase
+async function zagruzit_foto_roley() {
+    try {
+        const { data: rows } = await supabase.from('nastroyki_app')
+            .select('klyuch, znachenie')
+            .like('klyuch', 'rol_foto_%');
+        (rows || []).forEach(r => {
+            const rol = r.klyuch.replace('rol_foto_', '');
+            roli_foto[rol] = r.znachenie;
+        });
+        if (rows?.length > 0) console.log('✅ Загружено фото ролей:', rows.length);
+    } catch(e) {
+        console.log('Фото ролей не загружены:', e.message);
+    }
+}
+zagruzit_foto_roley();
 
 bot.on('message', async function(msg) {
     const chatId = msg.chat.id;
@@ -1032,7 +1143,6 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
     }, 1000);
 }
 
-ENDOFFILE
 
 async function pokazat_prehod_k_nochi(chatId, messageId, kod) {
     const igra = igry[kod];
@@ -2083,13 +2193,25 @@ bot.on('callback_query', async function(query) {
             const reply_markup_role = is_maf_player
                 ? { inline_keyboard: [[{ text: '\uD83D\uDC40 Посмотреть свою команду', callback_data: 'moya_komanda_' + kod }]] }
                 : undefined;
-            bot.sendMessage(igrok.telegram_id,
-                opisanie + '\n\n' +
+            const foto_id = roli_foto[igrok.rol];
+            const tekst_roli = opisanie + '\n\n' +
                 '\uD83C\uDFB4 Игра \u2116' + kod + '\n' +
                 '\uD83D\uDC64 Ты — игрок \u2116' + igrok.nomer + '\n\n' +
-                '\uD83E\uDD2B _Никому не показывай!_',
-                { parse_mode: 'Markdown', protect_content: true, ...(reply_markup_role ? { reply_markup: reply_markup_role } : {}) }
-            );
+                '\uD83E\uDD2B _Никому не показывай!_';
+            if (foto_id) {
+                bot.sendPhoto(igrok.telegram_id, foto_id, {
+                    caption: tekst_roli,
+                    parse_mode: 'Markdown',
+                    protect_content: true,
+                    ...(reply_markup_role ? { reply_markup: reply_markup_role } : {})
+                });
+            } else {
+                bot.sendMessage(igrok.telegram_id, tekst_roli, {
+                    parse_mode: 'Markdown',
+                    protect_content: true,
+                    ...(reply_markup_role ? { reply_markup: reply_markup_role } : {})
+                });
+            }
         }
 
         let svodka = '🎴 *Роли разданы!*\n\n' +
@@ -2884,6 +3006,142 @@ bot.on('callback_query', async function(query) {
             parse_mode: 'Markdown',
             protect_content: true,
             reply_markup: { inline_keyboard: [[{ text: '\uD83D\uDC40 Обновить', callback_data: 'moya_komanda_' + kod }]] }
+        });
+    }
+
+
+    // ===== РЕЖИМ "ИГРАТЬ С ДРУЗЬЯМИ" =====
+    else if (data === 'druzya_menu') {
+        bot.editMessageText(
+            '\uD83C\uDFAE *Играть с друзьями*\n\n' +
+            'Создай личную игру и пригласи друзей по коду.\n\n' +
+            '\uD83D\uDCCB Правила на выбор — Паскаль, ВИП или Наиля\n' +
+            '\uD83D\uDC65 От 8 до 20 игроков\n' +
+            '\uD83C\uDFC6 Без рейтинга — просто для удовольствия\n\n' +
+            '\uD83D\uDCB0 *Стоимость: 99 ₽ за игру*\n' +
+            '_Оплата — при создании игры_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83C\uDFB2 Создать игру (99 ₽)', callback_data: 'druzya_sozdat' }],
+                [{ text: '\uD83D\uDD11 Войти по коду', callback_data: 'druzya_войти' }],
+                [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_igroka' }]
+            ]}
+        });
+    }
+
+    // ===== ДРУЗЬЯ: выбор правил =====
+    else if (data === 'druzya_sozdat') {
+        bot.editMessageText(
+            '\uD83C\uDFB2 *Создать игру с друзьями*\n\nКакие правила?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83C\uDFAD Паскаль', callback_data: 'druzya_tip_paskal' }],
+                [{ text: '\uD83C\uDFD9 VIP (городская)', callback_data: 'druzya_tip_vip' }],
+                [{ text: '\uD83C\uDF06 Наиля / Москва', callback_data: 'druzya_tip_naila' }],
+                [{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_menu' }]
+            ]}
+        });
+    }
+
+    // ===== ДРУЗЬЯ: выбор количества =====
+    else if (data.startsWith('druzya_tip_')) {
+        const tip_d = data.replace('druzya_tip_', '');
+        const tip_names_d = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля' };
+        const kol_knopki_d = [];
+        for (let i = 0; i < 13; i += 4) {
+            kol_knopki_d.push([8,9,10,11].slice(i > 0 ? i-8 : 0, i > 0 ? i-4 : 4).filter(n => n).map(n => ({
+                text: String(n), callback_data: 'druzya_kol_' + tip_d + '_' + n
+            })));
+        }
+        // Проще — строки по 4
+        const vse_kol = [8,9,10,11,12,13,14,15,16,17,18,19,20];
+        const rows_d = [];
+        for (let i = 0; i < vse_kol.length; i += 4) {
+            rows_d.push(vse_kol.slice(i, i+4).map(n => ({ text: String(n), callback_data: 'druzya_kol_' + tip_d + '_' + n })));
+        }
+        rows_d.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_sozdat' }]);
+
+        bot.editMessageText(
+            '\uD83C\uDFB2 *' + (tip_names_d[tip_d] || tip_d) + '*\n\nСколько игроков?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: rows_d }
+        });
+    }
+
+    // ===== ДРУЗЬЯ: предпросмотр и "оплата" =====
+    else if (data.startsWith('druzya_kol_')) {
+        const parts_dk = data.replace('druzya_kol_', '').split('_');
+        const tip_dk = parts_dk[0];
+        const kol_dk = parseInt(parts_dk[1]);
+
+        const preview_dk = pokazat_sostav_preview(kol_dk, tip_dk, {});
+        if (!preview_dk) { bot.answerCallbackQuery(query.id, { text: '\u274C Нет состава', show_alert: true }); return; }
+
+        bot.editMessageText(
+            preview_dk.text + '\n\n' +
+            '\uD83D\uDCB0 *Стоимость: 99 ₽*\n' +
+            '_Нажми "Оплатить и создать" для запуска_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83D\uDCB3 Оплатить и создать (99 ₽)', callback_data: 'druzya_oplata_' + tip_dk + '_' + kol_dk }],
+                [{ text: '\u270F\uFE0F Изменить состав', callback_data: 'druzya_edit_' + tip_dk + '_' + kol_dk }],
+                [{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_tip_' + tip_dk }]
+            ]}
+        });
+    }
+
+    // ===== ДРУЗЬЯ: "оплата" (заглушка) → создать игру =====
+    else if (data.startsWith('druzya_oplata_')) {
+        const parts_op = data.replace('druzya_oplata_', '').split('_');
+        const tip_op = parts_op[0];
+        const kol_op = parseInt(parts_op[1]);
+
+        // ЗАГЛУШКА ОПЛАТЫ — в будущем подключить ЮKassa/Telegram Stars
+        // Пока создаём игру бесплатно для тестирования
+        const kod = sgenerirovat_kod();
+        const preview_op = pokazat_sostav_preview(kol_op, tip_op, {});
+
+        igry[kod] = {
+            kolichestvo: kol_op,
+            vedushchii_id: telegram_id,
+            igroki: [],
+            roli_razdany: false,
+            klub_id: null,
+            tip_kluba: tip_op,
+            sportivniy: false,
+            _sostav_custom: preview_op?.sostav,
+            _druzya_rezhim: true, // режим "с друзьями" — без рейтинга
+            _oplacheno: true
+        };
+        await sohranit_igru(kod);
+
+        // Создаём ссылку для приглашения
+        const bot_username = (await bot.getMe()).username;
+        const invite_link = 'https://t.me/' + bot_username + '?start=join_' + kod;
+
+        bot.editMessageText(
+            '\uD83C\uDFAE *Игра создана!*\n\n' +
+            '\uD83D\uDD11 Код игры: *' + kod + '*\n' +
+            '\uD83D\uDC65 Мест: ' + kol_op + '\n\n' +
+            '\uD83D\uDCE4 *Ссылка для друзей:*\n' + invite_link + '\n\n' +
+            '_Отправь эту ссылку друзьям — они нажмут и сразу войдут в игру_', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83D\uDC65 ' + igry[kod].igroki.length + '/' + kol_op + ' подключились', callback_data: 'status_' + kod }],
+                [{ text: '\uD83C\uDFAD Раздать роли', callback_data: 'razdat_' + kod }],
+                [{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }],
+                [{ text: '\uD83C\uDFE0 В меню', callback_data: 'menu_igroka' }]
+            ]}
+        });
+    }
+
+    // ===== ДРУЗЬЯ: войти по коду =====
+    else if (data === 'druzya_войти') {
+        sostoyanie[telegram_id] = 'vvodit_kod_druzya';
+        bot.editMessageText(
+            '\uD83D\uDD11 *Войти в игру друга*\n\nВведи код игры:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_menu' }]] }
         });
     }
 
