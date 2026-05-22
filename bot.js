@@ -488,6 +488,26 @@ async function zagruzit_foto_roley() {
 }
 zagruzit_foto_roley();
 
+
+// ============================================
+// АВТОАРХИВАЦИЯ АНОНСОВ
+// ============================================
+async function arhivirovat_starye_anonsy() {
+    try {
+        const segodnya = new Date().toISOString().slice(0, 10);
+        const { error } = await supabase
+            .from('anonsy')
+            .update({ status: 'arhiv' })
+            .eq('status', 'aktiven')
+            .lt('data_igry', segodnya);
+        if (!error) console.log('\uD83D\uDDC4 Архивация анонсов выполнена');
+    } catch(e) {
+        console.error('Ошибка архивации:', e.message);
+    }
+}
+arhivirovat_starye_anonsy();
+setInterval(arhivirovat_starye_anonsy, 2 * 60 * 60 * 1000);
+
 bot.on('message', async function(msg) {
     const chatId = msg.chat.id;
     const tg_id = msg.from.id;
@@ -1520,10 +1540,12 @@ bot.on('callback_query', async function(query) {
             return;
         }
 
+        const segodnya_d = new Date().toISOString().slice(0, 10);
         const { data: anonsy } = await supabase
             .from('anonsy')
             .select('id, data_igry, vremya, adres, kommentariy, kluby(nazvaniye)')
             .eq('status', 'aktiven')
+            .gte('data_igry', segodnya_d)
             .order('data_igry', { ascending: true })
             .limit(10);
 
