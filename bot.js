@@ -360,7 +360,7 @@ bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
     const { data: igrok } = await supabase
         .from('igroki')
         .select('*')
-        .eq('tg_id', String(tg_id))
+        .eq('tg_id', tg_id)
         .single();
 
     if (igrok) {
@@ -576,7 +576,7 @@ bot.on('message', async function(msg) {
         const { data: igrok } = await supabase
             .from('igroki')
             .select('id')
-            .eq('tg_id', String(tg_id))
+            .eq('tg_id', tg_id)
             .single();
 
         if (igrok) {
@@ -892,7 +892,7 @@ bot.on('message', async function(msg) {
         }
         delete sostoyanie[tg_id];
         const { error } = await supabase
-            .from('igroki').update({ imya: text.trim() }).eq('tg_id', String(tg_id));
+            .from('igroki').update({ imya: text.trim() }).eq('tg_id', tg_id);
         if (error) {
             bot.sendMessage(chatId, '❌ Ошибка сохранения. Попробуй ещё раз.');
             return;
@@ -922,7 +922,7 @@ bot.on('message', async function(msg) {
         }
         delete sostoyanie[tg_id];
         const { error } = await supabase
-            .from('igroki').update({ igrovoy_nik: text.trim() }).eq('tg_id', String(tg_id));
+            .from('igroki').update({ igrovoy_nik: text.trim() }).eq('tg_id', tg_id);
         if (error) {
             bot.sendMessage(chatId, '❌ Ошибка сохранения. Попробуй ещё раз.');
             return;
@@ -1507,7 +1507,7 @@ bot.on('callback_query', async function(query) {
     // ===== ИГРОК: анонсы по городу =====
     else if (data === 'anonsy_goroda') {
         const { data: igrok } = await supabase
-            .from('igroki').select('gorod').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('gorod').eq('tg_id', telegram_id).single();
 
         if (!igrok?.gorod) {
             bot.editMessageText('📢 *Анонсы игр*\n\n❌ Город не указан. Укажи город в настройках.', {
@@ -1565,7 +1565,7 @@ bot.on('callback_query', async function(query) {
     // ===== ИГРОК: настройки =====
     else if (data === 'nastroyki_igroka') {
         const { data: igrok } = await supabase
-            .from('igroki').select('imya, gorod, igrovoy_nik').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('imya, gorod, igrovoy_nik').eq('tg_id', telegram_id).single();
 
         bot.editMessageText(
             '⚙️ *Настройки*\n\n' +
@@ -1680,7 +1680,7 @@ bot.on('callback_query', async function(query) {
             .from('goroda').select('nazvaniye').eq('id', gorod_id).single();
         const gorod = gorod_data?.nazvaniye || 'Неизвестно';
 
-        await supabase.from('igroki').update({ gorod, gorod_id }).eq('tg_id', String(telegram_id));
+        await supabase.from('igroki').update({ gorod, gorod_id }).eq('tg_id', telegram_id);
 
         bot.editMessageText('✅ *Город изменён на ' + gorod + '*', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -1694,7 +1694,7 @@ bot.on('callback_query', async function(query) {
     else if (data === 'sozdat_igru') {
         // Сначала выбираем клуб
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         const { data: chleny } = await supabase
             .from('chleny_klubov')
@@ -2829,7 +2829,7 @@ bot.on('callback_query', async function(query) {
 
     // ===== РЕЙТИНГ: выбор клуба =====
     else if (data === 'reyting_vybor_kluba') {
-        const { data: igrok_r } = await supabase.from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+        const { data: igrok_r } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
         const { data: chleny_r } = await supabase.from('chleny_klubov').select('klub_id, rol, kluby(id, nazvaniye)').eq('igrok_id', igrok_r?.id).in('rol', ['vladyelets', 'vedushchii']);
         const kluby_r = (chleny_r || []).filter(c => c.kluby).map(c => c.kluby);
         if (kluby_r.length === 0) { bot.editMessageText('\u274C Нет клубов', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]] } }); return; }
@@ -2875,7 +2875,7 @@ bot.on('callback_query', async function(query) {
 
     // ===== НАСТРОЙКИ КЛУБА =====
     else if (data === 'nastroyki_kluba_v') {
-        const { data: igrok_nk } = await supabase.from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+        const { data: igrok_nk } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
         const { data: chleny_nk } = await supabase.from('chleny_klubov').select('klub_id, kluby(id, nazvaniye, nastroyki, sportivniy_rezhim)').eq('igrok_id', igrok_nk?.id).eq('rol', 'vladyelets');
         const klub_nk = chleny_nk?.[0]?.kluby;
         if (!klub_nk) { bot.answerCallbackQuery(query.id, { text: '\u274C Нет клуба' }); return; }
@@ -2913,7 +2913,7 @@ bot.on('callback_query', async function(query) {
         const fake_data = 'nastroyki_kluba_v';
         const fakeQuery = { ...query, data: fake_data };
         // Re-trigger
-        const { data: igrok_ts } = await supabase.from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+        const { data: igrok_ts } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
         const { data: chleny_ts } = await supabase.from('chleny_klubov').select('klub_id, kluby(id, nazvaniye, nastroyki, sportivniy_rezhim)').eq('igrok_id', igrok_ts?.id).eq('rol', 'vladyelets');
         const klub_ts = chleny_ts?.[0]?.kluby;
         if (!klub_ts) return;
@@ -2945,7 +2945,7 @@ bot.on('callback_query', async function(query) {
 
     // ===== РЕЙТИНГ ИГРОКА =====
     else if (data === 'moy_reyting') {
-        const { data: igrok_mr } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', String(telegram_id)).single();
+        const { data: igrok_mr } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', telegram_id).single();
         if (!igrok_mr) { bot.answerCallbackQuery(query.id, { text: '\u274C Зарегистрируйся сначала' }); return; }
 
         const { data: rows_mr } = await supabase.from('bally').select('bally_vsego, rol, pobedila_komanda, klub_id, kluby(nazvaniye)').eq('igrok_id', igrok_mr.id).order('data_igry', { ascending: false }).limit(50);
@@ -3363,7 +3363,7 @@ bot.on('callback_query', async function(query) {
     // ===== АНОНС: выбор клуба =====
     else if (data === 'anons_vybor_kluba') {
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         const { data: chleny } = await supabase
             .from('chleny_klubov')
@@ -3420,7 +3420,7 @@ bot.on('callback_query', async function(query) {
     // ===== НАЗНАЧИТЬ ВЕДУЩЕГО =====
     else if (data === 'naznachit_vedushchego') {
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         const { data: chleny } = await supabase
             .from('chleny_klubov')
@@ -3548,7 +3548,7 @@ bot.on('callback_query', async function(query) {
         const klub_id = data === 'moi_anonsy_vse' ? null : data.replace('moi_anonsy_', '');
 
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         let query = supabase
             .from('anonsy')
@@ -3683,7 +3683,7 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('anons_zapisatsya_')) {
         const anons_id = data.replace('anons_zapisatsya_', '');
         const { data: igrok } = await supabase
-            .from('igroki').select('id, imya').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id, imya').eq('tg_id', telegram_id).single();
 
         if (!igrok) {
             bot.answerCallbackQuery(query.id, { text: '❌ Сначала зарегистрируйся через /start', show_alert: true });
@@ -4034,7 +4034,7 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('anons_otmenit_')) {
         const anons_id = data.replace('anons_otmenit_', '');
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         await supabase
             .from('zapisi_na_anons')
@@ -4048,7 +4048,7 @@ bot.on('callback_query', async function(query) {
     // ===== КОНСТРУКТОР РОЛЕЙ: выбор клуба =====
     else if (data === 'roli_vybor_kluba') {
         const { data: igrok } = await supabase
-            .from('igroki').select('id').eq('tg_id', String(telegram_id)).single();
+            .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         // Ищем клубы где пользователь — собственник или ведущий
         const { data: chleny } = await supabase
@@ -4564,7 +4564,7 @@ async function sohranit_rol(chatId, tg_id, klub_id, dannye) {
 
 async function sohranit_anons(chatId, tg_id, dannye) {
     const { data: igrok } = await supabase
-        .from('igroki').select('id').eq('tg_id', String(tg_id)).single();
+        .from('igroki').select('id').eq('tg_id', tg_id).single();
 
     const { data: klub } = await supabase
         .from('kluby').select('nazvaniye, gorod, strana').eq('id', dannye.klub_id).single();
