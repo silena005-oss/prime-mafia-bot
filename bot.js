@@ -17,6 +17,15 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 console.log('🎴 PrimeMafia бот запущен!');
 
+// Автоматическое завершение при 409 конфликте
+bot.on('polling_error', (err) => {
+    if (err.message && err.message.includes('409')) {
+        console.log('409 конфликт — завершаю старый процесс');
+        bot.stopPolling();
+        setTimeout(() => process.exit(0), 1000);
+    }
+});
+
 // ID администратора для загрузки картинок
 const ADMIN_TG_ID = parseInt(process.env.ADMIN_TG_ID || '0');
 
