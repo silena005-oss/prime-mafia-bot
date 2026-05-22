@@ -343,7 +343,7 @@ bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
         if (igra_join.igroki.length >= igra_join.kolichestvo) {
             bot.sendMessage(msg.chat.id, '\u274C Все места заняты'); return;
         }
-        const { data: igrok_j } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', String(tg_id_j)).single();
+        const { data: igrok_j } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', tg_id_j).single();
         const name_j = igrok_j?.igrovoy_nik || igrok_j?.imya || msg.from.first_name || 'Игрок';
         const nomer_j = igra_join.igroki.length + 1;
         igra_join.igroki.push({ telegram_id: tg_id_j, name: name_j, nomer: nomer_j, status: 'v_igre', foly: 0, igrok_id: igrok_j?.id || null });
