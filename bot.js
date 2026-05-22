@@ -1718,12 +1718,14 @@ bot.on('callback_query', async function(query) {
         const { data: igrok } = await supabase
             .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
-        const { data: chleny } = await supabase
+        console.log('[DEBUG] igrok найден:', igrok?.id, 'err:', err1?.message);
+        const { data: chleny, error: err2 } = await supabase
             .from('chleny_klubov')
             .select('klub_id, rol, kluby(id, nazvaniye)')
             .eq('igrok_id', igrok?.id)
             .in('rol', ['vladyelets', 'vedushchiy']);
 
+        console.log('[DEBUG] chleny найдено:', chleny?.length, 'err:', err2?.message);
         const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
 
         if (!kluby || kluby.length === 0) {
@@ -3441,7 +3443,8 @@ bot.on('callback_query', async function(query) {
 
     // ===== НАЗНАЧИТЬ ВЕДУЩЕГО =====
     else if (data === 'naznachit_vedushchego') {
-        const { data: igrok } = await supabase
+        console.log('[DEBUG] naznachit_vedushchego вызван, tg_id:', telegram_id);
+        const { data: igrok, error: err1 } = await supabase
             .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         const { data: chleny } = await supabase
