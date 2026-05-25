@@ -760,6 +760,76 @@ bot.on('message', async function(msg) {
     // Игнорируем команды
     if (text.startsWith('/')) return;
 
+    // ===== ФИЗИЧЕСКИЕ КАРТЫ: ведущая вручную вносит игроков и роли =====
+    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('manual_roles_')) {
+        const kod = sostoyanie[tg_id].replace('manual_roles_', '');
+        const igra = igry[kod];
+        if (!igra) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(chatId, '❌ Игра не найдена. Создай игру заново.');
+            return;
+        }
+
+        const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+        if (lines.length !== igra.kolichestvo) {
+            bot.sendMessage(chatId,
+                '❌ Нужно ' + igra.kolichestvo + ' строк, по числу мест в игре.\n\n' +
+                'Сейчас строк: ' + lines.length + '.\n\n' +
+                'Пример:\n`1. Аня — Дон`\n`2. Оля — Мафия`\n`3. Катя — Мирный`',
+                { parse_mode: 'Markdown' }
+            );
+            return;
+        }
+
+        const parsed = [];
+        const oshibki = [];
+        lines.forEach((line, idx) => {
+            const row = razobratStrokuRoli(line, idx);
+            if (!row) oshibki.push((idx + 1) + '. ' + line);
+            else parsed.push(row);
+        });
+
+        if (oshibki.length > 0) {
+            bot.sendMessage(chatId,
+                '❌ Не понял роль в строках:\n' + oshibki.join('\n') +
+                '\n\nПиши так: `Имя — Роль`.\nРоль должна совпадать с названием в боте: Дон, Мафия, Шериф, Мирный и т.д.',
+                { parse_mode: 'Markdown' }
+            );
+            return;
+        }
+
+        igra.igroki = parsed.map((row, idx) => ({
+            telegram_id: null,
+            name: row.name,
+            nomer: idx + 1,
+            rol: row.rol,
+            status: 'v_igre',
+            foly: 0,
+            igrok_id: null
+        }));
+        igra.rezhim_rolei = 'karty';
+        igra.roli_razdany = true;
+        igra.den = 1;
+        delete sostoyanie[tg_id];
+        await sohranit_igru(kod);
+
+        let svodka = '✅ *Роли внесены вручную!*\n\n';
+        svodka += '🎴 Игра №' + kod + '\n';
+        svodka += '👥 Игроков: ' + igra.kolichestvo + '\n\n';
+        igra.igroki.forEach(i => {
+            svodka += '№' + i.nomer + ' ' + i.name + ' — *' + i.rol + '*\n';
+        });
+
+        bot.sendMessage(chatId, svodka, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
+                [{ text: '👋 Начать знакомство', callback_data: 'faza_znakomstvo_' + kod }]
+            ]}
+        });
+        return;
+    }
+
     // ===== РЕГИСТРАЦИЯ: шаг 1 — имя =====
     if (ozhidanie_registracii[tg_id]?.shag === 'imya') {
         if (text.length < 2) {
@@ -1315,6 +1385,35 @@ function stopTimer(kod) {
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
 }
 
+function vseRoliDostupnye() {
+    return Object.keys(roli_opisaniya);
+}
+
+function razobratStrokuRoli(line, index) {
+    const bezNomera = String(line || '')
+        .trim()
+        .replace(/^\d+[\).\-\s]*/, '')
+        .trim();
+
+    const roli = vseRoliDostupnye().sort((a, b) => b.length - a.length);
+    const lower = bezNomera.toLowerCase();
+
+    for (const rol of roli) {
+        const rolLower = rol.toLowerCase();
+        if (lower === rolLower) {
+            return { name: 'Игрок ' + (index + 1), rol };
+        }
+        if (lower.endsWith(rolLower)) {
+            const name = bezNomera.slice(0, bezNomera.length - rol.length)
+                .replace(/[—–\-:|,]+$/g, '')
+                .trim();
+            if (name) return { name, rol };
+        }
+    }
+
+    return null;
+}
+
 async function pokazatLobbyIgry(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) return;
@@ -1341,6 +1440,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
     if (igra.rezhim_rolei === 'bot') {
         knopki.push([{ text: polno ? '🎭 Раздать роли' : '🎭 Раздать роли (ждём игроков)', callback_data: 'razdat_' + kod }]);
     } else {
+        knopki.push([{ text: '✍️ Внести роли вручную', callback_data: 'manual_roles_' + kod }]);
         knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру (ждём игроков)', callback_data: 'nachat_igru_' + kod }]);
     }
     knopki.push([{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]);
@@ -2567,6 +2667,26 @@ bot.on('callback_query', async function(query) {
         await pokazatLobbyIgry(chatId, messageId, kod);
     }
 
+    else if (data.startsWith('manual_roles_')) {
+        const kod = data.replace('manual_roles_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        sostoyanie[telegram_id] = 'manual_roles_' + kod;
+        bot.editMessageText(
+            '✍️ *Внеси роли вручную*\n\n' +
+            'Пришли одним сообщением список на *' + igra.kolichestvo + '* игроков.\n\n' +
+            'Формат:\n' +
+            '`1. Аня — Дон`\n' +
+            '`2. Оля — Мафия`\n' +
+            '`3. Катя — Мирный`\n\n' +
+            'После этого бот откроет игровую панель и таймеры. Игрокам ничего отправляться не будет.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'obnovit_igru_' + kod }]] }
+            }
+        );
+    }
+
     else if (data.startsWith('nachat_igru_')) {
         const kod = data.replace('nachat_igru_', '');
         const igra = igry[kod];
@@ -2762,10 +2882,12 @@ bot.on('callback_query', async function(query) {
         if (!igrok) return;
         igrok.status = 'vybyl';
 
-        bot.sendMessage(igrok.telegram_id,
-            '\uD83D\uDC80 *Ты выбыл из игры \u2116' + kod + '*\n\nТвоя роль была: *' + igrok.rol + '*',
-            { parse_mode: 'Markdown' }
-        );
+        if (igrok.telegram_id) {
+            bot.sendMessage(igrok.telegram_id,
+                '\uD83D\uDC80 *Ты выбыл из игры \u2116' + kod + '*\n\nТвоя роль была: *' + igrok.rol + '*',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
+        }
 
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 \u2116' + nomer + ' ' + igrok.name + ' выбыл' });
         await sohranit_igru(kod);
@@ -2812,19 +2934,23 @@ bot.on('callback_query', async function(query) {
 
         if (igrok.foly >= (igra.max_foly || 3)) {
             igrok.status = 'vybyl';
-            bot.sendMessage(igrok.telegram_id,
-                '\uD83D\uDEAB *Ты удалён из игры \u2116' + kod + '* за 3 фола.\n\nТвоя роль была: *' + igrok.rol + '*',
-                { parse_mode: 'Markdown' }
-            );
+            if (igrok.telegram_id) {
+                bot.sendMessage(igrok.telegram_id,
+                    '\uD83D\uDEAB *Ты удалён из игры \u2116' + kod + '* за 3 фола.\n\nТвоя роль была: *' + igrok.rol + '*',
+                    { parse_mode: 'Markdown' }
+                ).catch(() => {});
+            }
             bot.answerCallbackQuery(query.id, { text: '\uD83D\uDEAB ' + igrok.name + ' удалён за 3 фола!', show_alert: true });
             await sohranit_igru(kod);
             const pobeditel = opredelitPobeditelya(igra);
             if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         } else {
-            bot.sendMessage(igrok.telegram_id,
-                '\u26A0\uFE0F *Фол ' + igrok.foly + '/3* в игре \u2116' + kod,
-                { parse_mode: 'Markdown' }
-            );
+            if (igrok.telegram_id) {
+                bot.sendMessage(igrok.telegram_id,
+                    '\u26A0\uFE0F *Фол ' + igrok.foly + '/3* в игре \u2116' + kod,
+                    { parse_mode: 'Markdown' }
+                ).catch(() => {});
+            }
             bot.answerCallbackQuery(query.id, { text: '\u26A0\uFE0F Фол ' + igrok.foly + '/3 — ' + igrok.name });
         }
 
@@ -3079,7 +3205,7 @@ bot.on('callback_query', async function(query) {
         igra.tekushchiy_nomer = igra.poryadok_hoda[0];
         igra.naznacheny_golos.forEach(nomer => {
             const i = igra.igroki.find(x => x.nomer === nomer);
-            if (i) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Тебя выставили на голосование!*\n\nГотовь оправдание.', { parse_mode: 'Markdown' }).catch(() => {});
+            if (i?.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Тебя выставили на голосование!*\n\nГотовь оправдание.', { parse_mode: 'Markdown' }).catch(() => {});
         });
         const sek_op = igra._nastroyki?.opravdanie_sek || 25;
         await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'opravdanie') } });
@@ -3111,7 +3237,10 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         const igrok_gv = igra.igroki.find(i => i.nomer === nomer_gv);
-        if (igrok_gv) { igrok_gv.status = 'vybyl'; bot.sendMessage(igrok_gv.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + igrok_gv.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); }
+        if (igrok_gv) {
+            igrok_gv.status = 'vybyl';
+            if (igrok_gv.telegram_id) bot.sendMessage(igrok_gv.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + igrok_gv.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+        }
         igra.naznacheny_golos = [];
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 ' + (igrok_gv?.name || '') + ' выбыл' });
         const pobeditel = opredelitPobeditelya(igra);
@@ -3625,7 +3754,7 @@ bot.on('callback_query', async function(query) {
 
         if (igra) {
             for (const igrok of igra.igroki) {
-                bot.sendMessage(igrok.telegram_id, '❌ Ведущий отменил игру №' + kod);
+                if (igrok.telegram_id) bot.sendMessage(igrok.telegram_id, '❌ Ведущий отменил игру №' + kod).catch(() => {});
             }
             delete igry[kod];
         }
