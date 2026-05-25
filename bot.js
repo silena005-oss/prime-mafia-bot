@@ -474,6 +474,7 @@ const menu_vedushchego = {
         inline_keyboard: [
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
             [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+            [{ text: '🏛 Игры клуба', callback_data: 'igry_kluba' }],
             [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
             [{ text: '📋 Внести результаты', callback_data: 'vnesti_rezultaty' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
@@ -501,6 +502,7 @@ const menu_vladeltsa = {
         inline_keyboard: [
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
             [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+            [{ text: '🏛 Игры клуба', callback_data: 'igry_kluba' }],
             [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
             [{ text: '🏆 Рейтинг и баллы', callback_data: 'reyting_vybor_kluba' }],
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
@@ -1520,6 +1522,57 @@ function aktivnyeIgryVedushchego(telegram_id) {
         .sort((a, b) => String(a.kod).localeCompare(String(b.kod)));
 }
 
+function aktivnyeIgryKluba(klub_id) {
+    return Object.entries(igry)
+        .filter(([kod, igra]) => !String(kod).startsWith('archive_') && igra?.klub_id === klub_id && !igra._ne_sohranyat)
+        .map(([kod, igra]) => ({ kod, igra }))
+        .sort((a, b) => String(a.kod).localeCompare(String(b.kod)));
+}
+
+async function poluchitKlubyDlyaIgr(telegram_id) {
+    const { data: igrok } = await supabase
+        .from('igroki')
+        .select('id')
+        .eq('tg_id', telegram_id)
+        .single();
+
+    const { data: chleny } = await supabase
+        .from('chleny_klubov')
+        .select('klub_id, rol, kluby(id, nazvaniye)')
+        .eq('igrok_id', igrok?.id)
+        .in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
+
+    return (chleny || []).filter(c => c.kluby).map(c => c.kluby);
+}
+
+async function pokazatIgryKluba(chatId, messageId, klub) {
+    const aktivnye = aktivnyeIgryKluba(klub.id);
+    let t = '🏛 *Игры клуба*\n\nКлуб: *' + klub.nazvaniye + '*\n\n';
+    const knopki = [];
+
+    if (aktivnye.length === 0) {
+        t += '_Активных игр сейчас нет._\n';
+    } else {
+        t += '*Активные игры:*\n';
+        aktivnye.forEach(({ kod, igra }) => {
+            const vIgre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
+            const rezhim = igra.rezhim_rolei === 'karty' ? 'физ. карты' : (igra.rezhim_rolei === 'bot' ? 'бот' : 'режим не выбран');
+            const status = igra.roli_razdany ? 'идёт' : 'лобби';
+            t += '🎴 №' + kod + ' — ' + status + ', ' + rezhim + ', ' + vIgre + '/' + (igra.kolichestvo || 0) + '\n';
+            knopki.push([{ text: '🎮 Открыть игру №' + kod, callback_data: 'open_igra_' + kod }]);
+        });
+    }
+
+    knopki.push([{ text: '📚 История клуба', callback_data: 'hist_klub_' + klub.id }]);
+    knopki.push([{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]);
+    knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
+
+    await bot.editMessageText(t, {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
+}
+
 async function otkrytIgruVedushchego(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) {
@@ -2013,6 +2066,92 @@ bot.on('callback_query', async function(query) {
         await otkrytIgruVedushchego(chatId, messageId, kod);
     }
 
+    // ===== ИГРЫ КЛУБА =====
+    else if (data === 'igry_kluba') {
+        const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+        if (kluby.length === 0) {
+            bot.editMessageText('🏛 *Игры клуба*\n\nУ тебя пока нет клуба, где ты собственник или ведущая.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]] }
+            });
+            return;
+        }
+
+        if (kluby.length === 1) {
+            await pokazatIgryKluba(chatId, messageId, kluby[0]);
+            return;
+        }
+
+        const knopki = kluby.map(k => [{ text: '🏛 ' + k.nazvaniye, callback_data: 'igry_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
+        bot.editMessageText('🏛 *Игры клуба*\n\nВыбери клуб:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('igry_klub_')) {
+        const klub_id = data.replace('igry_klub_', '');
+        const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+        const klub = kluby.find(k => k.id === klub_id);
+        if (!klub) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к клубу', show_alert: true });
+            return;
+        }
+        await pokazatIgryKluba(chatId, messageId, klub);
+    }
+
+    else if (data.startsWith('hist_klub_')) {
+        const klub_id = data.replace('hist_klub_', '');
+        const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+        const klub = kluby.find(k => k.id === klub_id);
+        if (!klub) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к клубу', show_alert: true });
+            return;
+        }
+
+        const { data: rows, error } = await supabase
+            .from('aktivnye_igry')
+            .select('*')
+            .eq('klub_id', klub_id)
+            .eq('zavershena', true)
+            .order('obnovlena_v', { ascending: false })
+            .limit(10);
+
+        if (error) {
+            bot.editMessageText('❌ Не получилось загрузить историю клуба.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Игры клуба', callback_data: 'igry_klub_' + klub_id }]] }
+            });
+            return;
+        }
+
+        let t = '📚 *История клуба*\n\nКлуб: *' + klub.nazvaniye + '*\n\n';
+        const knopki = [];
+        if (!rows || rows.length === 0) {
+            t += '_Завершённых игр пока нет._';
+        } else {
+            rows.forEach(row => {
+                const igrokiRow = typeof row.igroki === 'string' ? JSON.parse(row.igroki || '[]') : (row.igroki || []);
+                const nastroykiRow = typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki || '{}') : (row.nastroyki || {});
+                const dataIgry = row.obnovlena_v ? row.obnovlena_v.slice(0, 10) : '';
+                const pobeditel = nastroykiRow.pobeditel === 'mirnye' ? 'мирные'
+                    : nastroykiRow.pobeditel === 'mafiya' ? 'мафия'
+                    : nastroykiRow.pobeditel === 'manyak' ? 'маньяк'
+                    : 'не указан';
+                t += '🏁 №' + row.kod + ' — ' + dataIgry + ', победитель: ' + pobeditel + ', игроков: ' + igrokiRow.length + '\n';
+                knopki.push([{ text: '📋 Игра №' + row.kod, callback_data: 'hist_igra_' + row.kod }]);
+            });
+        }
+        knopki.push([{ text: '⬅️ Игры клуба', callback_data: 'igry_klub_' + klub_id }]);
+        knopki.push([{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]);
+
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
     // ===== ИСТОРИЯ ИГР =====
     else if (data === 'istoriya_igr') {
         const { data: rows, error } = await supabase
@@ -2061,12 +2200,25 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('hist_igra_')) {
         const kod = data.replace('hist_igra_', '');
-        const { data: row } = await supabase
+        let { data: row } = await supabase
             .from('aktivnye_igry')
             .select('*')
             .eq('kod', kod)
             .eq('vedushchii_tg_id', telegram_id)
             .single();
+
+        if (!row) {
+            const { data: rowByKod } = await supabase
+                .from('aktivnye_igry')
+                .select('*')
+                .eq('kod', kod)
+                .single();
+
+            if (rowByKod?.klub_id) {
+                const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+                if (kluby.some(k => k.id === rowByKod.klub_id)) row = rowByKod;
+            }
+        }
 
         if (!row) {
             bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
@@ -2092,6 +2244,7 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '⬅️ История игр', callback_data: 'istoriya_igr' }],
+                row.klub_id ? [{ text: '🏛 Игры клуба', callback_data: 'igry_klub_' + row.klub_id }] : [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
                 [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
             ]}
         });
@@ -3950,10 +4103,9 @@ bot.on('callback_query', async function(query) {
     else if (data === 'druzya_menu') {
         bot.editMessageText(
             '\uD83C\uDFAE *Играть с друзьями*\n\n' +
-            'Создай личную игру и пригласи друзей по коду.\n\n' +
-            '\uD83D\uDCCB Правила на выбор — Паскаль, ВИП или Наиля\n' +
-            '\uD83D\uDC65 От 8 до 20 игроков\n' +
-            '\uD83C\uDFC6 Без рейтинга — просто для удовольствия\n\n' +
+            'Личная игра без клуба и без рейтинга: создаёшь код, друзья подключаются, бот раздаёт роли.\n\n' +
+            '\uD83C\uDFC6 *Спортивная* — классика на 10 ролей\n' +
+            '\uD83C\uDF06 *Городская* — любительская игра на 8–20 ролей\n\n' +
             '\uD83D\uDCB0 *Стоимость: 99 ₽ за игру*\n' +
             '_Оплата — при создании игры_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -3968,12 +4120,11 @@ bot.on('callback_query', async function(query) {
     // ===== ДРУЗЬЯ: выбор правил =====
     else if (data === 'druzya_sozdat') {
         bot.editMessageText(
-            '\uD83C\uDFB2 *Создать игру с друзьями*\n\nКакие правила?', {
+            '\uD83C\uDFB2 *Создать игру с друзьями*\n\nВыбери формат игры:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\uD83C\uDFAD Паскаль', callback_data: 'druzya_tip_paskal' }],
-                [{ text: '\uD83C\uDFD9 VIP (городская)', callback_data: 'druzya_tip_vip' }],
-                [{ text: '\uD83C\uDF06 Наиля / Москва', callback_data: 'druzya_tip_naila' }],
+                [{ text: '\uD83C\uDFC6 Спортивная', callback_data: 'druzya_tip_sportivniy' }],
+                [{ text: '\uD83C\uDF06 Городская', callback_data: 'druzya_tip_gorodskaya' }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_menu' }]
             ]}
         });
@@ -3982,15 +4133,8 @@ bot.on('callback_query', async function(query) {
     // ===== ДРУЗЬЯ: выбор количества =====
     else if (data.startsWith('druzya_tip_')) {
         const tip_d = data.replace('druzya_tip_', '');
-        const tip_names_d = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля' };
-        const kol_knopki_d = [];
-        for (let i = 0; i < 13; i += 4) {
-            kol_knopki_d.push([8,9,10,11].slice(i > 0 ? i-8 : 0, i > 0 ? i-4 : 4).filter(n => n).map(n => ({
-                text: String(n), callback_data: 'druzya_kol_' + tip_d + '_' + n
-            })));
-        }
-        // Проще — строки по 4
-        const vse_kol = [8,9,10,11,12,13,14,15,16,17,18,19,20];
+        const tip_names_d = { gorodskaya: 'Городская', sportivniy: 'Спортивная' };
+        const vse_kol = tip_d === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20];
         const rows_d = [];
         for (let i = 0; i < vse_kol.length; i += 4) {
             rows_d.push(vse_kol.slice(i, i+4).map(n => ({ text: String(n), callback_data: 'druzya_kol_' + tip_d + '_' + n })));
@@ -3998,7 +4142,7 @@ bot.on('callback_query', async function(query) {
         rows_d.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_sozdat' }]);
 
         bot.editMessageText(
-            '\uD83C\uDFB2 *' + (tip_names_d[tip_d] || tip_d) + '*\n\nСколько игроков?', {
+            '\uD83C\uDFB2 *' + (tip_names_d[tip_d] || tip_d) + '*\n\nВыбери количество ролей:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: rows_d }
         });
@@ -4009,8 +4153,9 @@ bot.on('callback_query', async function(query) {
         const parts_dk = data.replace('druzya_kol_', '').split('_');
         const tip_dk = parts_dk[0];
         const kol_dk = parseInt(parts_dk[1]);
+        const sostav_tip_dk = tip_dk === 'sportivniy' ? 'sportivniy' : 'paskal';
 
-        const preview_dk = pokazat_sostav_preview(kol_dk, tip_dk, {});
+        const preview_dk = pokazat_sostav_preview(kol_dk, sostav_tip_dk, {});
         if (!preview_dk) { bot.answerCallbackQuery(query.id, { text: '\u274C Нет состава', show_alert: true }); return; }
 
         bot.editMessageText(
@@ -4020,7 +4165,7 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '\uD83D\uDCB3 Оплатить и создать (99 ₽)', callback_data: 'druzya_oplata_' + tip_dk + '_' + kol_dk }],
-                [{ text: '\u270F\uFE0F Изменить состав', callback_data: 'druzya_edit_' + tip_dk + '_' + kol_dk }],
+                [{ text: '\u270F\uFE0F Изменить количество ролей', callback_data: 'druzya_tip_' + tip_dk }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_tip_' + tip_dk }]
             ]}
         });
@@ -4031,11 +4176,12 @@ bot.on('callback_query', async function(query) {
         const parts_op = data.replace('druzya_oplata_', '').split('_');
         const tip_op = parts_op[0];
         const kol_op = parseInt(parts_op[1]);
+        const sostav_tip_op = tip_op === 'sportivniy' ? 'sportivniy' : 'paskal';
 
         // ЗАГЛУШКА ОПЛАТЫ — в будущем подключить ЮKassa/Telegram Stars
         // Пока создаём игру бесплатно для тестирования
         const kod = sgenerirovat_kod();
-        const preview_op = pokazat_sostav_preview(kol_op, tip_op, {});
+        const preview_op = pokazat_sostav_preview(kol_op, sostav_tip_op, {});
 
         igry[kod] = {
             kolichestvo: kol_op,
@@ -4043,8 +4189,9 @@ bot.on('callback_query', async function(query) {
             igroki: [],
             roli_razdany: false,
             klub_id: null,
-            tip_kluba: tip_op,
-            sportivniy: false,
+            tip_kluba: sostav_tip_op,
+            sportivniy: tip_op === 'sportivniy',
+            rezhim_rolei: 'bot',
             _sostav_custom: preview_op?.sostav,
             _druzya_rezhim: true, // режим "с друзьями" — без рейтинга
             _oplacheno: true
@@ -4072,7 +4219,7 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== ДРУЗЬЯ: войти по коду =====
-    else if (data === 'druzya_войти') {
+    else if (data === 'druzya_voiti') {
         sostoyanie[telegram_id] = 'vvodit_kod_druzya';
         bot.editMessageText(
             '\uD83D\uDD11 *Войти в игру друга*\n\nВведи код игры:', {
