@@ -387,7 +387,18 @@ async function sohranit_igru(kod) {
 // Удалить игру из Supabase при завершении
 async function zavershit_igru_v_db(kod) {
     try {
-        await supabase.from('aktivnye_igry').update({ zavershena: true, obnovlena_v: new Date().toISOString() }).eq('kod', kod);
+        const igra = igry[kod] || igry['archive_' + kod];
+        const nastroyki = {
+            ...(igra?._nastroyki || {}),
+            rezhim_rolei: igra?.rezhim_rolei || null,
+            pobeditel: igra?.pobeditel || null
+        };
+        await supabase.from('aktivnye_igry').update({
+            zavershena: true,
+            igroki: JSON.stringify(igra?.igroki || []),
+            nastroyki: JSON.stringify(nastroyki),
+            obnovlena_v: new Date().toISOString()
+        }).eq('kod', kod);
     } catch(e) {}
 }
 
@@ -462,6 +473,8 @@ const menu_vedushchego = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+            [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+            [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
             [{ text: '📋 Внести результаты', callback_data: 'vnesti_rezultaty' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
@@ -487,6 +500,8 @@ const menu_vladeltsa = {
     reply_markup: {
         inline_keyboard: [
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
+            [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+            [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
             [{ text: '🏆 Рейтинг и баллы', callback_data: 'reyting_vybor_kluba' }],
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
             [{ text: '🎤 Назначить ведущего', callback_data: 'naznachit_vedushchego' }],
@@ -1498,6 +1513,52 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
     });
 }
 
+function aktivnyeIgryVedushchego(telegram_id) {
+    return Object.entries(igry)
+        .filter(([kod, igra]) => !String(kod).startsWith('archive_') && igra?.vedushchii_id === telegram_id && !igra._ne_sohranyat)
+        .map(([kod, igra]) => ({ kod, igra }))
+        .sort((a, b) => String(a.kod).localeCompare(String(b.kod)));
+}
+
+async function otkrytIgruVedushchego(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) {
+        await bot.editMessageText('❌ Игра не найдена. Возможно, она уже завершена.', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]] }
+        });
+        return;
+    }
+
+    if (!igra.rezhim_rolei && !igra.roli_razdany) {
+        await bot.editMessageText(
+            '🎮 *Игра №' + kod + '*\n\nУ этой игры ещё не выбран режим раздачи ролей. Выбери режим, чтобы продолжить:',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🃏 Физические карты', callback_data: 'rezhim_karty_' + kod }],
+                    [{ text: '📱 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
+                    [{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]
+                ]}
+            }
+        );
+        return;
+    }
+
+    if (!igra.roli_razdany) {
+        await pokazatLobbyIgry(chatId, messageId, kod);
+        return;
+    }
+
+    await bot.editMessageText('🎮 *Игра №' + kod + '*\n\nОткрой игровую панель:', {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
+            [{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]
+        ]}
+    });
+}
+
 function lichnoeVremyaSek(igra) {
     const nastroeno = parseInt(igra?._nastroyki?.minuta_sek, 10);
     if (Number.isFinite(nastroeno)) return Math.min(60, Math.max(40, nastroeno));
@@ -1910,6 +1971,129 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
             chat_id: chatId, message_id: messageId,
             parse_mode: 'Markdown', ...menu_vladeltsa
+        });
+    }
+
+    // ===== МОИ ИГРЫ ВЕДУЩЕЙ =====
+    else if (data === 'moi_igry') {
+        const aktivnye = aktivnyeIgryVedushchego(telegram_id);
+        if (aktivnye.length === 0) {
+            bot.editMessageText(
+                '🎮 *Мои игры*\n\nАктивных игр пока нет.',
+                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                  reply_markup: { inline_keyboard: [
+                    [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+                    [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
+                    [{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]
+                  ]}}
+            );
+            return;
+        }
+
+        let t = '🎮 *Мои активные игры*\n\n';
+        const knopki = aktivnye.map(({ kod, igra }) => {
+            const vIgre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
+            const rezhim = igra.rezhim_rolei === 'karty' ? 'физ. карты' : (igra.rezhim_rolei === 'bot' ? 'бот' : 'режим не выбран');
+            const status = igra.roli_razdany ? 'идёт' : 'лобби';
+            t += '🎴 №' + kod + ' — ' + status + ', ' + rezhim + ', ' + vIgre + '/' + (igra.kolichestvo || 0) + '\n';
+            return [{ text: '🎮 Открыть игру №' + kod, callback_data: 'open_igra_' + kod }];
+        });
+        knopki.push([{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]);
+        knopki.push([{ text: '📚 История игр', callback_data: 'istoriya_igr' }]);
+        knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
+
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('open_igra_')) {
+        const kod = data.replace('open_igra_', '');
+        await otkrytIgruVedushchego(chatId, messageId, kod);
+    }
+
+    // ===== ИСТОРИЯ ИГР =====
+    else if (data === 'istoriya_igr') {
+        const { data: rows, error } = await supabase
+            .from('aktivnye_igry')
+            .select('*')
+            .eq('vedushchii_tg_id', telegram_id)
+            .eq('zavershena', true)
+            .order('obnovlena_v', { ascending: false })
+            .limit(10);
+
+        if (error) {
+            bot.editMessageText('❌ Не получилось загрузить историю игр.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]] }
+            });
+            return;
+        }
+
+        if (!rows || rows.length === 0) {
+            bot.editMessageText('📚 *История игр*\n\nЗавершённых игр пока нет.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]] }
+            });
+            return;
+        }
+
+        let t = '📚 *История игр*\n\nПоследние завершённые игры:\n\n';
+        const knopki = rows.map(row => {
+            const igrokiRow = typeof row.igroki === 'string' ? JSON.parse(row.igroki || '[]') : (row.igroki || []);
+            const nastroykiRow = typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki || '{}') : (row.nastroyki || {});
+            const dataIgry = row.obnovlena_v ? row.obnovlena_v.slice(0, 10) : '';
+            const pobeditel = nastroykiRow.pobeditel === 'mirnye' ? 'мирные'
+                : nastroykiRow.pobeditel === 'mafiya' ? 'мафия'
+                : nastroykiRow.pobeditel === 'manyak' ? 'маньяк'
+                : 'не указан';
+            t += '🏁 №' + row.kod + ' — ' + dataIgry + ', победитель: ' + pobeditel + ', игроков: ' + igrokiRow.length + '\n';
+            return [{ text: '📋 Игра №' + row.kod, callback_data: 'hist_igra_' + row.kod }];
+        });
+        knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
+
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('hist_igra_')) {
+        const kod = data.replace('hist_igra_', '');
+        const { data: row } = await supabase
+            .from('aktivnye_igry')
+            .select('*')
+            .eq('kod', kod)
+            .eq('vedushchii_tg_id', telegram_id)
+            .single();
+
+        if (!row) {
+            bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
+            return;
+        }
+
+        const igrokiRow = typeof row.igroki === 'string' ? JSON.parse(row.igroki || '[]') : (row.igroki || []);
+        const nastroykiRow = typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki || '{}') : (row.nastroyki || {});
+        const pobeditel = nastroykiRow.pobeditel === 'mirnye' ? '🟢 Мирные'
+            : nastroykiRow.pobeditel === 'mafiya' ? '🔴 Мафия'
+            : nastroykiRow.pobeditel === 'manyak' ? '🎯 Маньяк'
+            : 'не указан';
+        let t = '📋 *Игра №' + kod + '*\n\n';
+        t += 'Дата: ' + (row.obnovlena_v ? row.obnovlena_v.slice(0, 10) : 'не указана') + '\n';
+        t += 'Победитель: ' + pobeditel + '\n\n';
+        t += '*Состав:*\n';
+        igrokiRow.forEach(i => {
+            const em = i.status === 'v_igre' ? '✅' : '💀';
+            t += em + ' №' + i.nomer + ' ' + i.name + ' — ' + (i.rol || '?') + '\n';
+        });
+
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '⬅️ История игр', callback_data: 'istoriya_igr' }],
+                [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+            ]}
         });
     }
 
