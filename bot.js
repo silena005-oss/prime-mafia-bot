@@ -2799,6 +2799,12 @@ bot.on('callback_query', async function(query) {
             const opisanie = roli_opisaniya[igrok.rol] || ('\uD83C\uDFAD *Роль: ' + igrok.rol + '*');
             const maf_roli_check = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
             const is_maf_player = maf_roli_check.includes(igrok.rol);
+            const komanda_mafii = is_maf_player
+                ? igra.igroki
+                    .filter(i => maf_roli_check.includes(i.rol))
+                    .map(i => '№' + i.nomer + ' ' + i.name + ' — ' + i.rol)
+                    .join('\n')
+                : '';
             const reply_markup_role = is_maf_player
                 ? { inline_keyboard: [[{ text: '\uD83D\uDC40 Посмотреть свою команду', callback_data: 'moya_komanda_' + kod }]] }
                 : undefined;
@@ -2806,6 +2812,7 @@ bot.on('callback_query', async function(query) {
             const tekst_roli = opisanie + '\n\n' +
                 '\uD83C\uDFB4 Игра \u2116' + kod + '\n' +
                 '\uD83D\uDC64 Ты — игрок \u2116' + igrok.nomer + '\n\n' +
+                (komanda_mafii ? '\uD83D\uDD34 *Твоя команда:*\n' + komanda_mafii + '\n\n' : '') +
                 '\uD83E\uDD2B _Никому не показывай!_';
             if (foto_id) {
                 bot.sendPhoto(igrok.telegram_id, foto_id, {
