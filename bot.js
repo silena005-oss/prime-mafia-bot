@@ -14,20 +14,164 @@ if (!token) {
     process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
-console.log('🎴 PrimeMafia бот запущен!');
+const bot = new TelegramBot(token, { polling: false });
 
-// Автоматическое завершение при 409 конфликте
-bot.on('polling_error', (err) => {
-    if (err.message && err.message.includes('409')) {
-        console.log('409 конфликт — завершаю старый процесс');
-        bot.stopPolling();
-        setTimeout(() => process.exit(0), 1000);
+let pollingZapuschen = false;
+let konflikt409Popytki = 0;
+const MAX_409_POVTOROV = 8;
+
+function etoOshibka409(err) {
+    return err?.response?.statusCode === 409
+        || (err?.message && String(err.message).includes('409'));
+}
+
+async function zapustitPolling() {
+    if (pollingZapuschen) return;
+    await bot.deleteWebhook({ drop_pending_updates: true });
+    await bot.startPolling();
+    pollingZapuschen = true;
+    konflikt409Popytki = 0;
+}
+
+async function perezapuskPosle409() {
+    konflikt409Popytki += 1;
+    if (konflikt409Popytki > MAX_409_POVTOROV) {
+        console.error(
+            '409 не исчезает после ' + MAX_409_POVTOROV + ' попыток.\n' +
+            'Останови второй процесс: локальный node bot.js и лишние сервисы на Railway (нужна 1 реплика).'
+        );
+        process.exit(1);
     }
+    const sek = Math.min(konflikt409Popytki * 3, 15);
+    console.warn('409 конфликт — другой getUpdates. Пауза ' + sek + 'с, попытка ' + konflikt409Popytki + '/' + MAX_409_POVTOROV);
+    try { await bot.stopPolling(); } catch (_) {}
+    pollingZapuschen = false;
+    await new Promise(r => setTimeout(r, sek * 1000));
+    try {
+        await zapustitPolling();
+        console.log('✅ Polling снова активен');
+    } catch (e) {
+        if (etoOshibka409(e)) await perezapuskPosle409();
+        else console.error('[polling restart]', e.message || e);
+    }
+}
+
+bot.on('polling_error', (err) => {
+    if (etoOshibka409(err)) {
+        perezapuskPosle409().catch(e => console.error('[409 handler]', e.message || e));
+        return;
+    }
+    console.error('[polling_error]', err.message || err);
 });
+
+(async function initTelegram() {
+    try {
+        const me = await bot.getMe();
+        console.log('🤖 @' + (me.username || me.id));
+        await zapustitPolling();
+        console.log('🎴 PrimeMafia бот запущен (polling)');
+    } catch (e) {
+        if (etoOshibka409(e)) {
+            await perezapuskPosle409();
+            console.log('🎴 PrimeMafia бот запущен после ожидания 409');
+        } else {
+            console.error('❌ Не удалось запустить бота:', e.message || e);
+            process.exit(1);
+        }
+    }
+})();
 
 // ID администратора для загрузки картинок
 const ADMIN_TG_ID = parseInt(process.env.ADMIN_TG_ID || '0');
+if (ADMIN_TG_ID) {
+    console.log('🔐 Режим админа: tg_id', ADMIN_TG_ID);
+} else {
+    console.warn('⚠️ ADMIN_TG_ID не задан — загрузка фото ролей отключена');
+}
+
+const ROL_VEDUSHCHIY = 'vedushchiy';
+
+function isVedushchiy(rol) {
+    return rol === ROL_VEDUSHCHIY || rol === 'vedushchii';
+}
+
+function razobrat_datu_anonsa(vvod) {
+    if (!vvod) return null;
+    const s = String(vvod).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    const m1 = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+    if (m1) {
+        let god = parseInt(m1[3], 10);
+        if (god < 100) god += 2000;
+        return god + '-' + String(m1[2]).padStart(2, '0') + '-' + String(m1[1]).padStart(2, '0');
+    }
+
+    const mesyacy = {
+        'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
+        'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
+        'январь': 1, 'февраль': 2, 'март': 3, 'апрель': 4, 'май': 5, 'июнь': 6,
+        'июль': 7, 'август': 8, 'сентябрь': 9, 'октябрь': 10, 'ноябрь': 11, 'декабрь': 12
+    };
+    const m2 = s.match(/^(\d{1,2})\s+([а-яё]+)/i);
+    if (m2) {
+        const mes = mesyacy[m2[2].toLowerCase()];
+        if (mes) {
+            const den = parseInt(m2[1], 10);
+            const seychas = new Date();
+            let god = seychas.getFullYear();
+            const kandidat = new Date(god, mes - 1, den);
+            if (kandidat < new Date(seychas.getFullYear(), seychas.getMonth(), seychas.getDate())) {
+                god += 1;
+            }
+            return god + '-' + String(mes).padStart(2, '0') + '-' + String(den).padStart(2, '0');
+        }
+    }
+    return null;
+}
+
+function formatDataAnonsa(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '';
+    const [y, m, d] = iso.split('-');
+    return d.replace(/^0/, '') + '.' + m.replace(/^0/, '') + '.' + y;
+}
+
+function isAdmin(tg_id) {
+    return ADMIN_TG_ID > 0 && tg_id === ADMIN_TG_ID;
+}
+
+// Telegram: callback_data максимум 64 байта
+const _cbStore = new Map();
+let _cbSeq = 0;
+
+function cbPack(data) {
+    _cbSeq = (_cbSeq % 999000) + 1;
+    _cbStore.set(_cbSeq, { ...data, _t: Date.now() });
+    return _cbSeq;
+}
+
+function cbUnpack(id) {
+    return _cbStore.get(Number(id)) || null;
+}
+
+function cbBtn(prefix, data) {
+    const id = cbPack(data);
+    const s = prefix + id;
+    const len = Buffer.byteLength(s, 'utf8');
+    if (len > 64) console.error('[cbBtn] превышен лимит', len, prefix, data);
+    return s;
+}
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of _cbStore) {
+        if (now - v._t > 3600000) _cbStore.delete(k);
+    }
+}, 600000);
+
+process.on('unhandledRejection', (err) => {
+    console.error('[unhandledRejection]', err?.message || err);
+});
 
 // ============================================
 // СОСТАВЫ
@@ -388,7 +532,7 @@ bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
             bot.sendMessage(chatId, `🏛 *Привет, ${igrok.imya}!*\n\nМеню собственника`, {
                 parse_mode: 'Markdown', ...menu_vladeltsa
             });
-        } else if (rol === 'vedushchiy') {
+        } else if (isVedushchiy(rol)) {
             bot.sendMessage(chatId, `🎭 *Привет, ${igrok.imya}!*\n\nМеню ведущего`, {
                 parse_mode: 'Markdown', ...menu_vedushchego
             });
@@ -422,7 +566,12 @@ const roli_foto = {};
 
 bot.on('photo', async (msg) => {
     const tg_id = msg.from.id;
-    if (ADMIN_TG_ID && tg_id !== ADMIN_TG_ID) return;
+    if (!isAdmin(tg_id)) {
+        if (msg.caption) {
+            bot.sendMessage(msg.chat.id, '❌ Загрузка картинок ролей доступна только администратору.\n\nНапиши /admin — там инструкция.');
+        }
+        return;
+    }
 
     // Проверяем caption — должно быть название роли
     const caption = msg.caption?.trim();
@@ -455,9 +604,31 @@ bot.on('photo', async (msg) => {
 });
 
 // Команда /roles_status — показать какие роли загружены
+bot.onText(/\/admin/, async (msg) => {
+    const tg_id = msg.from.id;
+    if (!isAdmin(tg_id)) {
+        bot.sendMessage(msg.chat.id,
+            '🔐 *Режим администратора*\n\n' +
+            'Доступ только у владельца бота (ADMIN_TG_ID в Railway).\n\n' +
+            'Твой Telegram ID: `' + tg_id + '`\n' +
+            '_Добавь его в переменную ADMIN_TG_ID и перезапусти сервис._',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+    bot.sendMessage(msg.chat.id,
+        '🔐 *Режим администратора*\n\n' +
+        '📸 *Загрузка картинок ролей:*\n' +
+        'Отправь фото с *подписью* = точное название роли\n' +
+        '_Пример подписи: Дон_\n\n' +
+        '📋 /roles\\_status — какие роли уже загружены',
+        { parse_mode: 'Markdown' }
+    );
+});
+
 bot.onText(/\/roles_status/, async (msg) => {
     const tg_id = msg.from.id;
-    if (ADMIN_TG_ID && tg_id !== ADMIN_TG_ID) return;
+    if (!isAdmin(tg_id)) return;
 
     // Загружаем из Supabase
     const { data: rows } = await supabase.from('nastroyki_app')
@@ -504,12 +675,20 @@ zagruzit_foto_roley();
 async function arhivirovat_starye_anonsy() {
     try {
         const segodnya = new Date().toISOString().slice(0, 10);
+        const { data: anonsy } = await supabase
+            .from('anonsy')
+            .select('id, data_igry')
+            .eq('status', 'aktiven');
+        const ids = (anonsy || []).filter(a => {
+            const iso = razobrat_datu_anonsa(a.data_igry) || a.data_igry;
+            return iso && iso < segodnya;
+        }).map(a => a.id);
+        if (ids.length === 0) return;
         const { error } = await supabase
             .from('anonsy')
             .update({ status: 'arhiv' })
-            .eq('status', 'aktiven')
-            .lt('data_igry', segodnya);
-        if (!error) console.log('\uD83D\uDDC4 Архивация анонсов выполнена');
+            .in('id', ids);
+        if (!error) console.log('📦 Архивация анонсов:', ids.length);
     } catch(e) {
         console.error('Ошибка архивации:', e.message);
     }
@@ -630,7 +809,15 @@ bot.on('message', async function(msg) {
         delete sostoyanie[tg_id];
 
         const update = {};
-        if (pole === 'data') update.data_igry = text.trim();
+        if (pole === 'data') {
+            const dataIso = razobrat_datu_anonsa(text.trim());
+            if (!dataIso) {
+                bot.sendMessage(chatId, '❌ Не понял дату. Введи, например: *15.05.2026* или *15 мая*', { parse_mode: 'Markdown' });
+                sostoyanie[tg_id] = 'anons_upd_data_' + anons_id;
+                return;
+            }
+            update.data_igry = dataIso;
+        }
         if (pole === 'vremya') update.vremya = text.trim();
         if (pole === 'adres') update.adres = text.trim();
         if (pole === 'komment') update.kommentariy = text.trim();
@@ -652,9 +839,14 @@ bot.on('message', async function(msg) {
     // ===== АНОНС: ввод даты =====
     if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('anons_data_')) {
         const klub_id = sostoyanie[tg_id].replace('anons_data_', '');
+        const dataIso = razobrat_datu_anonsa(text.trim());
+        if (!dataIso) {
+            bot.sendMessage(chatId, '❌ Не понял дату. Введи, например: *15.05.2026* или *15 мая*', { parse_mode: 'Markdown' });
+            return;
+        }
         delete sostoyanie[tg_id];
-        ozhidanie_registracii[tg_id] = { shag: 'anons_vremya', klub_id, data_igry: text.trim() };
-        bot.sendMessage(chatId, '📢 *Создание анонса*\n\n*Дата:* ' + text.trim() + '\n\n🕐 Введи время игры:\n_Пример: 19:00_', {
+        ozhidanie_registracii[tg_id] = { shag: 'anons_vremya', klub_id, data_igry: dataIso };
+        bot.sendMessage(chatId, '📢 *Создание анонса*\n\n*Дата:* ' + formatDataAnonsa(dataIso) + '\n\n🕐 Введи время игры:\n_Пример: 19:00_', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
         });
@@ -770,7 +962,7 @@ bot.on('message', async function(msg) {
 
         const knopki = igroki.map(i => [{
             text: i.imya + (i.tg_username ? ' @' + i.tg_username : '') + ' ' + (i.telefon || ''),
-            callback_data: 'naznach_podtverd_' + klub_id + '_' + i.id
+            callback_data: cbBtn('ncfm_', { klub_id, igrok_id: i.id })
         }]);
         knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
 
@@ -817,7 +1009,7 @@ bot.on('message', async function(msg) {
 
         const knopki = igroki.map(i => [{
             text: i.imya + (i.tg_username ? ' @' + i.tg_username : '') + (i.telefon ? ' ' + i.telefon : ''),
-            callback_data: 'naznach_podtverd_' + klub_id + '_' + i.id
+            callback_data: cbBtn('ncfm_', { klub_id, igrok_id: i.id })
         }]);
         knopki.push([{ text: '🔍 Искать снова', callback_data: 'naznachit_v_klube_' + klub_id }]);
         knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
@@ -1373,6 +1565,8 @@ bot.on('callback_query', async function(query) {
     const telegram_id = query.from.id;
     const data = query.data;
 
+    console.log('[callback]', telegram_id, data);
+
     bot.answerCallbackQuery(query.id);
 
     // ===== ВОЗВРАТ В МЕНЮ =====
@@ -1552,18 +1746,18 @@ bot.on('callback_query', async function(query) {
         const segodnya_d = new Date().toISOString().slice(0, 10);
         const { data: anonsy } = await supabase
             .from('anonsy')
-            .select('id, data_igry, vremya, adres, kommentariy, kluby(nazvaniye)')
+            .select('id, data_igry, vremya, adres, kommentariy, kluby(nazvaniye, gorod)')
             .eq('status', 'aktiven')
-            .gte('data_igry', segodnya_d)
             .order('data_igry', { ascending: true })
-            .limit(10);
+            .limit(50);
 
-        // Фильтруем по городу клуба
         const filtr = (anonsy || []).filter(a => {
-            // Пока фильтруем через adres содержащий город (упрощённо)
-            // В будущем — через gorod_id клуба
-            return true;
-        });
+            const gorodKluba = (a.kluby?.gorod || '').trim().toLowerCase();
+            const gorodIgroka = (igrok.gorod || '').trim().toLowerCase();
+            if (!gorodKluba || !gorodIgroka || gorodKluba !== gorodIgroka) return false;
+            const iso = razobrat_datu_anonsa(a.data_igry) || a.data_igry;
+            return iso && iso >= segodnya_d;
+        }).slice(0, 10);
 
         if (filtr.length === 0) {
             bot.editMessageText('📢 *Анонсы игр в ' + igrok.gorod + '*\n\n_Пока нет запланированных игр._', {
@@ -1578,7 +1772,7 @@ bot.on('callback_query', async function(query) {
 
         filtr.forEach((a, i) => {
             tekst += (i + 1) + '. 🎴 *' + (a.kluby?.nazvaniye || 'Клуб') + '*\n';
-            tekst += '   📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+            tekst += '   📅 ' + formatDataAnonsa(razobrat_datu_anonsa(a.data_igry) || a.data_igry) + ' в ' + (a.vremya || '') + '\n';
             tekst += '   📍 ' + (a.adres || '') + '\n';
             if (a.kommentariy) tekst += '   💬 ' + a.kommentariy + '\n';
             tekst += '\n';
@@ -1732,7 +1926,7 @@ bot.on('callback_query', async function(query) {
             .from('chleny_klubov')
             .select('klub_id, rol, kluby(id, nazvaniye)')
             .eq('igrok_id', igrok?.id)
-            .in('rol', ['vladyelets', 'vedushchiy']);
+            .in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
 
         console.log('[DEBUG] chleny найдено:', chleny?.length, 'err:', err2?.message);
         const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
@@ -1805,13 +1999,40 @@ bot.on('callback_query', async function(query) {
 
         const knopki = anonsy.map(a => [{
             text: '📅 ' + a.data_igry + ' ' + (a.vremya || '') + ' — ' + (a.adres || ''),
-            callback_data: 'igra_vybr_anons_' + klub_id + '_' + a.id
+            callback_data: cbBtn('iva_', { klub_id, anons_id: a.id })
         }]);
         knopki.push([{ text: '⬅️ Назад', callback_data: 'igra_klub_' + klub_id }]);
 
         bot.editMessageText('🎲 *Выбери анонс:*', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('iva_')) {
+        const p = cbUnpack(data.replace('iva_', ''));
+        if (!p) { bot.answerCallbackQuery(query.id, { text: 'Нажми снова', show_alert: true }); return; }
+        const { klub_id, anons_id } = p;
+        bot.editMessageText('🎲 *Создание игры*\n\nНа сколько игроков?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '8', callback_data: cbBtn('in_', { klub_id, anons_id, k: 8 }) },
+                     { text: '9', callback_data: cbBtn('in_', { klub_id, anons_id, k: 9 }) },
+                     { text: '10', callback_data: cbBtn('in_', { klub_id, anons_id, k: 10 }) },
+                     { text: '11', callback_data: cbBtn('in_', { klub_id, anons_id, k: 11 }) }],
+                    [{ text: '12', callback_data: cbBtn('in_', { klub_id, anons_id, k: 12 }) },
+                     { text: '13', callback_data: cbBtn('in_', { klub_id, anons_id, k: 13 }) },
+                     { text: '14', callback_data: cbBtn('in_', { klub_id, anons_id, k: 14 }) },
+                     { text: '15', callback_data: cbBtn('in_', { klub_id, anons_id, k: 15 }) }],
+                    [{ text: '16', callback_data: cbBtn('in_', { klub_id, anons_id, k: 16 }) },
+                     { text: '17', callback_data: cbBtn('in_', { klub_id, anons_id, k: 17 }) },
+                     { text: '18', callback_data: cbBtn('in_', { klub_id, anons_id, k: 18 }) }],
+                    [{ text: '19', callback_data: cbBtn('in_', { klub_id, anons_id, k: 19 }) },
+                     { text: '20', callback_data: cbBtn('in_', { klub_id, anons_id, k: 20 }) }],
+                    [{ text: '⬅️ Назад', callback_data: 'igra_anons_' + klub_id }]
+                ]
+            }
         });
     }
 
@@ -1823,19 +2044,19 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '8', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_8' },
-                     { text: '9', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_9' },
-                     { text: '10', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_10' },
-                     { text: '11', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_11' }],
-                    [{ text: '12', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_12' },
-                     { text: '13', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_13' },
-                     { text: '14', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_14' },
-                     { text: '15', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_15' }],
-                    [{ text: '16', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_16' },
-                     { text: '17', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_17' },
-                     { text: '18', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_18' }],
-                    [{ text: '19', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_19' },
-                     { text: '20', callback_data: 'igra_n_' + klub_id + '_' + anons_id + '_20' }],
+                    [{ text: '8', callback_data: cbBtn('in_', { klub_id, anons_id, k: 8 }) },
+                     { text: '9', callback_data: cbBtn('in_', { klub_id, anons_id, k: 9 }) },
+                     { text: '10', callback_data: cbBtn('in_', { klub_id, anons_id, k: 10 }) },
+                     { text: '11', callback_data: cbBtn('in_', { klub_id, anons_id, k: 11 }) }],
+                    [{ text: '12', callback_data: cbBtn('in_', { klub_id, anons_id, k: 12 }) },
+                     { text: '13', callback_data: cbBtn('in_', { klub_id, anons_id, k: 13 }) },
+                     { text: '14', callback_data: cbBtn('in_', { klub_id, anons_id, k: 14 }) },
+                     { text: '15', callback_data: cbBtn('in_', { klub_id, anons_id, k: 15 }) }],
+                    [{ text: '16', callback_data: cbBtn('in_', { klub_id, anons_id, k: 16 }) },
+                     { text: '17', callback_data: cbBtn('in_', { klub_id, anons_id, k: 17 }) },
+                     { text: '18', callback_data: cbBtn('in_', { klub_id, anons_id, k: 18 }) }],
+                    [{ text: '19', callback_data: cbBtn('in_', { klub_id, anons_id, k: 19 }) },
+                     { text: '20', callback_data: cbBtn('in_', { klub_id, anons_id, k: 20 }) }],
                     [{ text: '⬅️ Назад', callback_data: 'igra_anons_' + klub_id }]
                 ]
             }
@@ -1989,9 +2210,9 @@ bot.on('callback_query', async function(query) {
                           'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
                           'Мстительный родственник', 'Маньяк', 'Мирный'];
 
-        const knopki_zam = vse_roli.map(r => [{
+        const knopki_zam = vse_roli.map((r, ri) => [{
             text: (r === tekushchaya ? '\u2705 ' : '') + r,
-            callback_data: 'sostav_set_' + preview_key + '_' + rol_idx + '_' + r
+            callback_data: 'sostav_set_' + preview_key + '_' + rol_idx + '_' + ri
         }]);
         knopki_zam.push([{ text: '\u2B05\uFE0F Отмена', callback_data: 'sostav_edit_' + preview_key }]);
 
@@ -2015,7 +2236,13 @@ bot.on('callback_query', async function(query) {
         const tip_s = parts_s[1];
         const kol_s = parts_s[2];
         const idx_s = parseInt(parts_s[3]);
-        const new_rol = parts_s.slice(4).join(' ');
+        const vse_roli_s = ['Дон', 'Мафия', 'Путана', 'Подрывник', 'Консильери', 'Эскортница',
+            'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
+            'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+            'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
+            'Мстительный родственник', 'Маньяк', 'Мирный'];
+        const rol_ri = parseInt(parts_s[4], 10);
+        const new_rol = vse_roli_s[rol_ri] || parts_s.slice(4).join(' ');
         const preview_key_s = klub_id_s + '_' + tip_s + '_' + kol_s;
         const preview_data_s = igry['preview_' + preview_key_s];
         if (!preview_data_s) return;
@@ -2073,6 +2300,38 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki_tip }
         });
+    }
+
+    else if (data.startsWith('in_')) {
+        const p = cbUnpack(data.replace('in_', ''));
+        if (!p) { bot.answerCallbackQuery(query.id, { text: 'Нажми снова', show_alert: true }); return; }
+        const klub_id = p.klub_id;
+        const anons_id = p.anons_id;
+        const kolichestvo = parseInt(p.k, 10);
+        const kod = sgenerirovat_kod();
+        igry[kod] = {
+            kod,
+            klub_id,
+            anons_id: anons_id === 'null' ? null : anons_id,
+            kolichestvo,
+            vedushchii_id: telegram_id,
+            igroki: [],
+            roli_razdany: false,
+            rezhim_rolei: null
+        };
+        bot.editMessageText(
+            '✅ *Игра создана!*\n\n🎴 Код игры: *' + kod + '*\n👥 Мест: ' + kolichestvo + '\n\nВыбери режим раздачи ролей:',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🃏 Физические карты (Паскаль)', callback_data: 'rezhim_karty_' + kod }],
+                        [{ text: '📱 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
+                        [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }]
+                    ]
+                }
+            }
+        );
     }
 
     else if (data.startsWith('igra_n_')) {
@@ -2605,15 +2864,15 @@ bot.on('callback_query', async function(query) {
         stopTimer(kod);
         const alive_g = igra.igroki.filter(i => i.status === 'v_igre');
         const uzhe_g = igra.naznacheny_golos || [];
-        const knopki_g = alive_g.map(i => [{ text: (uzhe_g.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'naznachit_' + kod + '_' + i.nomer }]);
+        const knopki_g = alive_g.map(i => [{ text: (uzhe_g.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
         knopki_g.push([{ text: '\u2705 Начать оправдание (' + uzhe_g.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
         knopki_g.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
         bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбери игроков:', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_g } });
     }
 
     // ===== НАЗНАЧИТЬ НА ГОЛОСОВАНИЕ (тоггл) =====
-    else if (data.startsWith('naznachit_')) {
-        const parts_n = data.replace('naznachit_', '').split('_');
+    else if (data.startsWith('golos_toggle_')) {
+        const parts_n = data.replace('golos_toggle_', '').split('_');
         const kod = parts_n[0];
         const nomer_n = parseInt(parts_n[1]);
         const igra = igry[kod];
@@ -2623,7 +2882,7 @@ bot.on('callback_query', async function(query) {
         if (idx_n >= 0) { igra.naznacheny_golos.splice(idx_n, 1); bot.answerCallbackQuery(query.id, { text: 'Снято' }); }
         else { igra.naznacheny_golos.push(nomer_n); bot.answerCallbackQuery(query.id, { text: '\uD83D\uDCA5 Выставлен' }); }
         const alive_n = igra.igroki.filter(i => i.status === 'v_igre');
-        const knopki_n = alive_n.map(i => [{ text: (igra.naznacheny_golos.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'naznachit_' + kod + '_' + i.nomer }]);
+        const knopki_n = alive_n.map(i => [{ text: (igra.naznacheny_golos.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
         knopki_n.push([{ text: '\u2705 Начать оправдание (' + igra.naznacheny_golos.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
         knopki_n.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
         bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбраны: ' + igra.naznacheny_golos.length, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_n } });
@@ -2863,7 +3122,7 @@ bot.on('callback_query', async function(query) {
     // ===== РЕЙТИНГ: выбор клуба =====
     else if (data === 'reyting_vybor_kluba') {
         const { data: igrok_r } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
-        const { data: chleny_r } = await supabase.from('chleny_klubov').select('klub_id, rol, kluby(id, nazvaniye)').eq('igrok_id', igrok_r?.id).in('rol', ['vladyelets', 'vedushchii']);
+        const { data: chleny_r } = await supabase.from('chleny_klubov').select('klub_id, rol, kluby(id, nazvaniye)').eq('igrok_id', igrok_r?.id).in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
         const kluby_r = (chleny_r || []).filter(c => c.kluby).map(c => c.kluby);
         if (kluby_r.length === 0) { bot.editMessageText('\u274C Нет клубов', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]] } }); return; }
         if (kluby_r.length === 1) { await pokazat_reyting_kluba(chatId, messageId, kluby_r[0].id, false); return; }
@@ -3056,7 +3315,7 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '\uD83C\uDFB2 Создать игру (99 ₽)', callback_data: 'druzya_sozdat' }],
-                [{ text: '\uD83D\uDD11 Войти по коду', callback_data: 'druzya_войти' }],
+                [{ text: '\uD83D\uDD11 Войти по коду', callback_data: 'druzya_voiti' }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_igroka' }]
             ]}
         });
@@ -3346,27 +3605,40 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== СОБСТВЕННИК: карточка игрока =====
+    else if (data.startsWith('ip_')) {
+        const p = cbUnpack(data.replace('ip_', ''));
+        if (!p) return;
+        await pokazat_kartochku_igroka(chatId, messageId, p.klub_id, p.igrok_id);
+    }
+
     else if (data.startsWith('igrok_')) {
         const chasti = data.replace('igrok_', '').split('_');
         const klub_id = chasti[0];
-        const igrok_id = chasti[1];
+        const igrok_id = chasti.slice(1).join('_');
         await pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id);
     }
 
     // ===== СОБСТВЕННИК: сделать ведущим =====
+    else if (data.startsWith('vd_')) {
+        const p = cbUnpack(data.replace('vd_', ''));
+        if (!p) return;
+        const { error } = await supabase.from('chleny_klubov').update({ rol: ROL_VEDUSHCHIY })
+            .eq('klub_id', p.klub_id).eq('igrok_id', p.igrok_id);
+        if (error) {
+            console.error('Ошибка назначения ведущего:', error);
+            bot.answerCallbackQuery(query.id, { text: '❌ Ошибка', show_alert: true });
+            return;
+        }
+        await pokazat_kartochku_igroka(chatId, messageId, p.klub_id, p.igrok_id);
+    }
+
     else if (data.startsWith('vedushii_')) {
         const chasti = data.replace('vedushii_', '').split('_');
         const klub_id = chasti[0];
-        const igrok_id = chasti[1];
-
-        const { error } = await supabase
-            .from('chleny_klubov')
-            .update({ rol: 'vedushchii' })
-            .eq('klub_id', klub_id)
-            .eq('igrok_id', igrok_id);
-
+        const igrok_id = chasti.slice(1).join('_');
+        const { error } = await supabase.from('chleny_klubov').update({ rol: ROL_VEDUSHCHIY })
+            .eq('klub_id', klub_id).eq('igrok_id', igrok_id);
         if (error) {
-            console.error('Ошибка назначения ведущего:', error);
             bot.answerCallbackQuery(query.id, { text: '❌ Ошибка', show_alert: true });
             return;
         }
@@ -3374,19 +3646,25 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== СОБСТВЕННИК: снять роль ведущего =====
+    else if (data.startsWith('sv_')) {
+        const p = cbUnpack(data.replace('sv_', ''));
+        if (!p) return;
+        const { error } = await supabase.from('chleny_klubov').update({ rol: 'igrok' })
+            .eq('klub_id', p.klub_id).eq('igrok_id', p.igrok_id);
+        if (error) {
+            bot.answerCallbackQuery(query.id, { text: '❌ Ошибка', show_alert: true });
+            return;
+        }
+        await pokazat_kartochku_igroka(chatId, messageId, p.klub_id, p.igrok_id);
+    }
+
     else if (data.startsWith('snyat_vedushii_')) {
         const chasti = data.replace('snyat_vedushii_', '').split('_');
         const klub_id = chasti[0];
-        const igrok_id = chasti[1];
-
-        const { error } = await supabase
-            .from('chleny_klubov')
-            .update({ rol: 'igrok' })
-            .eq('klub_id', klub_id)
-            .eq('igrok_id', igrok_id);
-
+        const igrok_id = chasti.slice(1).join('_');
+        const { error } = await supabase.from('chleny_klubov').update({ rol: 'igrok' })
+            .eq('klub_id', klub_id).eq('igrok_id', igrok_id);
         if (error) {
-            console.error('Ошибка снятия роли:', error);
             bot.answerCallbackQuery(query.id, { text: '❌ Ошибка', show_alert: true });
             return;
         }
@@ -3402,7 +3680,7 @@ bot.on('callback_query', async function(query) {
             .from('chleny_klubov')
             .select('klub_id, rol, kluby(id, nazvaniye)')
             .eq('igrok_id', igrok?.id)
-            .in('rol', ['vladyelets', 'vedushchiy']);
+            .in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
 
         const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
 
@@ -3502,10 +3780,11 @@ bot.on('callback_query', async function(query) {
         });
     }
 
-    else if (data.startsWith('naznach_podtverd_')) {
-        const parts = data.replace('naznach_podtverd_', '').split('_');
-        const klub_id = parts[0];
-        const igrok_id = parts[1];
+    else if (data.startsWith('ncfm_')) {
+        const p = cbUnpack(data.replace('ncfm_', ''));
+        if (!p) { bot.answerCallbackQuery(query.id, { text: 'Повтори поиск', show_alert: true }); return; }
+        const klub_id = p.klub_id;
+        const igrok_id = p.igrok_id;
 
         const { data: igrok } = await supabase
             .from('igroki').select('imya, tg_username, telefon').eq('id', igrok_id).single();
@@ -3521,17 +3800,80 @@ bot.on('callback_query', async function(query) {
             '\n\nКлуб: *' + (klub?.nazvaniye || '') + '*', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '✅ Да, назначить', callback_data: 'naznach_ok_' + klub_id + '_' + igrok_id }],
+                [{ text: '✅ Да, назначить', callback_data: cbBtn('nok_', { klub_id, igrok_id }) }],
                 [{ text: '🔍 Искать другого', callback_data: 'naznachit_v_klube_' + klub_id }],
                 [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
             ]}
         });
     }
 
+    else if (data.startsWith('naznach_podtverd_')) {
+        const parts = data.replace('naznach_podtverd_', '').split('_');
+        const klub_id = parts[0];
+        const igrok_id = parts.slice(1).join('_');
+
+        const { data: igrok } = await supabase
+            .from('igroki').select('imya, tg_username, telefon').eq('id', igrok_id).single();
+
+        const { data: klub } = await supabase
+            .from('kluby').select('nazvaniye').eq('id', klub_id).single();
+
+        bot.editMessageText(
+            '🎤 *Назначить ведущего?*\n\n' +
+            '👤 *' + (igrok?.imya || '') + '*' +
+            (igrok?.tg_username ? '\n@' + igrok.tg_username : '') +
+            (igrok?.telefon ? '\n📱 ' + igrok.telefon : '') +
+            '\n\nКлуб: *' + (klub?.nazvaniye || '') + '*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '✅ Да, назначить', callback_data: cbBtn('nok_', { klub_id, igrok_id }) }],
+                [{ text: '🔍 Искать другого', callback_data: 'naznachit_v_klube_' + klub_id }],
+                [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
+            ]}
+        });
+    }
+
+    else if (data.startsWith('nok_')) {
+        const p = cbUnpack(data.replace('nok_', ''));
+        if (!p) return;
+        const klub_id = p.klub_id;
+        const igrok_id = p.igrok_id;
+
+        const { data: sushch } = await supabase
+            .from('chleny_klubov')
+            .select('id, rol')
+            .eq('klub_id', klub_id)
+            .eq('igrok_id', igrok_id)
+            .single();
+
+        if (sushch) {
+            await supabase.from('chleny_klubov').update({ rol: ROL_VEDUSHCHIY }).eq('id', sushch.id);
+        } else {
+            await supabase.from('chleny_klubov').insert({ klub_id, igrok_id, rol: ROL_VEDUSHCHIY });
+        }
+
+        const { data: igrok } = await supabase.from('igroki').select('imya, tg_id').eq('id', igrok_id).single();
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+
+        bot.editMessageText('✅ *' + (igrok?.imya || 'Игрок') + '* назначен ведущим!', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🎤 Назначить ещё', callback_data: 'naznachit_vedushchego' }],
+                [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
+            ]}
+        });
+        if (igrok?.tg_id) {
+            bot.sendMessage(igrok.tg_id,
+                '🎤 *Вас назначили ведущим!*\n\n🎴 Клуб: *' + (klub?.nazvaniye || '') + '*\n\nНапиши /start чтобы открыть меню ведущего.',
+                { parse_mode: 'Markdown' }
+            );
+        }
+    }
+
     else if (data.startsWith('naznach_ok_')) {
         const parts = data.replace('naznach_ok_', '').split('_');
         const klub_id = parts[0];
-        const igrok_id = parts[1];
+        const igrok_id = parts.slice(1).join('_');
 
         // Проверяем есть ли уже в клубе
         const { data: sushch } = await supabase
@@ -3544,12 +3886,12 @@ bot.on('callback_query', async function(query) {
         if (sushch) {
             // Обновляем роль
             await supabase.from('chleny_klubov')
-                .update({ rol: 'vedushchiy' })
+                .update({ rol: ROL_VEDUSHCHIY })
                 .eq('id', sushch.id);
         } else {
             // Добавляем в клуб
             await supabase.from('chleny_klubov')
-                .insert({ klub_id, igrok_id, rol: 'vedushchiy' });
+                .insert({ klub_id, igrok_id, rol: ROL_VEDUSHCHIY });
         }
 
         const { data: igrok } = await supabase
@@ -3584,14 +3926,27 @@ bot.on('callback_query', async function(query) {
         const { data: igrok } = await supabase
             .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
+        const { data: klubyVlad } = await supabase
+            .from('chleny_klubov')
+            .select('klub_id')
+            .eq('igrok_id', igrok?.id)
+            .eq('rol', 'vladyelets');
+
+        const klubIds = (klubyVlad || []).map(c => c.klub_id).filter(Boolean);
+        if (klubIds.length === 0) {
+            bot.editMessageText('📋 *Мои анонсы*\n\n❌ Нет клубов.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+
         let query = supabase
             .from('anonsy')
             .select('id, data_igry, vremya, adres, kommentariy, status, kluby(nazvaniye)')
-            .eq('vedushchiy_id', igrok?.id)
+            .in('klub_id', klub_id ? [klub_id] : klubIds)
             .order('data_igry', { ascending: false })
             .limit(10);
-
-        if (klub_id) query = query.eq('klub_id', klub_id);
 
         const { data: anonsy } = await query;
 
@@ -3612,9 +3967,10 @@ bot.on('callback_query', async function(query) {
         anonsy.forEach((a, i) => {
             const status_emoji = a.status === 'aktiven' ? '🟢' : '🔴';
             tekst += (i + 1) + '. ' + status_emoji + ' *' + (a.kluby?.nazvaniye || '') + '*\n';
-            tekst += '   📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+            tekst += '   📅 ' + formatDataAnonsa(razobrat_datu_anonsa(a.data_igry) || a.data_igry) + ' в ' + (a.vremya || '') + '\n';
             tekst += '   📍 ' + (a.adres || '') + '\n\n';
-            knopki.push([{ text: status_emoji + ' ' + a.data_igry + ' ' + (a.vremya || '') + ' — ' + (a.kluby?.nazvaniye || ''), callback_data: 'anons_card_' + a.id }]);
+            const dataTxt = formatDataAnonsa(razobrat_datu_anonsa(a.data_igry) || a.data_igry);
+            knopki.push([{ text: status_emoji + ' ' + dataTxt + ' ' + (a.vremya || '') + ' — ' + (a.kluby?.nazvaniye || ''), callback_data: 'anons_card_' + a.id }]);
         });
 
         knopki.push([{ text: '📢 Создать новый', callback_data: 'anons_vybor_kluba' }]);
@@ -3838,15 +4194,15 @@ bot.on('callback_query', async function(query) {
         const knopki = vse.map((z, i) => {
             const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (i + 1);
             if (z.status === 'prishel') {
-                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: 'pris_net_' + z.id + '_' + anons_id }];
+                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: cbBtn('pn_', { zapis_id: z.id, anons_id }) }];
             } else {
-                return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: 'pris_da_' + z.id + '_' + anons_id }];
+                return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: cbBtn('pd_', { zapis_id: z.id, anons_id }) }];
             }
         });
 
         // Кнопка начать игру если есть пришедшие
         if (prishli.length >= 8) {
-            knopki.push([{ text: '🎲 Начать игру (' + prishli.length + ' чел)', callback_data: 'igra_iz_anонса_' + anons_id }]);
+            knopki.push([{ text: '🎲 Начать игру (' + prishli.length + ' чел)', callback_data: 'gia_' + anons_id }]);
         } else if (prishli.length > 0) {
             knopki.push([{ text: '⚠️ Нужно минимум 8 игроков (' + prishli.length + '/8)', callback_data: 'baza_noop' }]);
         }
@@ -3861,6 +4217,58 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== ПОСЕЩАЕМОСТЬ: отметить пришёл =====
+    else if (data.startsWith('pd_')) {
+        const p = cbUnpack(data.replace('pd_', ''));
+        if (!p) return;
+        const zapis_id = p.zapis_id;
+        const anons_id = p.anons_id;
+
+        await supabase.from('zapisi_na_anons').update({ status: 'prishel' }).eq('id', zapis_id);
+        bot.answerCallbackQuery(query.id, { text: '✅ Отмечен как пришедший' });
+
+        const { data: zapisi } = await supabase
+            .from('zapisi_na_anons')
+            .select('id, status, igrok_id, igroki(id, imya, tg_username, igrovoy_nik)')
+            .eq('anons_id', anons_id)
+            .in('status', ['aktivna', 'prishel', 'ne_prishel'])
+            .order('data_zapisi', { ascending: true });
+
+        const { data: anons } = await supabase
+            .from('anonsy').select('data_igry, vremya, kluby(nazvaniye)').eq('id', anons_id).single();
+
+        const vse = zapisi || [];
+        const prishli = vse.filter(z => z.status === 'prishel');
+
+        let tekst = '👥 *Список игроков*\n';
+        tekst += '📅 ' + (anons?.data_igry || '') + ' ' + (anons?.vremya || '') + '\n';
+        tekst += '🎴 ' + (anons?.kluby?.nazvaniye || '') + '\n\n';
+        tekst += '_Отметь кто пришёл:_\n';
+        vse.forEach((z, i) => {
+            const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || '—';
+            let st = z.id === zapis_id ? '✅' : (z.status === 'prishel' ? '✅' : (z.status === 'ne_prishel' ? '❌' : '⬜️'));
+            tekst += st + ' ' + (i + 1) + '. ' + nik + '\n';
+        });
+        if (prishli.length > 0) tekst += '\n👥 Пришли: *' + (prishli.length) + '*';
+
+        const knopki = vse.map((z, i) => {
+            const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (i + 1);
+            const st = z.id === zapis_id ? 'prishel' : z.status;
+            if (st === 'prishel') {
+                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: cbBtn('pn_', { zapis_id: z.id, anons_id }) }];
+            }
+            return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: cbBtn('pd_', { zapis_id: z.id, anons_id }) }];
+        });
+        const prishliCount = prishli.length;
+        if (prishliCount >= 8) {
+            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'gia_' + anons_id }]);
+        } else if (prishliCount > 0) {
+            knopki.push([{ text: '⚠️ Нужно минимум 8 (' + prishliCount + '/8)', callback_data: 'baza_noop' }]);
+        }
+        knopki.push([{ text: '🔄 Обновить', callback_data: 'anons_spisok_' + anons_id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'anons_card_' + anons_id }]);
+        bot.editMessageText(tekst, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+    }
+
     else if (data.startsWith('pris_da_')) {
         const parts = data.replace('pris_da_', '').split('_');
         const zapis_id = parts[0];
@@ -3901,14 +4309,14 @@ bot.on('callback_query', async function(query) {
             const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (i + 1);
             const st = z.id === zapis_id ? 'prishel' : z.status;
             if (st === 'prishel') {
-                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: 'pris_net_' + z.id + '_' + anons_id }];
+                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: cbBtn('pn_', { zapis_id: z.id, anons_id }) }];
             } else {
-                return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: 'pris_da_' + z.id + '_' + anons_id }];
+                return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: cbBtn('pd_', { zapis_id: z.id, anons_id }) }];
             }
         });
         const prishliCount = prishli.length;
         if (prishliCount >= 8) {
-            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'igra_iz_anонса_' + anons_id }]);
+            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'gia_' + anons_id }]);
         } else if (prishliCount > 0) {
             knopki.push([{ text: '⚠️ Нужно минимум 8 (' + prishliCount + '/8)', callback_data: 'baza_noop' }]);
         }
@@ -3922,6 +4330,53 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== ПОСЕЩАЕМОСТЬ: отметить не пришёл =====
+    else if (data.startsWith('pn_')) {
+        const p = cbUnpack(data.replace('pn_', ''));
+        if (!p) return;
+        const zapis_id = p.zapis_id;
+        const anons_id = p.anons_id;
+
+        await supabase.from('zapisi_na_anons').update({ status: 'ne_prishel' }).eq('id', zapis_id);
+        bot.answerCallbackQuery(query.id, { text: '❌ Отмечен как не пришедший' });
+
+        const { data: zapisi } = await supabase
+            .from('zapisi_na_anons')
+            .select('id, status, igrok_id, igroki(id, imya, tg_username, igrovoy_nik)')
+            .eq('anons_id', anons_id)
+            .in('status', ['aktivna', 'prishel', 'ne_prishel'])
+            .order('data_zapisi', { ascending: true });
+
+        const { data: anons } = await supabase
+            .from('anonsy').select('data_igry, vremya, kluby(nazvaniye)').eq('id', anons_id).single();
+
+        const vse = zapisi || [];
+        const prishli = vse.filter(z => z.status === 'prishel');
+        let tekst = '👥 *Список игроков*\n';
+        tekst += '📅 ' + (anons?.data_igry || '') + ' ' + (anons?.vremya || '') + '\n';
+        tekst += '🎴 ' + (anons?.kluby?.nazvaniye || '') + '\n\n_Отметь кто пришёл:_\n';
+        vse.forEach((z, i) => {
+            const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || '—';
+            const st = z.status === 'prishel' ? '✅' : (z.status === 'ne_prishel' ? '❌' : '⬜️');
+            tekst += st + ' ' + (i + 1) + '. ' + nik + '\n';
+        });
+        if (prishli.length > 0) tekst += '\n👥 Пришли: *' + prishli.length + '*';
+
+        const knopki = vse.map((z, i) => {
+            const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (i + 1);
+            if (z.status === 'prishel') {
+                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: cbBtn('pn_', { zapis_id: z.id, anons_id }) }];
+            }
+            return [{ text: '⬜️ ' + nik + ' — пришёл?', callback_data: cbBtn('pd_', { zapis_id: z.id, anons_id }) }];
+        });
+        const prishliCount = prishli.length;
+        if (prishliCount >= 8) {
+            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'gia_' + anons_id }]);
+        }
+        knopki.push([{ text: '🔄 Обновить', callback_data: 'anons_spisok_' + anons_id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'anons_card_' + anons_id }]);
+        bot.editMessageText(tekst, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+    }
+
     else if (data.startsWith('pris_net_')) {
         const parts = data.replace('pris_net_', '').split('_');
         const zapis_id = parts[0];
@@ -3961,13 +4416,13 @@ bot.on('callback_query', async function(query) {
             const nik = z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (i + 1);
             const st = z.id === zapis_id ? 'ne_prishel' : z.status;
             if (st === 'prishel') {
-                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: 'pris_net_' + z.id + '_' + anons_id }];
+                return [{ text: '✅ ' + nik + ' — не пришёл?', callback_data: cbBtn('pn_', { zapis_id: z.id, anons_id }) }];
             } else {
-                return [{ text: (st === 'ne_prishel' ? '❌' : '⬜️') + ' ' + nik + ' — пришёл?', callback_data: 'pris_da_' + z.id + '_' + anons_id }];
+                return [{ text: (st === 'ne_prishel' ? '❌' : '⬜️') + ' ' + nik + ' — пришёл?', callback_data: cbBtn('pd_', { zapis_id: z.id, anons_id }) }];
             }
         });
         if (prishliCount >= 8) {
-            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'igra_iz_anонса_' + anons_id }]);
+            knopki.push([{ text: '🎲 Начать игру (' + prishliCount + ' чел)', callback_data: 'gia_' + anons_id }]);
         } else if (prishliCount > 0) {
             knopki.push([{ text: '⚠️ Нужно минимум 8 (' + prishliCount + '/8)', callback_data: 'baza_noop' }]);
         }
@@ -3981,8 +4436,8 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== НАЧАТЬ ИГРУ ИЗ АНОНСА =====
-    else if (data.startsWith('igra_iz_anонса_')) {
-        const anons_id = data.replace('igra_iz_anонса_', '');
+    else if (data.startsWith('gia_')) {
+        const anons_id = data.replace('gia_', '');
 
         const { data: zapisi } = await supabase
             .from('zapisi_na_anons')
@@ -4089,7 +4544,7 @@ bot.on('callback_query', async function(query) {
             .from('chleny_klubov')
             .select('klub_id, rol, kluby(id, nazvaniye)')
             .eq('igrok_id', igrok?.id)
-            .in('rol', ['vladyelets', 'vedushchii']);
+            .in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
 
         const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
 
@@ -4307,13 +4762,13 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
 
     na_stranitse.forEach((i) => {
         const rol_emoji = i.rol === 'vladyelets' ? '👑 '
-                        : i.rol === 'vedushchii' ? '🎤 '
+                        : isVedushchiy(i.rol) ? '🎤 '
                         : '';
         const username = i.tg_username ? ' (@' + i.tg_username + ')' : '';
         const knopka_text = rol_emoji + (i.imya || 'Без имени') + username;
         knopki.push([{
             text: knopka_text,
-            callback_data: 'igrok_' + klub_id + '_' + i.id
+            callback_data: cbBtn('ip_', { klub_id, igrok_id: i.id })
         }]);
     });
 
@@ -4363,7 +4818,7 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
 
     const rol = chlen?.rol || 'igrok';
     const rol_text = rol === 'vladyelets' ? '👑 Собственник'
-                    : rol === 'vedushchii' ? '🎤 Ведущий'
+                    : isVedushchiy(rol) ? '🎤 Ведущий'
                     : '🎴 Игрок';
 
     const { data: klub } = await supabase
@@ -4382,10 +4837,10 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
 
     if (rol === 'vladyelets') {
         knopki.push([{ text: '⚠️ Это собственник клуба', callback_data: 'baza_noop' }]);
-    } else if (rol === 'vedushchii') {
-        knopki.push([{ text: '↩️ Снять роль ведущего', callback_data: 'snyat_vedushii_' + klub_id + '_' + igrok_id }]);
+    } else if (isVedushchiy(rol)) {
+        knopki.push([{ text: '↩️ Снять роль ведущего', callback_data: cbBtn('sv_', { klub_id, igrok_id }) }]);
     } else {
-        knopki.push([{ text: '🎤 Сделать ведущим', callback_data: 'vedushii_' + klub_id + '_' + igrok_id }]);
+        knopki.push([{ text: '🎤 Сделать ведущим', callback_data: cbBtn('vd_', { klub_id, igrok_id }) }]);
     }
 
     knopki.push([{ text: '⬅️ К списку', callback_data: 'baza_klub_' + klub_id + '_0' }]);
@@ -4626,7 +5081,7 @@ async function sohranit_anons(chatId, tg_id, dannye) {
     const tekst =
         '📢 *Анонс создан!*\n\n' +
         '🎴 *' + (klub?.nazvaniye || '') + '*\n' +
-        '📅 ' + dannye.data_igry + ' в ' + dannye.vremya + '\n' +
+        '📅 ' + formatDataAnonsa(dannye.data_igry) + ' в ' + dannye.vremya + '\n' +
         '📍 ' + dannye.adres +
         (dannye.kommentariy ? '\n💬 ' + dannye.kommentariy : '') +
         '\n\n_Игроки из ' + (klub?.gorod || 'вашего города') + ' увидят этот анонс в своём меню._';
@@ -4661,7 +5116,7 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
 
     const status_emoji = a.status === 'aktiven' ? '🟢 Активен' : '🔴 Неактивен';
     let tekst = '📢 *' + (a.kluby?.nazvaniye || '') + '*\n\n';
-    tekst += '📅 ' + a.data_igry + ' в ' + (a.vremya || '') + '\n';
+    tekst += '📅 ' + formatDataAnonsa(razobrat_datu_anonsa(a.data_igry) || a.data_igry) + ' в ' + (a.vremya || '') + '\n';
     tekst += '📍 ' + (a.adres || '') + '\n';
     if (a.kommentariy) tekst += '💬 ' + a.kommentariy + '\n';
     tekst += '\nСтатус: ' + status_emoji;
