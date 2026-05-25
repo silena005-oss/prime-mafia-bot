@@ -10,9 +10,23 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 const token = process.env.TELEGRAM_TOKEN;
 if (!token) {
-    console.log('❌ TELEGRAM_TOKEN не найден в .env');
+    console.error('❌ TELEGRAM_TOKEN не задан. Добавь переменную в Railway → Variables');
     process.exit(1);
 }
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    console.error('❌ SUPABASE_URL или SUPABASE_KEY не заданы в Railway → Variables');
+    process.exit(1);
+}
+
+// Railway (web-сервис) требует открытый PORT, иначе контейнер помечают Crashed
+const http = require('http');
+const PORT = process.env.PORT || 8080;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('PrimeMafia bot OK\n');
+}).listen(PORT, '0.0.0.0', () => {
+    console.log('🌐 Health check слушает порт', PORT);
+});
 
 const bot = new TelegramBot(token, { polling: false });
 
@@ -27,7 +41,7 @@ function etoOshibka409(err) {
 
 async function zapustitPolling() {
     if (pollingZapuschen) return;
-    await bot.deleteWebhook({ drop_pending_updates: true });
+    await bot.deleteWebHook({ drop_pending_updates: true });
     await bot.startPolling();
     pollingZapuschen = true;
     konflikt409Popytki = 0;
@@ -5187,6 +5201,7 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
 }
 
 (async function initTelegram() {
+    console.log('Запуск Telegram polling...');
     try {
         const me = await bot.getMe();
         console.log('🤖 @' + (me.username || me.id));
@@ -5195,10 +5210,9 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
     } catch (e) {
         if (etoOshibka409(e)) {
             await perezapuskPosle409();
-            console.log('🎴 PrimeMafia бот запущен после ожидания 409');
+            console.log('🎴 Polling перезапущен после 409');
         } else {
-            console.error('❌ Не удалось запустить бота:', e.message || e);
-            process.exit(1);
+            console.error('❌ Ошибка Telegram (бот на порту ' + PORT + ' жив, polling нет):', e.message || e);
         }
     }
 })();
