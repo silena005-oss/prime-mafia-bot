@@ -358,6 +358,10 @@ async function sohranit_igru(kod) {
     const igra = igry[kod];
     if (!igra || igra._ne_sohranyat) return;
     try {
+        const nastroyki = {
+            ...(igra._nastroyki || {}),
+            rezhim_rolei: igra.rezhim_rolei || null
+        };
         const data = {
             kod,
             klub_id: igra.klub_id || null,
@@ -368,7 +372,7 @@ async function sohranit_igru(kod) {
             igroki: JSON.stringify(igra.igroki || []),
             faza: igra.faza || 'ozhidanie',
             den: igra.den || 1,
-            nastroyki: JSON.stringify(igra._nastroyki || {}),
+            nastroyki: JSON.stringify(nastroyki),
             noch_deystviya: JSON.stringify(igra.noch_deystviya || {}),
             naznacheny_golos: JSON.stringify(igra.naznacheny_golos || []),
             obnovlena_v: new Date().toISOString(),
@@ -397,6 +401,7 @@ async function zagruzit_aktivnye_igry() {
         let count = 0;
         (rows || []).forEach(row => {
             if (!igry[row.kod]) {
+                const nastroyki = typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki) : (row.nastroyki || {});
                 igry[row.kod] = {
                     kolichestvo: row.kolichestvo,
                     vedushchii_id: row.vedushchii_tg_id,
@@ -406,7 +411,8 @@ async function zagruzit_aktivnye_igry() {
                     igroki: typeof row.igroki === 'string' ? JSON.parse(row.igroki) : (row.igroki || []),
                     faza: row.faza || 'ozhidanie',
                     den: row.den || 1,
-                    _nastroyki: typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki) : (row.nastroyki || {}),
+                    rezhim_rolei: nastroyki.rezhim_rolei || null,
+                    _nastroyki: nastroyki,
                     noch_deystviya: typeof row.noch_deystviya === 'string' ? JSON.parse(row.noch_deystviya) : (row.noch_deystviya || {}),
                     naznacheny_golos: typeof row.naznacheny_golos === 'string' ? JSON.parse(row.naznacheny_golos) : (row.naznacheny_golos || []),
                     roli_razdany: (row.igroki && (typeof row.igroki === 'string' ? JSON.parse(row.igroki) : row.igroki).some(i => i.rol)),
@@ -760,7 +766,8 @@ function naytiIgruDlyaRuchnyhRoley(tg_id, text) {
     const matches = Object.entries(igry).filter(([kod, igra]) => {
         if (String(kod).startsWith('archive_')) return false;
         if (!igra || igra.vedushchii_id !== tg_id) return false;
-        if (igra.rezhim_rolei !== 'karty' || igra.roli_razdany) return false;
+        if (igra.roli_razdany) return false;
+        if (igra.rezhim_rolei && igra.rezhim_rolei !== 'karty') return false;
         if (lines.length !== igra.kolichestvo) return false;
         return lines.every((line, idx) => !!razobratStrokuRoli(line, idx));
     });
@@ -1497,10 +1504,20 @@ function lichnoeVremyaSek(igra) {
     return igra?.kolichestvo > 15 ? 40 : 60;
 }
 
+const MAFIA_ROLES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
+const SHERIFF_ROLES = ['Шериф', 'Комиссар', 'Детектив'];
+
+function isMafiaRole(rol) {
+    return MAFIA_ROLES.includes(rol);
+}
+
+function isSheriffRole(rol) {
+    return SHERIFF_ROLES.includes(rol);
+}
+
 function opredelitPobeditelya(igra) {
-    const mafRoles = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
     const alive = (igra?.igroki || []).filter(i => i.status === 'v_igre');
-    const maf = alive.filter(i => mafRoles.includes(i.rol)).length;
+    const maf = alive.filter(i => isMafiaRole(i.rol)).length;
     const manyak = alive.filter(i => i.rol === 'Маньяк').length;
     const mirnye = alive.length - maf - manyak;
 
@@ -1684,15 +1701,17 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (log_msg) t += log_msg + '\n\n';
     t += '_Действия:_\n';
     t += (d.mafiya_tseli?.length ? '\u2705' : '\u25A1') + ' Мафия: ' + (d.mafiya_tseli?.length ? '\u2116' + d.mafiya_tseli[0] : 'не выбрала') + '\n';
+    if (roli_alive.includes('Дон')) t += (d.don_tseli ? '\u2705' : '\u25A1') + ' Дон: ' + (d.don_tseli ? '\u2116' + d.don_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
-    if (roli_alive.includes('Шериф') || roli_alive.includes('Комиссар') || roli_alive.includes('Детектив')) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
+    if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
 
     const knopki = [
         [{ text: '\uD83D\uDD2B Мафия убивает', callback_data: 'noch_vybor_maf_' + kod }],
     ];
+    if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
-    if (roli_alive.includes('Шериф') || roli_alive.includes('Комиссар') || roli_alive.includes('Детектив')) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
+    if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
     if (roli_alive.includes('Затычка')) knopki.push([{ text: '\uD83D\uDD07 Затычка блокирует', callback_data: 'noch_vybor_zat_' + kod }]);
     knopki.push([{ text: '\uD83C\uDF1F Итоги ночи', callback_data: 'noch_itog_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
@@ -2777,11 +2796,36 @@ bot.on('callback_query', async function(query) {
 
     // ===== ВНЕСТИ РЕЗУЛЬТАТЫ =====
     else if (data === 'vnesti_rezultaty') {
-        bot.editMessageText(
-            '📋 *Внести результаты игры*\n\n_Функция в разработке._\n\nСкоро здесь можно будет внести результаты прошедшей игры: состав, победитель, баллы игроков.', {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]] }
+        const aktivnye = Object.entries(igry)
+            .filter(([kod, igra]) => !String(kod).startsWith('archive_') && igra?.vedushchii_id === telegram_id && !igra._ne_sohranyat)
+            .map(([kod, igra]) => ({ kod, igra }));
+
+        if (aktivnye.length === 0) {
+            bot.editMessageText(
+                '\uD83D\uDCCB *Внести результаты игры*\n\nАктивных игр пока нет. Сначала создай игру или продолжи текущую из панели.',
+                {
+                    chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: '\uD83C\uDFB2 Создать игру', callback_data: 'sozdat_igru' }],
+                        [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vedushchego' }]
+                    ]}
+                }
+            );
+            return;
+        }
+
+        let t_rez = '\uD83D\uDCCB *Внести результаты игры*\n\nВыбери игру, которую нужно завершить:\n\n';
+        const knopki_rez = aktivnye.map(({ kod, igra }) => {
+            const v_igre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
+            t_rez += '\uD83C\uDFAE №' + kod + ' — день ' + (igra.den || 1) + ', за столом ' + v_igre + '/' + (igra.kolichestvo || igra.igroki?.length || 0) + '\n';
+            return [{ text: '\uD83C\uDFC1 Завершить игру №' + kod, callback_data: 'konec_' + kod }];
         });
+        knopki_rez.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vedushchego' }]);
+
+        bot.editMessageText(
+            t_rez,
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_rez } }
+        );
     }
 
     // ===== ВЕДУЩИЙ: раздать роли =====
@@ -3344,7 +3388,7 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('noch_vybor_maf_', '');
         const igra = igry[kod];
         if (!igra) return;
-        const alive_maf = igra.igroki.filter(i => i.status === 'v_igre' && !['Дон', 'Мафия', 'Эскортница'].includes(i.rol));
+        const alive_maf = igra.igroki.filter(i => i.status === 'v_igre' && !isMafiaRole(i.rol));
         const knopki_maf = alive_maf.map(i => [{ text: '\uD83D\uDD2B \u2116' + i.nomer + ' ' + i.name, callback_data: 'noch_maf_' + kod + '_' + i.nomer }]);
         knopki_maf.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
         bot.editMessageText('\uD83D\uDD2B *Мафия: выбери жертву*', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_maf } });
@@ -3360,7 +3404,35 @@ bot.on('callback_query', async function(query) {
         igra.noch_deystviya.mafiya_tseli = [nomer_nm];
         const zhertva_nm = igra.igroki.find(i => i.nomer === nomer_nm);
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD2B Цель: ' + (zhertva_nm?.name || '') });
+        await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD2B Мафия выбрала \u2116' + nomer_nm);
+    }
+
+    // ===== НОЧЬ: выбор цели Дона =====
+    else if (data.startsWith('noch_vybor_don_')) {
+        const kod = data.replace('noch_vybor_don_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const alive_don = igra.igroki.filter(i => i.status === 'v_igre' && i.rol !== 'Дон');
+        const knopki_don = alive_don.map(i => [{ text: '\uD83D\uDD0E \u2116' + i.nomer + ' ' + i.name, callback_data: 'noch_don_' + kod + '_' + i.nomer }]);
+        knopki_don.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText('\uD83D\uDD0E *Дон: кого проверить на Шерифа?*', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_don } });
+    }
+
+    // ===== НОЧЬ: Дон проверил =====
+    else if (data.startsWith('noch_don_')) {
+        const parts_ndon = data.replace('noch_don_', '').split('_');
+        const kod = parts_ndon[0];
+        const nomer_ndon = parseInt(parts_ndon[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        igra.noch_deystviya.don_tseli = nomer_ndon;
+        const tsel_ndon = igra.igroki.find(i => i.nomer === nomer_ndon);
+        const result_don = tsel_ndon && isSheriffRole(tsel_ndon.rol) ? '\uD83D\uDD0D ШЕРИФ/КОМИССАР' : '\u2705 Не шериф';
+        bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD0E \u2116' + nomer_ndon + ': ' + result_don, show_alert: true });
+        await sohranit_igru(kod);
+        await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD0E Дон проверил \u2116' + nomer_ndon + ': ' + result_don);
     }
 
     // ===== НОЧЬ: выбор цели доктора =====
@@ -3383,6 +3455,7 @@ bot.on('callback_query', async function(query) {
         igra.noch_deystviya = igra.noch_deystviya || {};
         igra.noch_deystviya.doctor_tseli = nomer_nd;
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC89 Вылечит \u2116' + nomer_nd });
+        await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDC89 Доктор лечит \u2116' + nomer_nd);
     }
 
@@ -3406,9 +3479,10 @@ bot.on('callback_query', async function(query) {
         igra.noch_deystviya = igra.noch_deystviya || {};
         igra.noch_deystviya.sherif_tseli = nomer_ns;
         const tseli_s = igra.igroki.find(i => i.nomer === nomer_ns);
-        const is_maf = tseli_s && ['Дон', 'Мафия', 'Эскортница'].includes(tseli_s.rol);
+        const is_maf = tseli_s && isMafiaRole(tseli_s.rol);
         const result_s = is_maf ? '\uD83D\uDD34 МАФИЯ' : '\u2705 Мирный';
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD0D \u2116' + nomer_ns + ': ' + result_s, show_alert: true });
+        await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD0D Шериф проверил \u2116' + nomer_ns + ': ' + result_s);
     }
 
@@ -3452,6 +3526,7 @@ bot.on('callback_query', async function(query) {
             ).catch(() => {});
         }
 
+        await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD07 Затычка заблокировала \u2116' + nomer_nz);
     }
 
@@ -3464,6 +3539,14 @@ bot.on('callback_query', async function(query) {
         const maf_t = d.mafiya_tseli || [];
         const doc_t = d.doctor_tseli;
         let itog_t = '\uD83C\uDF19 *Итоги ночи ' + (igra.den || 1) + ':*\n\n';
+        if (d.don_tseli) {
+            const proverka_don = igra.igroki.find(x => x.nomer === d.don_tseli);
+            itog_t += '\uD83D\uDD0E Дон проверил \u2116' + d.don_tseli + ': ' + (proverka_don && isSheriffRole(proverka_don.rol) ? 'Шериф/Комиссар' : 'не Шериф') + '\n';
+        }
+        if (d.sherif_tseli) {
+            const proverka_sher = igra.igroki.find(x => x.nomer === d.sherif_tseli);
+            itog_t += '\uD83D\uDD0D Шериф проверил \u2116' + d.sherif_tseli + ': ' + (proverka_sher && isMafiaRole(proverka_sher.rol) ? 'Мафия' : 'мирный') + '\n';
+        }
         const ubity_t = [];
         maf_t.forEach(nomer => {
             const i = igra.igroki.find(x => x.nomer === nomer);
