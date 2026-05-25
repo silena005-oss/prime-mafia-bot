@@ -1281,14 +1281,15 @@ bot.on('message', async function(msg) {
         );
 
         if (igra.igroki.length === igra.kolichestvo) {
+            const knopkaStarta = igra.rezhim_rolei === 'karty'
+                ? { text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }
+                : { text: '🎴 Раздать роли', callback_data: 'razdat_' + kod };
             bot.sendMessage(igra.vedushchii_id,
-                '🎉 *Все игроки в сборе!*\n\nМожно раздавать роли.',
+                '🎉 *Все игроки в сборе!*\n\nМожно начинать.',
                 {
                     parse_mode: 'Markdown',
                     reply_markup: {
-                        inline_keyboard: [[
-                            { text: '🎴 Раздать роли', callback_data: 'razdat_' + kod }
-                        ]]
+                        inline_keyboard: [[knopkaStarta]]
                     }
                 }
             );
@@ -1312,6 +1313,42 @@ function stopTimer(kod) {
     if (!igra) return;
     igra.taymer_aktiven = false;
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
+}
+
+async function pokazatLobbyIgry(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) return;
+
+    const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 *Физические карты*' : '📱 *Роли в боте*';
+    const opisanie = igra.rezhim_rolei === 'karty'
+        ? 'Игроки подключаются по коду, роли ведущий раздаёт физическими картами.'
+        : 'Игроки подключаются по коду, бот отправит каждому роль в личку.';
+
+    let spisok = '';
+    igra.igroki.forEach((ig, i) => {
+        spisok += (i + 1) + '. ' + (ig.name || ig.imya || 'Игрок') + '\n';
+    });
+
+    const polno = igra.igroki.length >= igra.kolichestvo;
+    let tekst = rezhim + '\n\n';
+    tekst += '🎴 Код игры: *' + kod + '*\n';
+    tekst += '👥 Подключено: *' + igra.igroki.length + '/' + igra.kolichestvo + '*\n\n';
+    tekst += opisanie + '\n\n';
+    tekst += spisok || '_Никто ещё не подключился_';
+    if (!polno) tekst += '\n\n_Ждём ещё ' + (igra.kolichestvo - igra.igroki.length) + ' игрок(ов)._';
+
+    const knopki = [[{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }]];
+    if (igra.rezhim_rolei === 'bot') {
+        knopki.push([{ text: polno ? '🎭 Раздать роли' : '🎭 Раздать роли (ждём игроков)', callback_data: 'razdat_' + kod }]);
+    } else {
+        knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру (ждём игроков)', callback_data: 'nachat_igru_' + kod }]);
+    }
+    knopki.push([{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]);
+
+    await bot.editMessageText(tekst, {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
 }
 
 function lichnoeVremyaSek(igra) {
@@ -2265,6 +2302,7 @@ bot.on('callback_query', async function(query) {
             klub_id: preview_data.klub_id,
             tip_kluba: preview_data.tip_kluba,
             sportivniy: preview_data.tip_kluba === 'sportivniy',
+            rezhim_rolei: null,
             _sostav_custom: preview_data.sostav
         };
         delete igry['preview_' + preview_key];
@@ -2274,11 +2312,12 @@ bot.on('callback_query', async function(query) {
             '\uD83C\uDFB2 *Игра создана!*\n\n' +
             '\uD83D\uDD11 Код игры: *' + kod + '*\n' +
             '\uD83D\uDC65 Мест: ' + preview_data.kolichestvo + '\n\n' +
-            '_Игроки вводят этот код в боте_', {
+            'Выбери режим раздачи карт:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\uD83D\uDC65 0/' + preview_data.kolichestvo + ' подключились', callback_data: 'status_' + kod }],
-                [{ text: '\uD83C\uDFAD Раздать роли', callback_data: 'razdat_' + kod }],
+                [{ text: '🃏 Физические карты', callback_data: 'rezhim_karty_' + kod }],
+                [{ text: '📱 Раздать роли в боте', callback_data: 'rezhim_bot_' + kod }],
+                [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }],
                 [{ text: '\u2B05\uFE0F В меню', callback_data: 'menu_vedushchego' }]
             ]}
         });
@@ -2501,22 +2540,8 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         igra.rezhim_rolei = 'karty';
-
-        bot.editMessageText(
-            '🃏 *Режим: физические карты*\n\n' +
-            '🎴 Код игры: *' + kod + '*\n' +
-            '👥 Мест: ' + igra.kolichestvo + '\n\n' +
-            'Передай код игрокам чтобы они подключились.\n' +
-            'Подключено: 0/' + igra.kolichestvo, {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }],
-                    [{ text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }],
-                    [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]
-                ]
-            }
-        });
+        await sohranit_igru(kod);
+        await pokazatLobbyIgry(chatId, messageId, kod);
     }
 
     else if (data.startsWith('rezhim_bot_')) {
@@ -2524,50 +2549,49 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         igra.rezhim_rolei = 'bot';
-
-        bot.editMessageText(
-            '📱 *Режим: роли в боте*\n\n' +
-            '🎴 Код игры: *' + kod + '*\n' +
-            '👥 Мест: ' + igra.kolichestvo + '\n\n' +
-            'Передай код игрокам. Каждый получит свою роль в личку.\n' +
-            'Подключено: 0/' + igra.kolichestvo, {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }],
-                    [{ text: '🎭 Раздать роли', callback_data: 'razdat_' + kod }],
-                    [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]
-                ]
-            }
-        });
+        await sohranit_igru(kod);
+        await pokazatLobbyIgry(chatId, messageId, kod);
     }
 
     else if (data.startsWith('obnovit_igru_')) {
         const kod = data.replace('obnovit_igru_', '');
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        await pokazatLobbyIgry(chatId, messageId, kod);
+    }
 
-        let spisok = '';
-        igra.igroki.forEach((ig, i) => {
-            spisok += (i + 1) + '. ' + ig.imya + '\n';
+    else if (data.startsWith('status_')) {
+        const kod = data.replace('status_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        await pokazatLobbyIgry(chatId, messageId, kod);
+    }
+
+    else if (data.startsWith('nachat_igru_')) {
+        const kod = data.replace('nachat_igru_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        if (igra.igroki.length < igra.kolichestvo) {
+            bot.answerCallbackQuery(query.id, {
+                text: 'Подключено ' + igra.igroki.length + '/' + igra.kolichestvo + '. Дождись всех игроков.',
+                show_alert: true
+            });
+            return;
+        }
+        igra.rezhim_rolei = 'karty';
+        igra.roli_razdany = true;
+        igra.den = 1;
+        igra.igroki.forEach(i => {
+            i.status = 'v_igre';
+            i.foly = i.foly || 0;
         });
-
-        const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 Физические карты' : '📱 В боте';
-        const tekst = rezhim + '\n\n🎴 Код: *' + kod + '*\n' +
-            '👥 Подключено: ' + igra.igroki.length + '/' + igra.kolichestvo +
-            (spisok ? '\n\n' + spisok : '\n\n_Никто ещё не подключился_');
-
-        const knopki = igra.rezhim_rolei === 'bot'
-            ? [[{ text: '🔄 Обновить', callback_data: 'obnovit_igru_' + kod }],
-               [{ text: '🎭 Раздать роли', callback_data: 'razdat_' + kod }],
-               [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]]
-            : [[{ text: '🔄 Обновить', callback_data: 'obnovit_igru_' + kod }],
-               [{ text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }],
-               [{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]];
-
-        bot.editMessageText(tekst, {
+        await sohranit_igru(kod);
+        await bot.editMessageText('🃏 *Игра начата с физическими картами!*\n\nРоли раздаёт ведущий за столом.\nТеперь можно открыть игровую панель и запустить знакомство.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: knopki }
+            reply_markup: { inline_keyboard: [
+                [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
+                [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+            ]}
         });
     }
 
@@ -2587,6 +2611,13 @@ bot.on('callback_query', async function(query) {
 
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         if (igra.roli_razdany) { bot.sendMessage(chatId, '⚠️ Роли уже розданы.'); return; }
+        if (igra.igroki.length < igra.kolichestvo) {
+            bot.answerCallbackQuery(query.id, {
+                text: 'Подключено ' + igra.igroki.length + '/' + igra.kolichestvo + '. Дождись всех игроков.',
+                show_alert: true
+            });
+            return;
+        }
 
         const tip_kluba = igra.tip_kluba || 'paskal';
         const sostav = igra._sostav_custom || poluchit_sostav(igra.kolichestvo, tip_kluba);
