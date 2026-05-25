@@ -1314,6 +1314,70 @@ function stopTimer(kod) {
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
 }
 
+function lichnoeVremyaSek(igra) {
+    const nastroeno = parseInt(igra?._nastroyki?.minuta_sek, 10);
+    if (Number.isFinite(nastroeno)) return Math.min(60, Math.max(40, nastroeno));
+    return igra?.kolichestvo > 15 ? 40 : 60;
+}
+
+function opredelitPobeditelya(igra) {
+    const mafRoles = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
+    const alive = (igra?.igroki || []).filter(i => i.status === 'v_igre');
+    const maf = alive.filter(i => mafRoles.includes(i.rol)).length;
+    const manyak = alive.filter(i => i.rol === 'Маньяк').length;
+    const mirnye = alive.length - maf - manyak;
+
+    if (alive.length === 0) return null;
+    if (manyak > 0 && alive.length === 1) return 'manyak';
+    if (maf === 0 && manyak === 0) return 'mirnye';
+    if (maf === 0 && mirnye === 0 && manyak > 0) return 'manyak';
+    if (maf > 0 && maf >= mirnye + manyak) return 'mafiya';
+    return null;
+}
+
+async function zavershitIgruAvto(chatId, messageId, kod, pobeditel) {
+    const igra = igry[kod];
+    if (!igra || !pobeditel) return false;
+    stopTimer(kod);
+    igra.pobeditel = pobeditel;
+
+    const pobeditel_text = pobeditel === 'mirnye' ? '🟢 Мирные'
+                         : pobeditel === 'mafiya' ? '🔴 Мафия'
+                         : '🎯 Маньяк';
+
+    for (const igrok of igra.igroki) {
+        bot.sendMessage(igrok.telegram_id,
+            '🏁 *Игра №' + kod + ' завершена!*\n\nПобедитель: ' + pobeditel_text + '\nТвоя роль: *' + igrok.rol + '*',
+            { parse_mode: 'Markdown' }
+        ).catch(() => {});
+    }
+
+    await zapisat_bally(igra, kod);
+
+    let svodka = '🏁 *Игра завершена автоматически!*\n\n';
+    svodka += 'Победитель: ' + pobeditel_text + '\n\n';
+    svodka += '*Итог:*\n';
+    igra.igroki.forEach(i => {
+        const em = i.status === 'v_igre' ? '✅' : '💀';
+        svodka += em + ' №' + i.nomer + ' ' + i.name + ' — ' + i.rol + '\n';
+    });
+    svodka += '\n🏆 Баллы записаны в рейтинг!';
+
+    igry['archive_' + kod] = { ...igra };
+    delete igry[kod];
+    await zavershit_igru_v_db(kod);
+
+    await bot.editMessageText(svodka, {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '🎁 Добавить бонусы', callback_data: 'bonusy_' + kod }],
+            [{ text: '🎲 Новая игра', callback_data: 'sozdat_igru' }],
+            [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+        ]}
+    });
+    return true;
+}
+
 function buildPanelText(igra, kod) {
     const alive = igra.igroki.filter(i => i.status === 'v_igre');
     const faza_names = { ozhidanie: 'Ожидание', znakomstvo: 'Знакомство', den: 'День', noch: 'Ночь', golosovanie: 'Голосование', opravdanie: 'Оправдание' };
@@ -1370,9 +1434,9 @@ async function sleduyushchiy(chatId, messageId, kod) {
     igra.tekushchiy_nomer = poryadok[next_idx];
     const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
     const nastroyki = igra._nastroyki || {};
-    let sekundy = igra.faza === 'znakomstvo' ? (nastroyki.znakomstvo_sek || 10)
+    let sekundy = igra.faza === 'znakomstvo' ? (nastroyki.znakomstvo_sek || 15)
         : igra.faza === 'opravdanie' ? (nastroyki.opravdanie_sek || 25)
-        : igra.kolichestvo > 15 ? 40 : 60;
+        : lichnoeVremyaSek(igra);
 
     const t = buildPanelText(igra, kod);
     const knopki = buildTimerKnopki(kod, igra.faza);
@@ -1385,6 +1449,11 @@ function buildTimerKnopki(kod, faza) {
         [{ text: '\u23ED\uFE0F Пас', callback_data: 'pas_' + kod }, { text: '\u23F9 Стоп', callback_data: 'stop_taymer_' + kod }],
     ];
     if (faza === 'den') {
+        knopki.push([
+            { text: '⏱ 40с', callback_data: 'set_minuta_' + kod + '_40' },
+            { text: '⏱ 50с', callback_data: 'set_minuta_' + kod + '_50' },
+            { text: '⏱ 60с', callback_data: 'set_minuta_' + kod + '_60' }
+        ]);
         knopki.push([{ text: '\uD83D\uDCA5 На голосование', callback_data: 'vybrat_na_golos_' + kod }]);
         knopki.push([{ text: '\uD83C\uDF19 Ночь', callback_data: 'faza_noch_' + kod }]);
     }
@@ -2669,6 +2738,8 @@ bot.on('callback_query', async function(query) {
 
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 \u2116' + nomer + ' ' + igrok.name + ' выбыл' });
         await sohranit_igru(kod);
+        const pobeditel = opredelitPobeditelya(igra);
+        if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
 
         const v_igre2 = igra.igroki.filter(i => i.status === 'v_igre').length;
         let tekst2 = '\uD83C\uDFAE *Игра \u2116' + kod + '* | День ' + (igra.den || 1) + '\n';
@@ -2716,6 +2787,8 @@ bot.on('callback_query', async function(query) {
             );
             bot.answerCallbackQuery(query.id, { text: '\uD83D\uDEAB ' + igrok.name + ' удалён за 3 фола!', show_alert: true });
             await sohranit_igru(kod);
+            const pobeditel = opredelitPobeditelya(igra);
+            if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         } else {
             bot.sendMessage(igrok.telegram_id,
                 '\u26A0\uFE0F *Фол ' + igrok.foly + '/3* в игре \u2116' + kod,
@@ -2872,7 +2945,7 @@ bot.on('callback_query', async function(query) {
         const alive_z = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
         igra.poryadok_hoda = alive_z;
         igra.tekushchiy_nomer = alive_z[0];
-        const sek_z = nastroyki.znakomstvo_sek || 10;
+        const sek_z = nastroyki.znakomstvo_sek || 15;
         await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'znakomstvo') } });
         zapustitTaymer(chatId, messageId, kod, sek_z);
     }
@@ -2884,16 +2957,32 @@ bot.on('callback_query', async function(query) {
         if (!igra) return;
         stopTimer(kod);
         igra.faza = 'den';
-        // Сохраняем кто заблокирован, сбрасываем в конце дня
-        const alive_d = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
-        // Пропускаем заблокированного при ходе (Затычка)
+        // Знакомство идет по часовой стрелке (1 -> N), дневная минута - против часовой.
+        const alive_d = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer).reverse();
+        // Заблокированный Затычкой пропускает личную минуту.
         igra.poryadok_hoda = alive_d.filter(n => n !== igra.zablokirovan_nomer);
-        if (igra.zablokirovan_nomer) igra.poryadok_hoda.push(igra.zablokirovan_nomer); // в конец, без таймера
         igra.tekushchiy_nomer = igra.poryadok_hoda[0];
         igra.naznacheny_golos = igra.naznacheny_golos || [];
-        const sek_d = igra.kolichestvo > 15 ? 40 : 60;
+        const sek_d = lichnoeVremyaSek(igra);
         await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'den') } });
         zapustitTaymer(chatId, messageId, kod, sek_d);
+    }
+
+    // ===== ТАЙМЕР: личное время 40-60 секунд =====
+    else if (data.startsWith('set_minuta_')) {
+        const parts = data.replace('set_minuta_', '').split('_');
+        const kod = parts[0];
+        const sek = Math.min(60, Math.max(40, parseInt(parts[1], 10) || 60));
+        const igra = igry[kod];
+        if (!igra) return;
+        igra._nastroyki = igra._nastroyki || {};
+        igra._nastroyki.minuta_sek = sek;
+        if (igra.faza === 'den' && igra.taymer_aktiven) igra.taymer_sekundy = sek;
+        bot.answerCallbackQuery(query.id, { text: 'Личное время: ' + sek + ' сек' });
+        await bot.editMessageText(buildPanelText(igra, kod), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: buildTimerKnopki(kod, igra.faza) }
+        });
     }
 
     // ===== ТАЙМЕР: ПАС =====
@@ -2994,6 +3083,8 @@ bot.on('callback_query', async function(query) {
         if (igrok_gv) { igrok_gv.status = 'vybyl'; bot.sendMessage(igrok_gv.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + igrok_gv.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); }
         igra.naznacheny_golos = [];
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 ' + (igrok_gv?.name || '') + ' выбыл' });
+        const pobeditel = opredelitPobeditelya(igra);
+        if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.faza = 'noch';
         await pokazat_prehod_k_nochi(chatId, messageId, kod);
     }
@@ -3159,6 +3250,8 @@ bot.on('callback_query', async function(query) {
         v_igre_t.forEach(i => { itog_t += '\u2705 \u2116' + i.nomer + ' ' + i.name + '\n'; });
         ubity_t.forEach(i => { bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); });
         igra.noch_deystviya = {};
+        const pobeditel = opredelitPobeditelya(igra);
+        if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.den = (igra.den || 1) + 1;
         await sohranit_igru(kod);
         bot.editMessageText(itog_t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
