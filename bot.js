@@ -752,6 +752,22 @@ async function arhivirovat_starye_anonsy() {
 arhivirovat_starye_anonsy();
 setInterval(arhivirovat_starye_anonsy, 2 * 60 * 60 * 1000);
 
+function naytiIgruDlyaRuchnyhRoley(tg_id, text) {
+    if (!text || !text.includes('\n')) return null;
+    const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+    if (lines.length < 6) return null;
+
+    const matches = Object.entries(igry).filter(([kod, igra]) => {
+        if (String(kod).startsWith('archive_')) return false;
+        if (!igra || igra.vedushchii_id !== tg_id) return false;
+        if (igra.rezhim_rolei !== 'karty' || igra.roli_razdany) return false;
+        if (lines.length !== igra.kolichestvo) return false;
+        return lines.every((line, idx) => !!razobratStrokuRoli(line, idx));
+    });
+
+    return matches.length === 1 ? matches[0][0] : null;
+}
+
 bot.on('message', async function(msg) {
     const chatId = msg.chat.id;
     const tg_id = msg.from.id;
@@ -761,8 +777,12 @@ bot.on('message', async function(msg) {
     if (text.startsWith('/')) return;
 
     // ===== ФИЗИЧЕСКИЕ КАРТЫ: ведущая вручную вносит игроков и роли =====
-    if (sostoyanie[tg_id] && sostoyanie[tg_id].startsWith('manual_roles_')) {
-        const kod = sostoyanie[tg_id].replace('manual_roles_', '');
+    const manualRolesKod = sostoyanie[tg_id]?.startsWith('manual_roles_')
+        ? sostoyanie[tg_id].replace('manual_roles_', '')
+        : naytiIgruDlyaRuchnyhRoley(tg_id, text);
+
+    if (manualRolesKod) {
+        const kod = manualRolesKod;
         const igra = igry[kod];
         if (!igra) {
             delete sostoyanie[tg_id];
