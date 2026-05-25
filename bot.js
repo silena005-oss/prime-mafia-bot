@@ -836,11 +836,31 @@ bot.on('message', async function(msg) {
             bot.sendMessage(chatId, '❌ Введи настоящее имя (минимум 2 символа).');
             return;
         }
-        ozhidanie_registracii[tg_id].imya = text;
-        ozhidanie_registracii[tg_id].shag = 'telefon';
+        ozhidanie_registracii[tg_id].imya = text.trim();
+        ozhidanie_registracii[tg_id].shag = 'igrovoy_nik';
 
         bot.sendMessage(chatId,
             `✅ Отлично, *${text}*!\n\n` +
+            'Теперь введи свой *игровой ник*:\n' +
+            '_Например: Madame X, Доктор, Рыжая, Арчи_',
+            {
+                parse_mode: 'Markdown'
+            }
+        );
+        return;
+    }
+
+    // ===== РЕГИСТРАЦИЯ: шаг 2 — игровой ник =====
+    if (ozhidanie_registracii[tg_id]?.shag === 'igrovoy_nik') {
+        if (text.length < 2) {
+            bot.sendMessage(chatId, '❌ Ник должен быть минимум 2 символа.');
+            return;
+        }
+        ozhidanie_registracii[tg_id].igrovoy_nik = text.trim();
+        ozhidanie_registracii[tg_id].shag = 'telefon';
+
+        bot.sendMessage(chatId,
+            '✅ Ник сохранён: *' + text.trim() + '*\n\n' +
             'Теперь поделись номером телефона — нажми кнопку ниже:',
             {
                 parse_mode: 'Markdown',
@@ -1941,6 +1961,7 @@ bot.on('callback_query', async function(query) {
                 tg_id: telegram_id,
                 tg_username,
                 imya: dannye.imya,
+                igrovoy_nik: dannye.igrovoy_nik,
                 telefon: dannye.telefon,
                 gorod: gorod_name,
                 gorod_id: gorod_id
@@ -1959,7 +1980,8 @@ bot.on('callback_query', async function(query) {
 
         bot.editMessageText(
             '🎉 *Регистрация завершена!*\n\n' +
-            '👤 ' + dannye.imya + '\n' +
+            '👤 Имя: ' + dannye.imya + '\n' +
+            '🎭 Ник: ' + (dannye.igrovoy_nik || 'не указан') + '\n' +
             '📍 ' + gorod_name + '\n\n' +
             'Добро пожаловать в Prime Mafia!',
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
