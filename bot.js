@@ -2044,7 +2044,7 @@ bot.on('callback_query', async function(query) {
     // ===== ВЕДУЩИЙ: создать игру =====
     else if (data === 'sozdat_igru') {
         // Сначала выбираем клуб
-        const { data: igrok } = await supabase
+        const { data: igrok, error: err1 } = await supabase
             .from('igroki').select('id').eq('tg_id', telegram_id).single();
 
         console.log('[DEBUG] igrok найден:', igrok?.id, 'err:', err1?.message);
