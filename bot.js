@@ -37,12 +37,12 @@ async function perezapuskPosle409() {
     konflikt409Popytki += 1;
     if (konflikt409Popytki > MAX_409_POVTOROV) {
         console.error(
-            '409 не исчезает после ' + MAX_409_POVTOROV + ' попыток.\n' +
-            'Останови второй процесс: локальный node bot.js и лишние сервисы на Railway (нужна 1 реплика).'
+            '409: второй процесс с тем же TELEGRAM_TOKEN. Останови локальный node bot.js, на Railway — 1 реплика.\n' +
+            'Бот продолжит попытки каждые 30с (контейнер не падает).'
         );
-        process.exit(1);
+        konflikt409Popytki = MAX_409_POVTOROV;
     }
-    const sek = Math.min(konflikt409Popytki * 3, 15);
+    const sek = konflikt409Popytki > MAX_409_POVTOROV ? 30 : Math.min(konflikt409Popytki * 3, 15);
     console.warn('409 конфликт — другой getUpdates. Пауза ' + sek + 'с, попытка ' + konflikt409Popytki + '/' + MAX_409_POVTOROV);
     try { await bot.stopPolling(); } catch (_) {}
     pollingZapuschen = false;
@@ -63,23 +63,6 @@ bot.on('polling_error', (err) => {
     }
     console.error('[polling_error]', err.message || err);
 });
-
-(async function initTelegram() {
-    try {
-        const me = await bot.getMe();
-        console.log('🤖 @' + (me.username || me.id));
-        await zapustitPolling();
-        console.log('🎴 PrimeMafia бот запущен (polling)');
-    } catch (e) {
-        if (etoOshibka409(e)) {
-            await perezapuskPosle409();
-            console.log('🎴 PrimeMafia бот запущен после ожидания 409');
-        } else {
-            console.error('❌ Не удалось запустить бота:', e.message || e);
-            process.exit(1);
-        }
-    }
-})();
 
 // ID администратора для загрузки картинок
 const ADMIN_TG_ID = parseInt(process.env.ADMIN_TG_ID || '0');
@@ -170,8 +153,58 @@ setInterval(() => {
 }, 600000);
 
 process.on('unhandledRejection', (err) => {
-    console.error('[unhandledRejection]', err?.message || err);
+    const msg = err?.message || String(err);
+    console.error('[unhandledRejection]', msg);
+    if (msg.includes('BUTTON_DATA_INVALID')) {
+        console.error('→ Нажмите /start для нового меню (старая кнопка с длинным callback)');
+    }
 });
+
+function sanitizeInlineKeyboard(reply_markup) {
+    if (!reply_markup?.inline_keyboard) return reply_markup;
+    for (const row of reply_markup.inline_keyboard) {
+        for (const btn of row) {
+            if (!btn.callback_data) continue;
+            const len = Buffer.byteLength(String(btn.callback_data), 'utf8');
+            if (len > 64) {
+                console.error('[sanitize] callback >64 байт:', len, btn.callback_data);
+                btn.callback_data = 'baza_noop';
+            }
+        }
+    }
+    return reply_markup;
+}
+
+const _sendMessage = bot.sendMessage.bind(bot);
+bot.sendMessage = async function(chatId, text, opts = {}) {
+    if (opts.reply_markup) sanitizeInlineKeyboard(opts.reply_markup);
+    try {
+        return await _sendMessage(chatId, text, opts);
+    } catch (e) {
+        if (String(e.message || e).includes('BUTTON_DATA_INVALID')) {
+            console.error('[sendMessage BUTTON_DATA_INVALID]', e.message);
+            return _sendMessage(chatId, text + '\n\n_Нажми /start — обнови меню._', { parse_mode: opts.parse_mode || 'Markdown' });
+        }
+        throw e;
+    }
+};
+
+const _editMessageText = bot.editMessageText.bind(bot);
+bot.editMessageText = async function(text, opts = {}) {
+    if (opts.reply_markup) sanitizeInlineKeyboard(opts.reply_markup);
+    try {
+        return await _editMessageText(text, opts);
+    } catch (e) {
+        if (String(e.message || e).includes('BUTTON_DATA_INVALID')) {
+            console.error('[editMessageText BUTTON_DATA_INVALID]', e.message);
+            const chatId = opts.chat_id;
+            if (chatId) {
+                return _sendMessage(chatId, text + '\n\n_Нажми /start — обнови меню._', { parse_mode: opts.parse_mode || 'Markdown' });
+            }
+        }
+        throw e;
+    }
+};
 
 // ============================================
 // СОСТАВЫ
@@ -483,6 +516,15 @@ const menu_kolichestva = {
 // ============================================
 
 bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
+    try {
+    await obrabotatStart(msg, match);
+    } catch (e) {
+        console.error('[/start error]', e.message || e);
+        bot.sendMessage(msg.chat.id, '❌ Ошибка запуска. Попробуй ещё раз через минуту.\n\n_' + (e.message || '') + '_', { parse_mode: 'Markdown' }).catch(() => {});
+    }
+});
+
+async function obrabotatStart(msg, match) {
     // Deep link: /start join_КОД
     const param = match?.[1]?.trim();
     if (param && param.startsWith('join_')) {
@@ -544,13 +586,13 @@ bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
     } else {
         // Новый пользователь — начинаем регистрацию
         ozhidanie_registracii[tg_id] = { shag: 'imya' };
-        bot.sendMessage(chatId,
+        return bot.sendMessage(chatId,
             '👋 *Добро пожаловать в Prime Mafia!*\n\n' +
             'Для регистрации введи своё *имя и фамилию*:',
             { parse_mode: 'Markdown' }
         );
     }
-});
+}
 
 // ============================================
 // ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ
@@ -1560,6 +1602,7 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba) {
 // ============================================
 
 bot.on('callback_query', async function(query) {
+    try {
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
     const telegram_id = query.from.id;
@@ -1567,7 +1610,7 @@ bot.on('callback_query', async function(query) {
 
     console.log('[callback]', telegram_id, data);
 
-    bot.answerCallbackQuery(query.id);
+    bot.answerCallbackQuery(query.id).catch(() => {});
 
     // ===== ВОЗВРАТ В МЕНЮ =====
     if (data === 'menu_vedushchego') {
@@ -3511,7 +3554,7 @@ bot.on('callback_query', async function(query) {
 
         // Несколько клубов — выбор
         const knopki = kluby.map(k => [
-            { text: '🎴 ' + k.nazvaniye, callback_data: 'baza_klub_' + k.id + '_0' }
+            { text: '🎴 ' + k.nazvaniye, callback_data: cbBtn('bk_', { klub_id: k.id, page: 0 }) }
         ]);
         knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
 
@@ -3521,11 +3564,17 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    else if (data.startsWith('bk_')) {
+        const p = cbUnpack(data.replace('bk_', ''));
+        if (!p) return;
+        await pokazat_bazu_igrokov(chatId, messageId, p.klub_id, p.page || 0, '');
+    }
+
     else if (data.startsWith('baza_klub_')) {
-        // Формат: baza_klub_<klub_id>_<page>
-        const chasti = data.replace('baza_klub_', '').split('_');
-        const klub_id = chasti[0];
-        const stranitsa = parseInt(chasti[1]) || 0;
+        const rest = data.replace('baza_klub_', '');
+        const li = rest.lastIndexOf('_');
+        const klub_id = rest.substring(0, li);
+        const stranitsa = parseInt(rest.substring(li + 1), 10) || 0;
         const filtr = sostoyanie['baza_filtr_' + telegram_id] || '';
         await pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr);
     }
@@ -3536,7 +3585,7 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText('🔍 *Поиск игрока*\n\nВведите часть имени или никнейма:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[
-                { text: '⬅️ Отмена', callback_data: 'baza_klub_' + klub_id + '_0' }
+                { text: '⬅️ Отмена', callback_data: cbBtn('bk_', { klub_id, page: 0 }) }
             ]] }
         });
     }
@@ -4682,6 +4731,11 @@ bot.on('callback_query', async function(query) {
         await supabase.from('kluby').update({ nastroyki }).eq('id', klub_id);
         await pokazat_roli_kluba(chatId, messageId, klub_id);
     }
+
+    } catch (e) {
+        console.error('[callback error]', query?.data, e?.message || e);
+        bot.answerCallbackQuery(query.id, { text: 'Ошибка. Нажми /start', show_alert: true }).catch(() => {});
+    }
 });
 
 // ============================================
@@ -4774,9 +4828,9 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
 
     if (stranits_vsego > 1) {
         const navig = [];
-        if (stranitsa > 0) navig.push({ text: '⬅️', callback_data: 'baza_klub_' + klub_id + '_' + (stranitsa - 1) });
+        if (stranitsa > 0) navig.push({ text: '⬅️', callback_data: cbBtn('bk_', { klub_id, page: stranitsa - 1 }) });
         navig.push({ text: (stranitsa + 1) + '/' + stranits_vsego, callback_data: 'baza_noop' });
-        if (stranitsa < stranits_vsego - 1) navig.push({ text: '➡️', callback_data: 'baza_klub_' + klub_id + '_' + (stranitsa + 1) });
+        if (stranitsa < stranits_vsego - 1) navig.push({ text: '➡️', callback_data: cbBtn('bk_', { klub_id, page: stranitsa + 1 }) });
         knopki.push(navig);
     }
 
@@ -4804,7 +4858,7 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
     if (!igrok) {
         bot.editMessageText('❌ Игрок не найден.', {
             chat_id: chatId, message_id: messageId,
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'baza_klub_' + klub_id + '_0' }]] }
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: cbBtn('bk_', { klub_id, page: 0 }) }]] }
         });
         return;
     }
@@ -4843,7 +4897,7 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
         knopki.push([{ text: '🎤 Сделать ведущим', callback_data: cbBtn('vd_', { klub_id, igrok_id }) }]);
     }
 
-    knopki.push([{ text: '⬅️ К списку', callback_data: 'baza_klub_' + klub_id + '_0' }]);
+    knopki.push([{ text: '⬅️ К списку', callback_data: cbBtn('bk_', { klub_id, page: 0 }) }]);
 
     bot.editMessageText(tekst, {
         chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -5131,3 +5185,20 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
         ]}
     });
 }
+
+(async function initTelegram() {
+    try {
+        const me = await bot.getMe();
+        console.log('🤖 @' + (me.username || me.id));
+        await zapustitPolling();
+        console.log('🎴 PrimeMafia бот запущен (polling)');
+    } catch (e) {
+        if (etoOshibka409(e)) {
+            await perezapuskPosle409();
+            console.log('🎴 PrimeMafia бот запущен после ожидания 409');
+        } else {
+            console.error('❌ Не удалось запустить бота:', e.message || e);
+            process.exit(1);
+        }
+    }
+})();
