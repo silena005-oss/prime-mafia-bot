@@ -1440,7 +1440,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
 
     const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 *Физические карты*' : '📱 *Роли в боте*';
     const opisanie = igra.rezhim_rolei === 'karty'
-        ? 'Игроки подключаются по коду, роли ведущий раздаёт физическими картами.'
+        ? 'Игроки могут подключиться по коду, либо ведущая может внести игроков и роли вручную.'
         : 'Игроки подключаются по коду, бот отправит каждому роль в личку.';
 
     let spisok = '';
@@ -1461,7 +1461,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
         knopki.push([{ text: polno ? '🎭 Раздать роли' : '🎭 Раздать роли (ждём игроков)', callback_data: 'razdat_' + kod }]);
     } else {
         knopki.push([{ text: '✍️ Внести роли вручную', callback_data: 'manual_roles_' + kod }]);
-        knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру (ждём игроков)', callback_data: 'nachat_igru_' + kod }]);
+        knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру / внести роли', callback_data: 'nachat_igru_' + kod }]);
     }
     knopki.push([{ text: '❌ Отменить', callback_data: 'otmenit_' + kod }]);
 
@@ -2714,6 +2714,24 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         if (igra.igroki.length < igra.kolichestvo) {
+            if (igra.rezhim_rolei === 'karty') {
+                sostoyanie[telegram_id] = 'manual_roles_' + kod;
+                await bot.editMessageText(
+                    '✍️ *Внеси роли вручную*\n\n' +
+                    'Сейчас подключено ' + igra.igroki.length + '/' + igra.kolichestvo + '.\n' +
+                    'Для физической игры можно не ждать подключений — пришли список на *' + igra.kolichestvo + '* игроков.\n\n' +
+                    'Формат:\n' +
+                    '`1. Аня — Дон`\n' +
+                    '`2. Оля — Мафия`\n' +
+                    '`3. Катя — Мирный`\n\n' +
+                    'После этого откроется игровая панель.',
+                    {
+                        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'obnovit_igru_' + kod }]] }
+                    }
+                );
+                return;
+            }
             bot.answerCallbackQuery(query.id, {
                 text: 'Подключено ' + igra.igroki.length + '/' + igra.kolichestvo + '. Дождись всех игроков.',
                 show_alert: true
