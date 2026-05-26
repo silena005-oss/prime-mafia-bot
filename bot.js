@@ -242,7 +242,7 @@ const sostavy = {
 };
 
 // ── ВИП (городская профессиональная) ─────────────
-// Мафия: Дон, Путана, Подрывник, Мафия
+// Мафия: Дон, Путана, Подрывник мафии, Мафия
 // Мирные: Комиссар, Доктор, Стрелок, Стрелочник, Камикадзе, Любовница, Мирный
 // Сам за себя: Маньяк
 const sostavy_vip = {
@@ -251,14 +251,14 @@ const sostavy_vip = {
     10: ['Дон', 'Путана', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Маньяк', 'Мирный', 'Мирный'],
     11: ['Дон', 'Путана', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Маньяк', 'Мирный', 'Мирный'],
     12: ['Дон', 'Путана', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Маньяк', 'Мирный', 'Мирный'],
-    13: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Маньяк', 'Мирный'],
-    14: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный'],
-    15: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный'],
-    16: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный'],
-    17: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
-    18: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
-    19: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    20: ['Дон', 'Путана', 'Подрывник', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
+    13: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Маньяк', 'Мирный'],
+    14: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный'],
+    15: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный'],
+    16: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный'],
+    17: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
+    18: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
+    19: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    20: ['Дон', 'Путана', 'Подрывник мафии', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Комиссар', 'Доктор', 'Стрелок', 'Стрелочник', 'Камикадзе', 'Затычка', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
 };
 
 // ── НАИЛЯ (Москва) ────────────────────────────────
@@ -293,13 +293,14 @@ const roli_opisaniya = {
     'Мафия': '\uD83D\uDD34 *Мафия*\n\nТы — часть команды мафии. Знаешь своих. Ночью голосуете за жертву.',
     'Путана': '\uD83D\uDD34 *Путана (Эскортница)*\n\nЧасть мафии. Ночью можешь 2-3 раза убрать игровую роль. Угадала — игрок уходит. Промахнулась — он остаётся.',
     'Эскортница': '\uD83D\uDD34 *Эскортница*\n\nЧасть мафии. Можешь блокировать роль игрока на одну ночь.',
-    'Подрывник': '\uD83D\uDD34 *Подрывник*\n\nЧасть мафии. Если в тебя выстрелит Стрелок или Маньяк — вы оба выбываете.',
+    'Подрывник мафии': '\uD83D\uDD34 *Подрывник мафии*\n\nЧасть мафии. Если в тебя выстрелит Стрелок или Маньяк — ты забираешь стрелявшего с собой.',
     'Консильери': '\uD83D\uDD34 *Консильери*\n\nЧасть мафии. Советник Дона.',
     // Мирные
     'Шериф': '\uD83D\uDFE2 *Шериф*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия.',
     'Комиссар': '\uD83D\uDFE2 *Комиссар (Детектив)*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Детектив': '\uD83D\uDFE2 *Детектив*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Доктор': '\uD83D\uDFE2 *Доктор*\n\nКаждую ночь спасаешь одного игрока от убийства. Нельзя лечить одного два раза подряд. Можно лечить себя.',
+    'Подрывник': '\uD83D\uDFE2 *Подрывник*\n\nЕсли ночью тебя убивает мафия — ты взрываешься и забираешь одного из мафии с собой.',
     'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока. Убил 2 мирных — выбываешь сам.',
     'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
@@ -643,9 +644,9 @@ async function obrabotatStart(msg, match) {
 // Маппинг file_id ролей (заполняется через /upload_role)
 const roli_foto = {};
 
-const ALL_ROLE_NAMES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери',
+const ALL_ROLE_NAMES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник мафии', 'Консильери',
                       'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-                      'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+                      'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
                       'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
                       'Мстительный родственник', 'Маньяк', 'Мирный'];
 
@@ -1643,7 +1644,7 @@ function lichnoeVremyaSek(igra) {
     return igra?.kolichestvo > 15 ? 40 : 60;
 }
 
-const MAFIA_ROLES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
+const MAFIA_ROLES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник мафии', 'Консильери'];
 const SHERIFF_ROLES = ['Шериф', 'Комиссар', 'Детектив'];
 
 function isMafiaRole(rol) {
@@ -1652,6 +1653,13 @@ function isMafiaRole(rol) {
 
 function isSheriffRole(rol) {
     return SHERIFF_ROLES.includes(rol);
+}
+
+function mozhetKonsilyeriVerbovat(igra) {
+    const alive = (igra?.igroki || []).filter(i => i.status === 'v_igre');
+    if (alive.length === 0) return false;
+    const maf = alive.filter(i => isMafiaRole(i.rol)).length;
+    return maf > 0 && (maf / alive.length) < 0.3;
 }
 
 function opredelitPobeditelya(igra) {
@@ -1841,6 +1849,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     t += '_Действия:_\n';
     t += (d.mafiya_tseli?.length ? '\u2705' : '\u25A1') + ' Мафия: ' + (d.mafiya_tseli?.length ? '\u2116' + d.mafiya_tseli[0] : 'не выбрала') + '\n';
     if (roli_alive.includes('Дон')) t += (d.don_tseli ? '\u2705' : '\u25A1') + ' Дон: ' + (d.don_tseli ? '\u2116' + d.don_tseli + ' проверен' : 'не проверял') + '\n';
+    if (roli_alive.includes('Консильери')) t += (d.kons_tseli ? '\u2705' : '\u25A1') + ' Консильери: ' + (d.kons_tseli ? '\u2116' + d.kons_tseli + ' завербован' : (mozhetKonsilyeriVerbovat(igra) ? 'может вербовать' : 'ждёт условия <30%')) + '\n';
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
@@ -1849,6 +1858,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
         [{ text: '\uD83D\uDD2B Мафия убивает', callback_data: 'noch_vybor_maf_' + kod }],
     ];
     if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
+    if (roli_alive.includes('Консильери') && mozhetKonsilyeriVerbovat(igra)) knopki.push([{ text: '\uD83E\uDD1D Консильери вербует', callback_data: 'noch_vybor_kons_' + kod }]);
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
     if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
     if (roli_alive.includes('Затычка')) knopki.push([{ text: '\uD83D\uDD07 Затычка блокирует', callback_data: 'noch_vybor_zat_' + kod }]);
@@ -1873,7 +1883,7 @@ async function zapisat_bally(igra, kod) {
         if (klub?.nastroyki?.bally) ballyConfig = { ...BALLY_DEFAULT, ...klub.nastroyki.bally };
     }
 
-    const maf_roli = ['Дон', 'Мафия', 'Консильери', 'Эскортница'];
+    const maf_roli = MAFIA_ROLES;
     const noch_ubity = igra.noch_ubity_pervaya || [];
 
     const records = [];
@@ -1984,12 +1994,11 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba) {
     if (!sostav) return null;
 
     // Группируем роли
-    const maf_roli = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
     const solo_roli = ['Маньяк'];
 
-    const mafiya = sostav.filter(r => maf_roli.includes(r));
+    const mafiya = sostav.filter(r => isMafiaRole(r));
     const solo = sostav.filter(r => solo_roli.includes(r));
-    const mirnye = sostav.filter(r => !maf_roli.includes(r) && !solo_roli.includes(r));
+    const mirnye = sostav.filter(r => !isMafiaRole(r) && !solo_roli.includes(r));
 
     const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля', sportivniy: 'Спортивная' };
 
@@ -2859,9 +2868,8 @@ bot.on('callback_query', async function(query) {
         let t = '\u270F\uFE0F *Редактировать состав*\n\n';
         t += '_Нажми на роль чтобы заменить:_\n\n';
         sostav.forEach((r, i) => {
-            const maf_roli = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
             const solo = ['Маньяк'];
-            const em = maf_roli.includes(r) ? '\uD83D\uDD34' : (solo.includes(r) ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
+            const em = isMafiaRole(r) ? '\uD83D\uDD34' : (solo.includes(r) ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
             t += (i + 1) + '. ' + em + ' ' + r + '\n';
         });
 
@@ -2892,9 +2900,9 @@ bot.on('callback_query', async function(query) {
         const tekushchaya = preview_data.sostav[rol_idx];
 
         // Все доступные роли
-        const vse_roli = ['Дон', 'Мафия', 'Путана', 'Подрывник', 'Консильери', 'Эскортница',
+        const vse_roli = ['Дон', 'Мафия', 'Путана', 'Подрывник мафии', 'Консильери', 'Эскортница',
                           'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-                          'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+                          'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
                           'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
                           'Мстительный родственник', 'Маньяк', 'Мирный'];
 
@@ -2924,9 +2932,9 @@ bot.on('callback_query', async function(query) {
         const tip_s = parts_s[1];
         const kol_s = parts_s[2];
         const idx_s = parseInt(parts_s[3]);
-        const vse_roli_s = ['Дон', 'Мафия', 'Путана', 'Подрывник', 'Консильери', 'Эскортница',
+        const vse_roli_s = ['Дон', 'Мафия', 'Путана', 'Подрывник мафии', 'Консильери', 'Эскортница',
             'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-            'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+            'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
             'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
             'Мстительный родственник', 'Маньяк', 'Мирный'];
         const rol_ri = parseInt(parts_s[4], 10);
@@ -2944,8 +2952,7 @@ bot.on('callback_query', async function(query) {
         const sostav_s = preview_data_s.sostav;
         let t_s = '\u270F\uFE0F *Редактировать состав*\n\n_Нажми на роль чтобы заменить:_\n\n';
         sostav_s.forEach((r, i) => {
-            const maf_r = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
-            const em_s = maf_r.includes(r) ? '\uD83D\uDD34' : (r === 'Маньяк' ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
+            const em_s = isMafiaRole(r) ? '\uD83D\uDD34' : (r === 'Маньяк' ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
             t_s += (i + 1) + '. ' + em_s + ' ' + r + '\n';
         });
         const kk_s = sostav_s.map((r, i) => [{ text: (i + 1) + '. ' + r + ' \u270F\uFE0F', callback_data: 'sostav_zamenit_' + preview_key_s + '_' + i }]);
@@ -3223,11 +3230,10 @@ bot.on('callback_query', async function(query) {
 
         for (const igrok of igra.igroki) {
             const opisanie = roli_opisaniya[igrok.rol] || ('\uD83C\uDFAD *Роль: ' + igrok.rol + '*');
-            const maf_roli_check = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
-            const is_maf_player = maf_roli_check.includes(igrok.rol);
+            const is_maf_player = isMafiaRole(igrok.rol);
             const komanda_mafii = is_maf_player
                 ? igra.igroki
-                    .filter(i => maf_roli_check.includes(i.rol))
+                    .filter(i => isMafiaRole(i.rol))
                     .map(i => '№' + i.nomer + ' ' + i.name + ' — ' + i.rol)
                     .join('\n')
                 : '';
@@ -3797,6 +3803,47 @@ bot.on('callback_query', async function(query) {
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD0E Дон проверил \u2116' + nomer_ndon + ': ' + result_don);
     }
 
+    // ===== НОЧЬ: выбор цели Консильери =====
+    else if (data.startsWith('noch_vybor_kons_')) {
+        const kod = data.replace('noch_vybor_kons_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        if (!mozhetKonsilyeriVerbovat(igra)) {
+            bot.answerCallbackQuery(query.id, { text: 'Вербовка доступна, когда мафии меньше 30% стола.', show_alert: true });
+            return;
+        }
+        const mirnyeBezRoli = igra.igroki.filter(i => i.status === 'v_igre' && i.rol === 'Мирный');
+        if (mirnyeBezRoli.length === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет обычных мирных для вербовки.', show_alert: true });
+            return;
+        }
+        const knopki_kons = mirnyeBezRoli.map(i => [{ text: '\uD83E\uDD1D \u2116' + i.nomer + ' ' + i.name, callback_data: 'noch_kons_' + kod + '_' + i.nomer }]);
+        knopki_kons.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText('\uD83E\uDD1D *Консильери: кого завербовать?*\n\nМожно выбрать только обычного мирного без роли.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki_kons }
+        });
+    }
+
+    // ===== НОЧЬ: Консильери завербовал =====
+    else if (data.startsWith('noch_kons_')) {
+        const parts_nk = data.replace('noch_kons_', '').split('_');
+        const kod = parts_nk[0];
+        const nomer_nk = parseInt(parts_nk[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+        const tsel_kons = igra.igroki.find(i => i.nomer === nomer_nk);
+        if (!tsel_kons || tsel_kons.status !== 'v_igre' || tsel_kons.rol !== 'Мирный') {
+            bot.answerCallbackQuery(query.id, { text: 'Можно завербовать только обычного мирного.', show_alert: true });
+            return;
+        }
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        igra.noch_deystviya.kons_tseli = nomer_nk;
+        bot.answerCallbackQuery(query.id, { text: '\uD83E\uDD1D Цель: ' + tsel_kons.name });
+        await sohranit_igru(kod);
+        await pokazat_noch_panel(chatId, messageId, kod, '\uD83E\uDD1D Консильери выбрал \u2116' + nomer_nk);
+    }
+
     // ===== НОЧЬ: выбор цели доктора =====
     else if (data.startsWith('noch_vybor_doc_')) {
         const kod = data.replace('noch_vybor_doc_', '');
@@ -3909,12 +3956,38 @@ bot.on('callback_query', async function(query) {
             const proverka_sher = igra.igroki.find(x => x.nomer === d.sherif_tseli);
             itog_t += '\uD83D\uDD0D Шериф проверил \u2116' + d.sherif_tseli + ': ' + (proverka_sher && isMafiaRole(proverka_sher.rol) ? 'Мафия' : 'мирный') + '\n';
         }
+        if (d.kons_tseli) {
+            const zaverbovan = igra.igroki.find(x => x.nomer === d.kons_tseli && x.status === 'v_igre' && x.rol === 'Мирный');
+            if (zaverbovan) {
+                zaverbovan.rol = 'Мафия';
+                itog_t += '\uD83E\uDD1D Консильери завербовал \u2116' + d.kons_tseli + ' *' + zaverbovan.name + '* в мафию\n';
+                if (zaverbovan.telegram_id) {
+                    bot.sendMessage(zaverbovan.telegram_id,
+                        '\uD83D\uDD34 *Тебя завербовала мафия.*\n\nТеперь ты играешь за команду мафии.',
+                        { parse_mode: 'Markdown' }
+                    ).catch(() => {});
+                }
+            }
+        }
         const ubity_t = [];
         maf_t.forEach(nomer => {
             const i = igra.igroki.find(x => x.nomer === nomer);
             if (!i) return;
             if (doc_t === nomer) { itog_t += '\uD83D\uDC89 \u2116' + nomer + ' *' + i.name + '* — спасён доктором\n'; }
-            else { i.status = 'vybyl'; ubity_t.push(i); itog_t += '\uD83D\uDC80 \u2116' + nomer + ' *' + i.name + '* (' + i.rol + ') — убит\n'; }
+            else {
+                i.status = 'vybyl';
+                ubity_t.push(i);
+                itog_t += '\uD83D\uDC80 \u2116' + nomer + ' *' + i.name + '* (' + i.rol + ') — убит\n';
+                if (i.rol === 'Подрывник') {
+                    const mafiyaZaStolom = igra.igroki.filter(x => x.status === 'v_igre' && isMafiaRole(x.rol));
+                    const zabiraet = mafiyaZaStolom[Math.floor(Math.random() * mafiyaZaStolom.length)];
+                    if (zabiraet) {
+                        zabiraet.status = 'vybyl';
+                        ubity_t.push(zabiraet);
+                        itog_t += '\uD83D\uDCA5 Подрывник забрал с собой \u2116' + zabiraet.nomer + ' *' + zabiraet.name + '* (' + zabiraet.rol + ')\n';
+                    }
+                }
+            }
         });
         if (maf_t.length === 0) itog_t += '_Мафия не выбрала цель_\n';
         const v_igre_t = igra.igroki.filter(i => i.status === 'v_igre');
@@ -4100,14 +4173,13 @@ bot.on('callback_query', async function(query) {
 
         // Проверяем что запрашивающий — мафия
         const igrok_req = igra.igroki.find(i => i.telegram_id === telegram_id);
-        const maf_roli_k = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери'];
-        if (!igrok_req || !maf_roli_k.includes(igrok_req.rol)) {
+        if (!igrok_req || !isMafiaRole(igrok_req.rol)) {
             bot.answerCallbackQuery(query.id, { text: '\u274C Только команда мафии может это видеть', show_alert: true });
             return;
         }
 
         // Собираем всю мафию
-        const komanda = igra.igroki.filter(i => maf_roli_k.includes(i.rol));
+        const komanda = igra.igroki.filter(i => isMafiaRole(i.rol));
         let t = '\uD83D\uDD34 *Твоя команда — Игра \u2116' + kod + '*\n\n';
         komanda.forEach(i => {
             const status = i.status === 'v_igre' ? '\u2705 в игре' : '\uD83D\uDC80 выбыл';
