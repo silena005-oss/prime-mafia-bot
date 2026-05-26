@@ -667,8 +667,7 @@ async function sohranitFotoRoli(msg, file_id) {
     const caption = normalizovatNazvanieRoli(msg.caption);
     if (!caption) {
         bot.sendMessage(msg.chat.id, 
-            '📸 Картинка получена, но я не понял роль.\n\nОтправь картинку с подписью = название роли.\nПример подписи: *Дон*\n\nМожно писать с маленькой буквы: *ведьма*, *маньяк*.',
-            { parse_mode: 'Markdown' }
+            '📸 Картинка получена, но я не понял роль.\n\nОтправь картинку с подписью = название роли.\nПример подписи: Дон\n\nМожно писать с маленькой буквы: ведьма, маньяк.'
         );
         return;
     }
@@ -677,17 +676,23 @@ async function sohranitFotoRoli(msg, file_id) {
 
     // Сохраняем в Supabase для постоянства
     try {
-        await supabase.from('nastroyki_app').upsert({
+        const { error } = await supabase.from('nastroyki_app').upsert({
             klyuch: 'rol_foto_' + caption,
             znachenie: file_id
         }, { onConflict: 'klyuch' });
+        if (error) {
+            console.error('❌ Ошибка сохранения картинки роли:', error.message);
+            bot.sendMessage(msg.chat.id, '❌ Картинка дошла, но не сохранилась в Supabase.\n\nОшибка: ' + error.message);
+            return;
+        }
     } catch(e) {
-        console.log('Supabase save error (table may not exist):', e.message);
+        console.error('❌ Supabase save exception:', e.message);
+        bot.sendMessage(msg.chat.id, '❌ Картинка дошла, но не сохранилась.\n\nОшибка: ' + e.message);
+        return;
     }
 
     bot.sendMessage(msg.chat.id,
-        '✅ *' + caption + '* — file_id сохранён!\n\n`' + file_id + '`',
-        { parse_mode: 'Markdown' }
+        '✅ ' + caption + ' — картинка сохранена.'
     );
 }
 
@@ -731,18 +736,23 @@ bot.onText(/\/roles_status/, async (msg) => {
     if (!isAdmin(tg_id)) return;
 
     // Загружаем из Supabase
-    const { data: rows } = await supabase.from('nastroyki_app')
+    const { data: rows, error } = await supabase.from('nastroyki_app')
         .select('klyuch, znachenie')
         .like('klyuch', 'rol_foto_%');
+    if (error) {
+        console.error('❌ Ошибка статуса картинок:', error.message);
+        bot.sendMessage(msg.chat.id, '❌ Не получилось загрузить статус картинок.\n\nОшибка: ' + error.message);
+        return;
+    }
 
     const loaded = (rows || []).map(r => r.klyuch.replace('rol_foto_', ''));
-    let t = '📸 *Статус загрузки картинок:*\n\n';
+    let t = '📸 Статус загрузки картинок:\n\n';
     ALL_ROLE_NAMES.forEach(r => {
         t += (loaded.includes(r) ? '✅' : '❌') + ' ' + r + '\n';
     });
-    t += '\n*Загружено: ' + loaded.length + '/' + ALL_ROLE_NAMES.length + '*';
+    t += '\nЗагружено: ' + loaded.length + '/' + ALL_ROLE_NAMES.length;
 
-    bot.sendMessage(msg.chat.id, t, { parse_mode: 'Markdown' });
+    bot.sendMessage(msg.chat.id, t);
 });
 
 // Загрузка file_id при старте бота из Supabase
