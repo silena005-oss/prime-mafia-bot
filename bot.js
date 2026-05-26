@@ -643,7 +643,18 @@ async function obrabotatStart(msg, match) {
 // Маппинг file_id ролей (заполняется через /upload_role)
 const roli_foto = {};
 
-bot.on('photo', async (msg) => {
+const ALL_ROLE_NAMES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери',
+                      'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
+                      'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
+                      'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
+                      'Мстительный родственник', 'Маньяк', 'Мирный'];
+
+function normalizovatNazvanieRoli(input) {
+    const text = String(input || '').trim().toLowerCase();
+    return ALL_ROLE_NAMES.find(r => r.toLowerCase() === text) || null;
+}
+
+async function sohranitFotoRoli(msg, file_id) {
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) {
         if (msg.caption) {
@@ -653,17 +664,15 @@ bot.on('photo', async (msg) => {
     }
 
     // Проверяем caption — должно быть название роли
-    const caption = msg.caption?.trim();
+    const caption = normalizovatNazvanieRoli(msg.caption);
     if (!caption) {
         bot.sendMessage(msg.chat.id, 
-            '📸 Фото получено, но нет подписи!\n\nОтправь фото с подписью = название роли\nПример подпись: *Дон*',
+            '📸 Картинка получена, но я не понял роль.\n\nОтправь картинку с подписью = название роли.\nПример подписи: *Дон*\n\nМожно писать с маленькой буквы: *ведьма*, *маньяк*.',
             { parse_mode: 'Markdown' }
         );
         return;
     }
 
-    // Берём лучшее качество (последний элемент массива)
-    const file_id = msg.photo[msg.photo.length - 1].file_id;
     roli_foto[caption] = file_id;
 
     // Сохраняем в Supabase для постоянства
@@ -680,6 +689,18 @@ bot.on('photo', async (msg) => {
         '✅ *' + caption + '* — file_id сохранён!\n\n`' + file_id + '`',
         { parse_mode: 'Markdown' }
     );
+}
+
+bot.on('photo', async (msg) => {
+    const file_id = msg.photo[msg.photo.length - 1].file_id;
+    await sohranitFotoRoli(msg, file_id);
+});
+
+bot.on('document', async (msg) => {
+    const doc = msg.document;
+    const mime = doc?.mime_type || '';
+    if (!mime.startsWith('image/')) return;
+    await sohranitFotoRoli(msg, doc.file_id);
 });
 
 // Команда /roles_status — показать какие роли загружены
@@ -698,8 +719,8 @@ bot.onText(/\/admin/, async (msg) => {
     bot.sendMessage(msg.chat.id,
         '🔐 *Режим администратора*\n\n' +
         '📸 *Загрузка картинок ролей:*\n' +
-        'Отправь фото с *подписью* = точное название роли\n' +
-        '_Пример подписи: Дон_\n\n' +
+        'Отправь фото или PNG/JPG-файл с *подписью* = название роли\n' +
+        '_Пример подписи: Дон или ведьма_\n\n' +
         '📋 /roles\\_status — какие роли уже загружены',
         { parse_mode: 'Markdown' }
     );
@@ -715,17 +736,11 @@ bot.onText(/\/roles_status/, async (msg) => {
         .like('klyuch', 'rol_foto_%');
 
     const loaded = (rows || []).map(r => r.klyuch.replace('rol_foto_', ''));
-    const all_roli = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник', 'Консильери',
-                      'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-                      'Стрелочник', 'Камикадзе', 'Затычка', 'Шахид', 'Бессмертный',
-                      'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
-                      'Мстительный родственник', 'Маньяк', 'Мирный'];
-
     let t = '📸 *Статус загрузки картинок:*\n\n';
-    all_roli.forEach(r => {
+    ALL_ROLE_NAMES.forEach(r => {
         t += (loaded.includes(r) ? '✅' : '❌') + ' ' + r + '\n';
     });
-    t += '\n*Загружено: ' + loaded.length + '/' + all_roli.length + '*';
+    t += '\n*Загружено: ' + loaded.length + '/' + ALL_ROLE_NAMES.length + '*';
 
     bot.sendMessage(msg.chat.id, t, { parse_mode: 'Markdown' });
 });
