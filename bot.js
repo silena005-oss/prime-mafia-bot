@@ -300,7 +300,7 @@ const roli_opisaniya = {
     'Комиссар': '\uD83D\uDFE2 *Комиссар (Детектив)*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Детектив': '\uD83D\uDFE2 *Детектив*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Доктор': '\uD83D\uDFE2 *Доктор*\n\nКаждую ночь спасаешь одного игрока от убийства. Нельзя лечить одного два раза подряд. Можно лечить себя.',
-    'Подрывник': '\uD83D\uDFE2 *Подрывник*\n\nЕсли ночью тебя убивает мафия — ты взрываешься и забираешь одного из мафии с собой.',
+    'Подрывник': '\uD83D\uDFE2 *Подрывник*\n\nЕсли ночью тебя убивает мафия — ты взрываешься и забираешь с собой того мафиози, которого выбрал.',
     'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока. Убил 2 мирных — выбываешь сам.',
     'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
@@ -3947,6 +3947,28 @@ bot.on('callback_query', async function(query) {
         const d = igra.noch_deystviya || {};
         const maf_t = d.mafiya_tseli || [];
         const doc_t = d.doctor_tseli;
+        const ubityPodryvnik = maf_t
+            .map(nomer => igra.igroki.find(x => x.nomer === nomer))
+            .find(i => i && i.rol === 'Подрывник' && doc_t !== i.nomer);
+        if (ubityPodryvnik && !d.podryvnik_zabiraet) {
+            const kandidatyPodryvnika = igra.igroki.filter(x => x.status === 'v_igre');
+            if (kandidatyPodryvnika.length > 0) {
+                const knopki_podryv = kandidatyPodryvnika.map(i => [{
+                    text: '\uD83D\uDCA5 \u2116' + i.nomer + ' ' + i.name + ' — ' + i.rol,
+                    callback_data: 'noch_podryv_' + kod + '_' + i.nomer
+                }]);
+                knopki_podryv.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+                bot.editMessageText(
+                    '\uD83D\uDCA5 *Подрывника убила мафия!*\n\n' +
+                    '\u2116' + ubityPodryvnik.nomer + ' *' + ubityPodryvnik.name + '* выбирает, кого забрать с собой:',
+                    {
+                        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: knopki_podryv }
+                    }
+                );
+                return;
+            }
+        }
         let itog_t = '\uD83C\uDF19 *Итоги ночи ' + (igra.den || 1) + ':*\n\n';
         if (d.don_tseli) {
             const proverka_don = igra.igroki.find(x => x.nomer === d.don_tseli);
@@ -3978,9 +4000,8 @@ bot.on('callback_query', async function(query) {
                 i.status = 'vybyl';
                 ubity_t.push(i);
                 itog_t += '\uD83D\uDC80 \u2116' + nomer + ' *' + i.name + '* (' + i.rol + ') — убит\n';
-                if (i.rol === 'Подрывник') {
-                    const mafiyaZaStolom = igra.igroki.filter(x => x.status === 'v_igre' && isMafiaRole(x.rol));
-                    const zabiraet = mafiyaZaStolom[Math.floor(Math.random() * mafiyaZaStolom.length)];
+                if (i.rol === 'Подрывник' && d.podryvnik_zabiraet) {
+                    const zabiraet = igra.igroki.find(x => x.nomer === d.podryvnik_zabiraet && x.status === 'v_igre');
                     if (zabiraet) {
                         zabiraet.status = 'vybyl';
                         ubity_t.push(zabiraet);
@@ -4011,6 +4032,31 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         await pokazat_noch_panel(chatId, messageId, kod, null);
+    }
+
+    // ===== НОЧЬ: Подрывник выбрал кого забрать =====
+    else if (data.startsWith('noch_podryv_')) {
+        const parts_np = data.replace('noch_podryv_', '').split('_');
+        const kod = parts_np[0];
+        const nomer_np = parseInt(parts_np[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+        const tsel_np = igra.igroki.find(i => i.nomer === nomer_np && i.status === 'v_igre');
+        if (!tsel_np) {
+            bot.answerCallbackQuery(query.id, { text: 'Можно выбрать только живого игрока.', show_alert: true });
+            return;
+        }
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        igra.noch_deystviya.podryvnik_zabiraet = nomer_np;
+        bot.answerCallbackQuery(query.id, { text: 'Подрывник заберёт ' + tsel_np.name });
+        await sohranit_igru(kod);
+        bot.editMessageText(
+            '\uD83D\uDCA5 Подрывник выбрал \u2116' + nomer_np + ' *' + tsel_np.name + '*.\n\nТеперь можно показать итоги ночи.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '\uD83C\uDF1F Итоги ночи', callback_data: 'noch_itog_' + kod }]] }
+            }
+        );
     }
 
 
