@@ -580,6 +580,7 @@ async function obrabotatStart(msg, match) {
         const name_j = igrok_j?.igrovoy_nik || igrok_j?.imya || msg.from.first_name || 'Игрок';
         const nomer_j = igra_join.igroki.length + 1;
         igra_join.igroki.push({ telegram_id: tg_id_j, name: name_j, nomer: nomer_j, status: 'v_igre', foly: 0, igrok_id: igrok_j?.id || null });
+        if (igra_join.klub_id && igrok_j?.id) await dobavitChlenaKlubaEsliNuzhno(igra_join.klub_id, igrok_j.id);
         await sohranit_igru(kod_join);
         bot.sendMessage(msg.chat.id, '\u2705 Ты в игре! *\u2116' + nomer_j + ' ' + name_j + '*\n\n\uD83C\uDFB4 Игра: *' + kod_join + '*\n\uD83D\uDC65 ' + igra_join.igroki.length + '/' + igra_join.kolichestvo + '\n\n_Ожидай — ведущий скоро начнёт_', { parse_mode: 'Markdown' });
         if (igra_join.vedushchii_id) bot.sendMessage(igra_join.vedushchii_id, '\uD83D\uDC4B *' + name_j + '* вошёл! ' + igra_join.igroki.length + '/' + igra_join.kolichestvo, { parse_mode: 'Markdown' }).catch(() => {});
@@ -1417,10 +1418,16 @@ bot.on('message', async function(msg) {
             return;
         }
 
+        const { data: igrok_vhod } = await supabase
+            .from('igroki')
+            .select('id, imya, igrovoy_nik')
+            .eq('tg_id', tg_id)
+            .single();
         const nomer = igra.igroki.length + 1;
-        const name = msg.from.first_name || 'Игрок ' + nomer;
+        const name = igrok_vhod?.igrovoy_nik || igrok_vhod?.imya || msg.from.first_name || 'Игрок ' + nomer;
 
-        igra.igroki.push({ telegram_id: tg_id, name: name, nomer: nomer });
+        igra.igroki.push({ telegram_id: tg_id, name: name, nomer: nomer, status: 'v_igre', foly: 0, igrok_id: igrok_vhod?.id || null });
+        if (igra.klub_id && igrok_vhod?.id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, igrok_vhod.id);
         delete sostoyanie[tg_id];
         await sohranit_igru(kod);
 
@@ -1504,6 +1511,130 @@ function razobratStrokuRoli(line, index) {
     return null;
 }
 
+function poluchitResidentovIzNastroek(nastroyki) {
+    return Array.isArray(nastroyki?.residenty) ? nastroyki.residenty : [];
+}
+
+async function poluchitResidentovKluba(klub_id) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('nastroyki')
+        .eq('id', klub_id)
+        .single();
+    return poluchitResidentovIzNastroek(klub?.nastroyki || {});
+}
+
+async function ustanovitResidentaKluba(klub_id, igrok_id, dobavit) {
+    const { data: klub, error } = await supabase
+        .from('kluby')
+        .select('nastroyki')
+        .eq('id', klub_id)
+        .single();
+    if (error) throw error;
+
+    const nastroyki = klub?.nastroyki || {};
+    const residenty = new Set(poluchitResidentovIzNastroek(nastroyki));
+    if (dobavit) residenty.add(igrok_id);
+    else residenty.delete(igrok_id);
+
+    await supabase
+        .from('kluby')
+        .update({ nastroyki: { ...nastroyki, residenty: Array.from(residenty) } })
+        .eq('id', klub_id);
+}
+
+async function dobavitChlenaKlubaEsliNuzhno(klub_id, igrok_id) {
+    if (!klub_id || !igrok_id) return;
+    const { data: sushch } = await supabase
+        .from('chleny_klubov')
+        .select('id')
+        .eq('klub_id', klub_id)
+        .eq('igrok_id', igrok_id)
+        .single();
+    if (!sushch) {
+        await supabase.from('chleny_klubov').insert({ klub_id, igrok_id, rol: 'igrok' });
+    }
+}
+
+function dobavitIgrokaVIgru(igra, igrok) {
+    if (!igra || !igrok) return { ok: false, reason: 'not_found' };
+    if ((igra.igroki || []).some(i => i.igrok_id === igrok.id || (igrok.tg_id && i.telegram_id === igrok.tg_id))) {
+        return { ok: false, reason: 'exists' };
+    }
+    if ((igra.igroki || []).length >= igra.kolichestvo) return { ok: false, reason: 'full' };
+
+    const name = igrok.igrovoy_nik || igrok.imya || 'Игрок';
+    const nomer = igra.igroki.length + 1;
+    igra.igroki.push({
+        telegram_id: igrok.tg_id || null,
+        name,
+        nomer,
+        status: 'v_igre',
+        foly: 0,
+        igrok_id: igrok.id
+    });
+    return { ok: true, nomer, name };
+}
+
+function ubratIgrokaIzIgryPoId(igra, igrok_id) {
+    if (!igra || !igrok_id || igra.roli_razdany) return false;
+    const idx = (igra.igroki || []).findIndex(i => i.igrok_id === igrok_id);
+    if (idx < 0) return false;
+    igra.igroki.splice(idx, 1);
+    igra.igroki.forEach((i, index) => { i.nomer = index + 1; });
+    return true;
+}
+
+async function pokazatVyborResidentovIgry(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra?.klub_id) return;
+
+    const residentyIds = await poluchitResidentovKluba(igra.klub_id);
+    if (residentyIds.length === 0) {
+        await bot.editMessageText(
+            '⭐ *Резиденты клуба*\n\nВ клубе пока нет сохранённых резидентов.\n\nДобавь их в разделе *База игроков*: открой карточку игрока и нажми «Сделать резидентом».',
+            {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В лобби', callback_data: 'obnovit_igru_' + kod }]] }
+            }
+        );
+        return;
+    }
+
+    const { data: chleny } = await supabase
+        .from('chleny_klubov')
+        .select('igroki(id, tg_id, imya, igrovoy_nik, tg_username)')
+        .eq('klub_id', igra.klub_id);
+
+    const residenty = (chleny || [])
+        .map(c => c.igroki)
+        .filter(i => i && residentyIds.includes(i.id))
+        .sort((a, b) => (a.igrovoy_nik || a.imya || '').localeCompare(b.igrovoy_nik || b.imya || '', 'ru'));
+
+    let tekst = '⭐ *Добавить резидентов в игру №' + kod + '*\n\n';
+    tekst += 'Мест занято: *' + igra.igroki.length + '/' + igra.kolichestvo + '*\n';
+    tekst += '_Нажимай на игроков — галочка добавляет/убирает из лобби._\n\n';
+
+    const knopki = [];
+    residenty.forEach(i => {
+        const uzhe = (igra.igroki || []).some(g => g.igrok_id === i.id || (i.tg_id && g.telegram_id === i.tg_id));
+        const name = i.igrovoy_nik || i.imya || 'Игрок';
+        const username = i.tg_username ? ' @' + i.tg_username : '';
+        knopki.push([{ text: (uzhe ? '✅ ' : '▫️ ') + name + username, callback_data: cbBtn('rezadd_', { kod, igrok_id: i.id }) }]);
+    });
+
+    knopki.push([{ text: '⬅️ В лобби', callback_data: 'obnovit_igru_' + kod }]);
+
+    await bot.editMessageText(tekst, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
+}
+
 async function pokazatLobbyIgry(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) return;
@@ -1527,6 +1658,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
     if (!polno) tekst += '\n\n_Ждём ещё ' + (igra.kolichestvo - igra.igroki.length) + ' игрок(ов)._';
 
     const knopki = [[{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }]];
+    if (igra.klub_id) knopki.push([{ text: '⭐ Добавить резидентов', callback_data: cbBtn('rez_', { kod }) }]);
     if (igra.rezhim_rolei === 'bot') {
         knopki.push([{ text: polno ? '🎭 Раздать роли' : '🎭 Раздать роли (ждём игроков)', callback_data: 'razdat_' + kod }]);
     } else {
@@ -3132,6 +3264,49 @@ bot.on('callback_query', async function(query) {
         await pokazatLobbyIgry(chatId, messageId, kod);
     }
 
+    else if (data.startsWith('rez_')) {
+        const p = cbUnpack(data.replace('rez_', ''));
+        if (!p) return;
+        await pokazatVyborResidentovIgry(chatId, messageId, p.kod);
+    }
+
+    else if (data.startsWith('rezadd_')) {
+        const p = cbUnpack(data.replace('rezadd_', ''));
+        if (!p) return;
+        const igra = igry[p.kod];
+        if (!igra) { bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true }); return; }
+
+        const { data: igrok_rez } = await supabase
+            .from('igroki')
+            .select('id, tg_id, imya, igrovoy_nik')
+            .eq('id', p.igrok_id)
+            .single();
+
+        const uzheVigre = (igra.igroki || []).some(i => i.igrok_id === igrok_rez?.id || (igrok_rez?.tg_id && i.telegram_id === igrok_rez.tg_id));
+        if (uzheVigre) {
+            if (ubratIgrokaIzIgryPoId(igra, igrok_rez?.id)) {
+                await sohranit_igru(p.kod);
+                bot.answerCallbackQuery(query.id, { text: 'Убран из лобби' });
+            } else {
+                bot.answerCallbackQuery(query.id, { text: 'Игрок уже в игре' });
+            }
+            await pokazatVyborResidentovIgry(chatId, messageId, p.kod);
+            return;
+        }
+
+        const rezultat = dobavitIgrokaVIgru(igra, igrok_rez);
+        if (rezultat.reason === 'exists') {
+            bot.answerCallbackQuery(query.id, { text: 'Уже добавлен' });
+        } else if (rezultat.reason === 'full') {
+            bot.answerCallbackQuery(query.id, { text: 'Все места заняты', show_alert: true });
+        } else if (rezultat.ok) {
+            if (igra.klub_id && igrok_rez?.id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, igrok_rez.id);
+            await sohranit_igru(p.kod);
+            bot.answerCallbackQuery(query.id, { text: 'Добавлен: №' + rezultat.nomer + ' ' + rezultat.name });
+        }
+        await pokazatVyborResidentovIgry(chatId, messageId, p.kod);
+    }
+
     else if (data.startsWith('manual_roles_')) {
         const kod = data.replace('manual_roles_', '');
         const igra = igry[kod];
@@ -4594,6 +4769,19 @@ bot.on('callback_query', async function(query) {
         await pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id);
     }
 
+    else if (data.startsWith('res_')) {
+        const p = cbUnpack(data.replace('res_', ''));
+        if (!p) return;
+        try {
+            await ustanovitResidentaKluba(p.klub_id, p.igrok_id, p.on);
+            bot.answerCallbackQuery(query.id, { text: p.on ? 'Добавлен в резиденты' : 'Убран из резидентов' });
+            await pokazat_kartochku_igroka(chatId, messageId, p.klub_id, p.igrok_id);
+        } catch (e) {
+            console.error('Ошибка резидента:', e);
+            bot.answerCallbackQuery(query.id, { text: '❌ Ошибка сохранения', show_alert: true });
+        }
+    }
+
     // ===== СОБСТВЕННИК: сделать ведущим =====
     else if (data.startsWith('vd_')) {
         const p = cbUnpack(data.replace('vd_', ''));
@@ -5674,7 +5862,7 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
 
     const { data: klub } = await supabase
         .from('kluby')
-        .select('nazvaniye')
+        .select('nazvaniye, nastroyki')
         .eq('id', klub_id)
         .single();
 
@@ -5728,6 +5916,8 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
     const do_ = Math.min(ot + NA_STRANITSE, vsego);
     const na_stranitse = igroki_spisok.slice(ot, do_);
 
+    const residenty = new Set(poluchitResidentovIzNastroek(klub.nastroyki || {}));
+
     let tekst = '👥 *База игроков* — ' + klub.nazvaniye + '\n';
     if (filtr) tekst += '🔍 _Фильтр: ' + filtr + '_\n';
     tekst += '\n';
@@ -5745,8 +5935,9 @@ async function pokazat_bazu_igrokov(chatId, messageId, klub_id, stranitsa, filtr
         const rol_emoji = i.rol === 'vladyelets' ? '👑 '
                         : isVedushchiy(i.rol) ? '🎤 '
                         : '';
+        const rez_emoji = residenty.has(i.id) ? '⭐ ' : '';
         const username = i.tg_username ? ' (@' + i.tg_username + ')' : '';
-        const knopka_text = rol_emoji + (i.imya || 'Без имени') + username;
+        const knopka_text = rez_emoji + rol_emoji + (i.imya || 'Без имени') + username;
         knopki.push([{
             text: knopka_text,
             callback_data: cbBtn('ip_', { klub_id, igrok_id: i.id })
@@ -5804,15 +5995,19 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
 
     const { data: klub } = await supabase
         .from('kluby')
-        .select('nazvaniye')
+        .select('nazvaniye, nastroyki')
         .eq('id', klub_id)
         .single();
+
+    const residenty = new Set(poluchitResidentovIzNastroek(klub?.nastroyki || {}));
+    const rezident = residenty.has(igrok_id);
 
     let tekst = '👤 *Карточка игрока*\n\n';
     tekst += '*Имя:* ' + (igrok.imya || 'Без имени') + '\n';
     if (igrok.tg_username) tekst += '*Telegram:* @' + igrok.tg_username.replace(/_/g, '\\_') + '\n';
     if (igrok.telefon) tekst += '*Телефон:* ' + igrok.telefon + '\n';
-    tekst += '*Роль в клубе ' + (klub?.nazvaniye || '') + ':* ' + rol_text;
+    tekst += '*Роль в клубе ' + (klub?.nazvaniye || '') + ':* ' + rol_text + '\n';
+    tekst += '*Резидент:* ' + (rezident ? '⭐ Да' : 'нет');
 
     const knopki = [];
 
@@ -5824,6 +6019,10 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
         knopki.push([{ text: '🎤 Сделать ведущим', callback_data: cbBtn('vd_', { klub_id, igrok_id }) }]);
     }
 
+    knopki.push([{
+        text: rezident ? '☆ Убрать из резидентов' : '⭐ Сделать резидентом',
+        callback_data: cbBtn('res_', { klub_id, igrok_id, on: !rezident })
+    }]);
     knopki.push([{ text: '⬅️ К списку', callback_data: cbBtn('bk_', { klub_id, page: 0 }) }]);
 
     bot.editMessageText(tekst, {
