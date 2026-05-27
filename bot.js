@@ -230,15 +230,15 @@ const sostavy = {
     9:  ['Дон', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     10: ['Дон', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     11: ['Дон', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Маньяк', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    12: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
-    13: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный'],
-    14: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    15: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    16: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    17: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    18: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    19: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Любовница', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    20: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Охотник', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
+    12: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
+    13: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный'],
+    14: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    15: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный'],
+    16: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    17: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    18: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    19: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Любовница', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    20: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
 };
 
 // ── ВИП (городская профессиональная) ─────────────
@@ -1641,11 +1641,14 @@ async function otkrytIgruVedushchego(chatId, messageId, kod) {
 function lichnoeVremyaSek(igra) {
     const nastroeno = parseInt(igra?._nastroyki?.minuta_sek, 10);
     if (Number.isFinite(nastroeno)) return Math.min(60, Math.max(40, nastroeno));
+    if ((igra?.tip_kluba || 'paskal') === 'big_family') return 40;
+    if ((igra?.tip_kluba || 'paskal') === 'paskal') return igra?.kolichestvo > 15 ? 40 : 60;
     return igra?.kolichestvo > 15 ? 40 : 60;
 }
 
 const MAFIA_ROLES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник мафии', 'Консильери'];
 const SHERIFF_ROLES = ['Шериф', 'Комиссар', 'Детектив'];
+const PASKAL_MAFIA_WIN_BLOCKERS = ['Охотник', 'Стрелок', 'Маньяк'];
 
 function isMafiaRole(rol) {
     return MAFIA_ROLES.includes(rol);
@@ -1653,6 +1656,11 @@ function isMafiaRole(rol) {
 
 function isSheriffRole(rol) {
     return SHERIFF_ROLES.includes(rol);
+}
+
+function maxFolyIgry(igra) {
+    const nastroeno = parseInt(igra?.max_foly || igra?._nastroyki?.max_foly, 10);
+    return Number.isFinite(nastroeno) ? nastroeno : 4;
 }
 
 function mozhetKonsilyeriVerbovat(igra) {
@@ -1672,7 +1680,12 @@ function opredelitPobeditelya(igra) {
     if (manyak > 0 && alive.length === 1) return 'manyak';
     if (maf === 0 && manyak === 0) return 'mirnye';
     if (maf === 0 && mirnye === 0 && manyak > 0) return 'manyak';
-    if (maf > 0 && maf >= mirnye + manyak) return 'mafiya';
+    if (maf > 0 && maf >= mirnye + manyak) {
+        const tip = igra?.tip_kluba || 'paskal';
+        const estBlokiruyushchayaRol = alive.some(i => PASKAL_MAFIA_WIN_BLOCKERS.includes(i.rol));
+        if (tip === 'paskal' && estBlokiruyushchayaRol) return null;
+        return 'mafiya';
+    }
     return null;
 }
 
@@ -1776,7 +1789,7 @@ async function sleduyushchiy(chatId, messageId, kod) {
     const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
     const nastroyki = igra._nastroyki || {};
     let sekundy = igra.faza === 'znakomstvo' ? (nastroyki.znakomstvo_sek || 15)
-        : igra.faza === 'opravdanie' ? (nastroyki.opravdanie_sek || 25)
+        : igra.faza === 'opravdanie' ? (nastroyki.opravdanie_sek || 30)
         : lichnoeVremyaSek(igra);
 
     const t = buildPanelText(igra, kod);
@@ -2000,7 +2013,7 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba) {
     const solo = sostav.filter(r => solo_roli.includes(r));
     const mirnye = sostav.filter(r => !isMafiaRole(r) && !solo_roli.includes(r));
 
-    const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля', sportivniy: 'Спортивная' };
+    const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля', sportivniy: 'Спортивная', big_family: 'Big Family' };
 
     let t = '\uD83C\uDFB2 *Состав на ' + kolichestvo + ' человек*';
     t += ' — ' + (tip_names[tip_kluba] || tip_kluba) + '\n\n';
@@ -2765,7 +2778,7 @@ bot.on('callback_query', async function(query) {
         const tip_it = parts_it[1];
         // Сохраняем тип и переходим к выбору количества
         const { data: klub_it } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id_it).single();
-        const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля (Москва)', sportivniy: 'Спортивная' };
+        const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля (Москва)', sportivniy: 'Спортивная', big_family: 'Big Family' };
         const kol_knopki = [];
         const dostupnye = tip_it === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20];
         for (let i = 0; i < dostupnye.length; i += 4) {
@@ -2986,6 +2999,7 @@ bot.on('callback_query', async function(query) {
         const sport_ok = klub_bz?.sportivniy_rezhim;
         const knopki_tip = [
             [{ text: '\uD83C\uDFAD Паскаль', callback_data: 'igra_tip_' + klub_id + '_paskal' }],
+            [{ text: '\uD83D\uDCD5 Big Family (правила загружены)', callback_data: 'big_family_info_' + klub_id }],
             [{ text: '\uD83C\uDFD9 VIP (городская)', callback_data: 'igra_tip_' + klub_id + '_vip' }],
             [{ text: '\uD83C\uDF06 Наиля / Москва', callback_data: 'igra_tip_' + klub_id + '_naila' }],
         ];
@@ -2995,6 +3009,27 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki_tip }
         });
+    }
+
+    else if (data.startsWith('big_family_info_')) {
+        const klub_id_bf = data.replace('big_family_info_', '');
+        bot.editMessageText(
+            '\uD83D\uDCD5 *Big Family*\n\n' +
+            'Правила загружены и отделены от Паскаля.\n\n' +
+            'Уже понятно из документа:\n' +
+            '— дневная речь 40 секунд\n' +
+            '— роли: Дон, Мафия, Путана, Комиссар, Доктор, Любовница, Бессмертный, Подрывник, Снайпер, Маньяк\n' +
+            '— Подрывник играет за мирных и забирает игрока, если его убила мафия\n' +
+            '— Снайпер имеет один выстрел за игру\n' +
+            '— Любовница может обезвредить Маньяка\n\n' +
+            'Чтобы включить создание игр Big Family без риска, нужны точные составы по количеству игроков.',
+            {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_bez_anons_' + klub_id_bf }]] }
+            }
+        );
     }
 
     else if (data.startsWith('in_')) {
@@ -3340,7 +3375,7 @@ bot.on('callback_query', async function(query) {
 
         const knopki = igra.igroki
             .filter(i => i.status === 'v_igre')
-            .map(i => [{ text: '\u26A0\uFE0F \u2116' + i.nomer + ' ' + i.name + ' (' + i.foly + '/3)', callback_data: 'fol_' + kod + '_' + i.nomer }]);
+            .map(i => [{ text: '\u26A0\uFE0F \u2116' + i.nomer + ' ' + i.name + ' (' + i.foly + '/' + maxFolyIgry(igra) + ')', callback_data: 'fol_' + kod + '_' + i.nomer }]);
         knopki.push([{ text: '\u2B05\uFE0F К панели', callback_data: 'panel_' + kod }]);
 
         bot.editMessageText('\u26A0\uFE0F *Выдать фол* — Игра \u2116' + kod + '\n\nВыбери игрока:', {
@@ -3411,31 +3446,32 @@ bot.on('callback_query', async function(query) {
 
         igrok.foly = (igrok.foly || 0) + 1;
 
-        if (igrok.foly >= (igra.max_foly || 3)) {
+        const max_foly = maxFolyIgry(igra);
+        if (igrok.foly >= max_foly) {
             igrok.status = 'vybyl';
             if (igrok.telegram_id) {
                 bot.sendMessage(igrok.telegram_id,
-                    '\uD83D\uDEAB *Ты удалён из игры \u2116' + kod + '* за 3 фола.\n\nТвоя роль была: *' + igrok.rol + '*',
+                    '\uD83D\uDEAB *Ты удалён из игры \u2116' + kod + '* за ' + max_foly + ' фола.\n\nТвоя роль была: *' + igrok.rol + '*',
                     { parse_mode: 'Markdown' }
                 ).catch(() => {});
             }
-            bot.answerCallbackQuery(query.id, { text: '\uD83D\uDEAB ' + igrok.name + ' удалён за 3 фола!', show_alert: true });
+            bot.answerCallbackQuery(query.id, { text: '\uD83D\uDEAB ' + igrok.name + ' удалён за ' + max_foly + ' фола!', show_alert: true });
             await sohranit_igru(kod);
             const pobeditel = opredelitPobeditelya(igra);
             if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         } else {
             if (igrok.telegram_id) {
                 bot.sendMessage(igrok.telegram_id,
-                    '\u26A0\uFE0F *Фол ' + igrok.foly + '/3* в игре \u2116' + kod,
+                    '\u26A0\uFE0F *Фол ' + igrok.foly + '/' + max_foly + '* в игре \u2116' + kod,
                     { parse_mode: 'Markdown' }
                 ).catch(() => {});
             }
-            bot.answerCallbackQuery(query.id, { text: '\u26A0\uFE0F Фол ' + igrok.foly + '/3 — ' + igrok.name });
+            bot.answerCallbackQuery(query.id, { text: '\u26A0\uFE0F Фол ' + igrok.foly + '/' + max_foly + ' — ' + igrok.name });
         }
 
         const knopki3 = igra.igroki
             .filter(i => i.status === 'v_igre')
-            .map(i => [{ text: '\u26A0\uFE0F \u2116' + i.nomer + ' ' + i.name + ' (' + i.foly + '/3)', callback_data: 'fol_' + kod + '_' + i.nomer }]);
+            .map(i => [{ text: '\u26A0\uFE0F \u2116' + i.nomer + ' ' + i.name + ' (' + i.foly + '/' + maxFolyIgry(igra) + ')', callback_data: 'fol_' + kod + '_' + i.nomer }]);
         knopki3.push([{ text: '\u2B05\uFE0F К панели', callback_data: 'panel_' + kod }]);
 
         bot.editMessageText('\u26A0\uFE0F *Выдать фол* — Игра \u2116' + kod + '\n\nВыбери игрока:', {
@@ -3576,7 +3612,7 @@ bot.on('callback_query', async function(query) {
             nastroyki = klub?.nastroyki || {};
         }
         igra._nastroyki = nastroyki;
-        igra.max_foly = nastroyki.max_foly || 3;
+        igra.max_foly = nastroyki.max_foly || 4;
         igra.faza = 'znakomstvo';
         const alive_z = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
         igra.poryadok_hoda = alive_z;
@@ -3686,7 +3722,7 @@ bot.on('callback_query', async function(query) {
             const i = igra.igroki.find(x => x.nomer === nomer);
             if (i?.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Тебя выставили на голосование!*\n\nГотовь оправдание.', { parse_mode: 'Markdown' }).catch(() => {});
         });
-        const sek_op = igra._nastroyki?.opravdanie_sek || 25;
+        const sek_op = igra._nastroyki?.opravdanie_sek || 30;
         await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'opravdanie') } });
         zapustitTaymer(chatId, messageId, kod, sek_op);
     }
@@ -4118,8 +4154,8 @@ bot.on('callback_query', async function(query) {
         let t = '\u2699\uFE0F *Настройки клуба — ' + klub_nk.nazvaniye + '*\n\n';
         t += '\uD83C\uDFC6 Спортивный режим: ' + (sport ? '\u2705 Включён' : '\u274C Выключен') + '\n';
         t += '\uD83D\uDC4B Знакомство: ' + (n.znakomstvo_sek || 10) + ' сек\n';
-        t += '\u26A0\uFE0F Оправдание: ' + (n.opravdanie_sek || 25) + ' сек\n';
-        t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 3) + '\n\n';
+        t += '\u26A0\uFE0F Оправдание: ' + (n.opravdanie_sek || 30) + ' сек\n';
+        t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 4) + '\n\n';
         t += '*Баллы:*\n';
         const b = n.bally || BALLY_DEFAULT;
         t += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
@@ -4155,8 +4191,8 @@ bot.on('callback_query', async function(query) {
         let t_ts = '\u2699\uFE0F *Настройки клуба — ' + klub_ts.nazvaniye + '*\n\n';
         t_ts += '\uD83C\uDFC6 Спортивный режим: ' + (sport_ts ? '\u2705 Включён' : '\u274C Выключен') + '\n';
         t_ts += '\uD83D\uDC4B Знакомство: ' + (n_ts.znakomstvo_sek || 10) + ' сек\n';
-        t_ts += '\u26A0\uFE0F Оправдание: ' + (n_ts.opravdanie_sek || 25) + ' сек\n';
-        t_ts += '\uD83D\uDD34 Макс. фолов: ' + (n_ts.max_foly || 3) + '\n';
+        t_ts += '\u26A0\uFE0F Оправдание: ' + (n_ts.opravdanie_sek || 30) + ' сек\n';
+        t_ts += '\uD83D\uDD34 Макс. фолов: ' + (n_ts.max_foly || 4) + '\n';
         bot.editMessageText(t_ts, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: sport_ts ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_ts.id }],
             [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_ts.id }],
