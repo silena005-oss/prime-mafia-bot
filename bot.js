@@ -336,12 +336,82 @@ const BALLY_DEFAULT = {
     porazhenie: 0,
     vyzhil: 1,
     ubit_v_pervuyu_noch: 0,
+    luchshiy_hod_za_mafiyu: 1,
     bonus_sheriff_ubil_maf: 2,
     bonus_doctor_spas: 1,
     bonus_kamikadze: 3,
     bonus_don_pobedil: 2,
     bonus_manyak_pobedil: 5
 };
+
+const SOGLASIE_VERSIYA = '2026-05-29';
+
+function tekstEkranaSoglasiya() {
+    return '👋 *Добро пожаловать в Prime Mafia!*\n\n' +
+        'Перед регистрацией ознакомься и прими:\n' +
+        '• публичную оферту\n' +
+        '• политику конфиденциальности\n\n' +
+        '_Мы обрабатываем данные только для игр, клубов, рейтинга и сервисных функций. ' +
+        'Материалы клуба используются только внутри Prime Mafia и не передаются другим клубам._';
+}
+
+function knopkiEkranaSoglasiya() {
+    return [
+        [{ text: '📄 Оферта', callback_data: 'legal_offerta' }],
+        [{ text: '🔒 Политика конфиденциальности', callback_data: 'legal_privacy' }],
+        [{ text: '✅ Принимаю условия', callback_data: 'reg_soglasie_prinyat' }],
+        [{ text: '❌ Не принимаю', callback_data: 'reg_soglasie_otkaz' }]
+    ];
+}
+
+function tekstOffertaKratko() {
+    return '📄 *Публичная оферта Prime Mafia*\n\n' +
+        '• Сервис автоматизирует игры, рейтинг, клубы и анонсы.\n' +
+        '• Платные услуги: игры, пакеты, анонсы, персонализация клуба.\n' +
+        '• Материалы клуба используются только внутри Prime Mafia.\n' +
+        '• Код, логика и интерфейс защищены авторским правом.\n' +
+        '• Клуб и ведущий отвечают за корректность введённых данных.\n' +
+        '• Персональные данные обрабатываются по политике конфиденциальности.\n\n' +
+        'Полный текст: `OFFERTA.md` в проекте.\n' +
+        'Контакт: silena005@gmail.com';
+}
+
+function tekstPrivacyKratko() {
+    return '🔒 *Политика конфиденциальности Prime Mafia*\n\n' +
+        'Мы обрабатываем:\n' +
+        '• Telegram ID, username, имя\n' +
+        '• игровой ник, телефон, город\n' +
+        '• данные игр, ролей, рейтинга и клубов\n\n' +
+        'Данные хранятся в Supabase и используются только для работы Сервиса. ' +
+        'Мы не продаём персональные данные.\n\n' +
+        'Запрос на выгрузку или удаление: silena005@gmail.com\n' +
+        'Тема письма: *PRIME MAFIA — DATA REQUEST*';
+}
+
+async function pokazatEkranSoglasiya(chatId, messageId) {
+    const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopkiEkranaSoglasiya() }
+    };
+    if (messageId) {
+        await bot.editMessageText(tekstEkranaSoglasiya(), { chat_id: chatId, message_id: messageId, ...opts });
+    } else {
+        await bot.sendMessage(chatId, tekstEkranaSoglasiya(), opts);
+    }
+}
+
+async function sohranitSoglasiePolzovatelya(igrok_id, tg_id) {
+    const payload = {
+        soglasie_offerta: true,
+        soglasie_versiya: SOGLASIE_VERSIYA,
+        soglasie_data: new Date().toISOString()
+    };
+    const query = igrok_id
+        ? supabase.from('igroki').update(payload).eq('id', igrok_id)
+        : supabase.from('igroki').update(payload).eq('tg_id', tg_id);
+    const { error } = await query;
+    if (error) console.error('Не удалось сохранить согласие (возможно, нет колонок в igroki):', error.message);
+}
 
 // ============================================
 // ПАМЯТЬ БОТА (временная, до полного перехода на БД)
@@ -362,7 +432,8 @@ async function sohranit_igru(kod) {
         const nastroyki = {
             ...(igra._nastroyki || {}),
             rezhim_rolei: igra.rezhim_rolei || null,
-            klub_nazvaniye: nazvanieKlubaIgry(igra) || null
+            klub_nazvaniye: nazvanieKlubaIgry(igra) || null,
+            luchshie_hody: igra.luchshie_hody || []
         };
         const data = {
             kod,
@@ -426,6 +497,7 @@ async function zagruzit_aktivnye_igry() {
                     faza: row.faza || 'ozhidanie',
                     den: row.den || 1,
                     rezhim_rolei: nastroyki.rezhim_rolei || null,
+                    luchshie_hody: nastroyki.luchshie_hody || [],
                     _nastroyki: nastroyki,
                     noch_deystviya: typeof row.noch_deystviya === 'string' ? JSON.parse(row.noch_deystviya) : (row.noch_deystviya || {}),
                     naznacheny_golos: typeof row.naznacheny_golos === 'string' ? JSON.parse(row.naznacheny_golos) : (row.naznacheny_golos || []),
@@ -495,6 +567,7 @@ const menu_igroka = {
             [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
             [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
             [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
+            [{ text: '📄 Оферта и конфиденциальность', callback_data: 'legal_menu' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
         ]
     }
@@ -625,13 +698,9 @@ async function obrabotatStart(msg, match) {
             });
         }
     } else {
-        // Новый пользователь — начинаем регистрацию
-        ozhidanie_registracii[tg_id] = { shag: 'imya' };
-        return bot.sendMessage(chatId,
-            '👋 *Добро пожаловать в Prime Mafia!*\n\n' +
-            'Для регистрации введи своё *имя и фамилию*:',
-            { parse_mode: 'Markdown' }
-        );
+        // Новый пользователь — сначала согласие с офертой и политикой
+        ozhidanie_registracii[tg_id] = { shag: 'soglasie' };
+        return pokazatEkranSoglasiya(chatId);
     }
 }
 
@@ -904,7 +973,16 @@ bot.on('message', async function(msg) {
     }
 
     // ===== РЕГИСТРАЦИЯ: шаг 1 — имя =====
+    if (ozhidanie_registracii[tg_id]?.shag === 'soglasie') {
+        bot.sendMessage(chatId, '📄 Сначала прими оферту и политику конфиденциальности — нажми /start');
+        return;
+    }
+
     if (ozhidanie_registracii[tg_id]?.shag === 'imya') {
+        if (!ozhidanie_registracii[tg_id].soglasie_prinyato) {
+            bot.sendMessage(chatId, '📄 Сначала прими условия — нажми /start');
+            return;
+        }
         if (text.length < 2) {
             bot.sendMessage(chatId, '❌ Введи настоящее имя (минимум 2 символа).');
             return;
@@ -1861,6 +1939,84 @@ function primenitSmertShahida(igra, shahid, prichina, ubitye) {
     return tekst;
 }
 
+function mozhetBytLuchshiyHod(igrok) {
+    return igrok && !isMafiaRole(igrok.rol) && igrok.rol !== 'Маньяк';
+}
+
+function prichinaLuchshegoHoda(source) {
+    return source === 'den1' ? 'Выголосован в День 1' : 'Убит в Ночь 1';
+}
+
+function poluchitLuchshiyHod(igra, nomer, source) {
+    igra.luchshie_hody = igra.luchshie_hody || [];
+    let hod = igra.luchshie_hody.find(h => h.igrok_nomer === nomer && h.source === source);
+    if (!hod) {
+        hod = { igrok_nomer: nomer, source, prichina: prichinaLuchshegoHoda(source), nazvannye: [] };
+        igra.luchshie_hody.push(hod);
+    }
+    return hod;
+}
+
+function knopkiLuchshegoHoda(igra, kod, nomer, source, next) {
+    const hod = poluchitLuchshiyHod(igra, nomer, source);
+    const knopki = (igra.igroki || [])
+        .filter(i => i.nomer !== nomer)
+        .map(i => [{
+            text: (hod.nazvannye.includes(i.nomer) ? '\u2705 ' : '\u25AB\uFE0F ') + '\u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'lh_toggle_' + kod + '_' + nomer + '_' + i.nomer + '_' + source + '_' + next
+        }]);
+    knopki.push([{ text: '\u2705 Сохранить лучший ход', callback_data: 'lh_done_' + kod + '_' + nomer + '_' + source + '_' + next }]);
+    knopki.push([{ text: '\u23ED\uFE0F Пропустить', callback_data: 'lh_skip_' + kod + '_' + nomer + '_' + source + '_' + next }]);
+    return knopki;
+}
+
+async function pokazatLuchshiyHod(chatId, messageId, kod, nomer, source, next) {
+    const igra = igry[kod];
+    if (!igra) return;
+    const igrok = igra.igroki.find(i => i.nomer === nomer);
+    if (!igrok) return;
+    const hod = poluchitLuchshiyHod(igra, nomer, source);
+    let t = '\uD83C\uDFC6 *Лучший ход*\n\n';
+    t += '\u2116' + igrok.nomer + ' *' + igrok.name + '* — ' + hod.prichina + '\n\n';
+    t += 'Отметь игроков, которых он назвал мафией на последнем слове.\n';
+    t += 'Бот после игры сам сверит реальные роли и начислит баллы.\n\n';
+    t += 'Выбрано: ' + (hod.nazvannye.length ? hod.nazvannye.map(n => '\u2116' + n).join(', ') : '_никого_');
+    await bot.editMessageText(t, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopkiLuchshegoHoda(igra, kod, nomer, source, next) }
+    });
+}
+
+async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
+    const igra = igry[kod];
+    if (!igra) return;
+    const pobeditel = opredelitPobeditelya(igra);
+    if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
+
+    if (next === 'noch') {
+        igra.faza = 'noch';
+        await sohranit_igru(kod);
+        await pokazat_prehod_k_nochi(chatId, messageId, kod);
+        return;
+    }
+
+    if (next === 'day') {
+        igra.den = (igra.den || 1) + 1;
+        await sohranit_igru(kod);
+        await bot.editMessageText('\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + igra.den + '.', {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83C\uDF1E Начать день ' + igra.den, callback_data: 'faza_den_' + kod }],
+                [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
+            ] }
+        });
+    }
+}
+
 function mozhetKonsilyeriVerbovat(igra) {
     const alive = (igra?.igroki || []).filter(i => i.status === 'v_igre');
     if (alive.length === 0) return false;
@@ -2133,6 +2289,21 @@ async function zapisat_bally(igra, kod) {
 
         const bonus_info = {};
         if (igrok.bonus_pts) bonus_info.ruchnoy = { pts: igrok.bonus_pts, text: igrok.bonus_text };
+        const luchshiyHod = (igra.luchshie_hody || []).find(h => h.igrok_nomer === igrok.nomer);
+        if (luchshiyHod) {
+            const ugadany = (luchshiyHod.nazvannye || []).filter(nomer => {
+                const named = igra.igroki.find(x => x.nomer === nomer);
+                return named && isMafiaRole(named.rol);
+            });
+            const ptsLuchshiyHod = ugadany.length * (ballyConfig.luchshiy_hod_za_mafiyu ?? 1);
+            if (ptsLuchshiyHod > 0) bl += ptsLuchshiyHod;
+            bonus_info.luchshiy_hod = {
+                pts: ptsLuchshiyHod,
+                prichina: luchshiyHod.prichina,
+                nazvannye: luchshiyHod.nazvannye || [],
+                ugadany
+            };
+        }
 
         records.push({
             kod_igry: kod,
@@ -2504,6 +2675,91 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    // ===== СОГЛАСИЕ: оферта и конфиденциальность =====
+    else if (data === 'legal_menu') {
+        bot.editMessageText('📄 *Документы Prime Mafia*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📄 Оферта', callback_data: 'legal_offerta' }],
+                [{ text: '🔒 Политика конфиденциальности', callback_data: 'legal_privacy' }],
+                [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+            ] }
+        });
+    }
+
+    else if (data === 'legal_offerta') {
+        bot.editMessageText(tekstOffertaKratko(), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🔒 Политика конфиденциальности', callback_data: 'legal_privacy' }],
+                [{ text: '⬅️ Назад', callback_data: 'reg_soglasie_vrat' }]
+            ] }
+        });
+    }
+
+    else if (data === 'legal_privacy') {
+        bot.editMessageText(tekstPrivacyKratko(), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📄 Оферта', callback_data: 'legal_offerta' }],
+                [{ text: '⬅️ Назад', callback_data: 'reg_soglasie_vrat' }]
+            ] }
+        });
+    }
+
+    else if (data === 'reg_soglasie_vrat') {
+        const v_reg = ozhidanie_registracii[telegram_id];
+        if (v_reg && (v_reg.shag === 'soglasie' || v_reg.shag === 'soglasie_povtor')) {
+            await pokazatEkranSoglasiya(chatId, messageId);
+            return;
+        }
+        bot.editMessageText('📄 *Документы Prime Mafia*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📄 Оферта', callback_data: 'legal_offerta' }],
+                [{ text: '🔒 Политика конфиденциальности', callback_data: 'legal_privacy' }],
+                [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+            ] }
+        });
+    }
+
+    else if (data === 'reg_soglasie_prinyat') {
+        const dannye_s = ozhidanie_registracii[telegram_id];
+        if (dannye_s?.shag === 'soglasie_povtor' && dannye_s.igrok_id) {
+            await sohranitSoglasiePolzovatelya(dannye_s.igrok_id, telegram_id);
+            delete ozhidanie_registracii[telegram_id];
+            bot.answerCallbackQuery(query.id, { text: '✅ Согласие принято' });
+            bot.editMessageText('✅ *Спасибо!* Условия приняты.\n\nНапиши /start чтобы открыть меню.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown'
+            });
+            return;
+        }
+        if (!dannye_s || dannye_s.shag !== 'soglasie') {
+            bot.answerCallbackQuery(query.id, { text: 'Начни регистрацию через /start', show_alert: true });
+            return;
+        }
+        ozhidanie_registracii[telegram_id] = {
+            shag: 'imya',
+            soglasie_prinyato: true,
+            soglasie_versiya: SOGLASIE_VERSIYA,
+            soglasie_data: new Date().toISOString()
+        };
+        bot.answerCallbackQuery(query.id, { text: '✅ Принято' });
+        bot.editMessageText(
+            '✅ *Спасибо!* Условия приняты.\n\nТеперь введи своё *имя и фамилию*:',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+        );
+    }
+
+    else if (data === 'reg_soglasie_otkaz') {
+        delete ozhidanie_registracii[telegram_id];
+        bot.answerCallbackQuery(query.id, { text: 'Без согласия регистрация невозможна' });
+        bot.editMessageText(
+            '❌ *Регистрация отменена.*\n\nБез принятия оферты и политики конфиденциальности использовать Prime Mafia нельзя.\n\nЕсли передумаешь — напиши /start',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+        );
+    }
+
     // ===== РЕГИСТРАЦИЯ: выбор страны =====
     else if (data.startsWith('reg_strana_')) {
         const strana = data.replace('reg_strana_', '');
@@ -2585,18 +2841,30 @@ bot.on('callback_query', async function(query) {
 
         const tg_username = query.from.username || '';
 
-        const { data: novyi_igrok, error } = await supabase
+        const insertPayload = {
+            tg_id: telegram_id,
+            tg_username,
+            imya: dannye.imya,
+            igrovoy_nik: dannye.igrovoy_nik,
+            telefon: dannye.telefon,
+            gorod: gorod_name,
+            gorod_id: gorod_id,
+            soglasie_offerta: !!dannye.soglasie_prinyato,
+            soglasie_versiya: dannye.soglasie_versiya || SOGLASIE_VERSIYA,
+            soglasie_data: dannye.soglasie_data || new Date().toISOString()
+        };
+
+        let { data: novyi_igrok, error } = await supabase
             .from('igroki')
-            .insert({
-                tg_id: telegram_id,
-                tg_username,
-                imya: dannye.imya,
-                igrovoy_nik: dannye.igrovoy_nik,
-                telefon: dannye.telefon,
-                gorod: gorod_name,
-                gorod_id: gorod_id
-            })
+            .insert(insertPayload)
             .select().single();
+
+        if (error && /soglasie/i.test(error.message || '')) {
+            delete insertPayload.soglasie_offerta;
+            delete insertPayload.soglasie_versiya;
+            delete insertPayload.soglasie_data;
+            ({ data: novyi_igrok, error } = await supabase.from('igroki').insert(insertPayload).select().single());
+        }
 
         delete ozhidanie_registracii[telegram_id];
 
@@ -4047,6 +4315,10 @@ bot.on('callback_query', async function(query) {
         igra.naznacheny_golos = [];
         await sohranit_igru(kod);
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 ' + (igrok_gv?.name || '') + ' выбыл' });
+        if ((igra.den || 1) === 1 && mozhetBytLuchshiyHod(igrok_gv)) {
+            await pokazatLuchshiyHod(chatId, messageId, kod, nomer_gv, 'den1', 'noch');
+            return;
+        }
         const pobeditel = opredelitPobeditelya(igra);
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.faza = 'noch';
@@ -4417,6 +4689,20 @@ bot.on('callback_query', async function(query) {
         v_igre_t.forEach(i => { itog_t += '\u2705 \u2116' + i.nomer + ' ' + i.name + '\n'; });
         ubity_t.forEach(i => { bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); });
         igra.noch_deystviya = {};
+        const kandidatLuchshegoHoda = (igra.den || 1) === 1 ? ubity_t.find(mozhetBytLuchshiyHod) : null;
+        if (kandidatLuchshegoHoda) {
+            await sohranit_igru(kod);
+            await bot.editMessageText(itog_t + '\n\n\uD83D\uDDE3 Последнее слово: можно зафиксировать лучший ход.', {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '\uD83C\uDFC6 Лучший ход \u2116' + kandidatLuchshegoHoda.nomer, callback_data: 'lh_start_' + kod + '_' + kandidatLuchshegoHoda.nomer + '_night1_day' }],
+                    [{ text: '\u23ED\uFE0F Без лучшего хода', callback_data: 'lh_skip_' + kod + '_' + kandidatLuchshegoHoda.nomer + '_night1_day' }]
+                ] }
+            });
+            return;
+        }
         const pobeditel = opredelitPobeditelya(igra);
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.den = (igra.den || 1) + 1;
@@ -4433,6 +4719,74 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         await pokazat_noch_panel(chatId, messageId, kod, null);
+    }
+
+    // ===== ЛУЧШИЙ ХОД: фиксация на последнем слове =====
+    else if (data.startsWith('lh_start_')) {
+        const parts_lh = data.replace('lh_start_', '').split('_');
+        const kod = parts_lh[0];
+        const nomer_lh = parseInt(parts_lh[1]);
+        const source_lh = parts_lh[2];
+        const next_lh = parts_lh[3];
+        const igra = igry[kod];
+        if (!igra) return;
+        const igrok_lh = igra.igroki.find(i => i.nomer === nomer_lh);
+        if (!mozhetBytLuchshiyHod(igrok_lh)) {
+            bot.answerCallbackQuery(query.id, { text: 'Лучший ход доступен только мирному игроку.', show_alert: true });
+            return;
+        }
+        bot.answerCallbackQuery(query.id, { text: '\uD83C\uDFC6 Лучший ход' });
+        await pokazatLuchshiyHod(chatId, messageId, kod, nomer_lh, source_lh, next_lh);
+    }
+
+    else if (data.startsWith('lh_toggle_')) {
+        const parts_lht = data.replace('lh_toggle_', '').split('_');
+        const kod = parts_lht[0];
+        const nomer_lh = parseInt(parts_lht[1]);
+        const tsel_lh = parseInt(parts_lht[2]);
+        const source_lh = parts_lht[3];
+        const next_lh = parts_lht[4];
+        const igra = igry[kod];
+        if (!igra) return;
+        const hod = poluchitLuchshiyHod(igra, nomer_lh, source_lh);
+        const idx = hod.nazvannye.indexOf(tsel_lh);
+        if (idx >= 0) {
+            hod.nazvannye.splice(idx, 1);
+            bot.answerCallbackQuery(query.id, { text: 'Снято' });
+        } else {
+            hod.nazvannye.push(tsel_lh);
+            bot.answerCallbackQuery(query.id, { text: 'Добавлено №' + tsel_lh });
+        }
+        await sohranit_igru(kod);
+        await pokazatLuchshiyHod(chatId, messageId, kod, nomer_lh, source_lh, next_lh);
+    }
+
+    else if (data.startsWith('lh_done_')) {
+        const parts_lhd = data.replace('lh_done_', '').split('_');
+        const kod = parts_lhd[0];
+        const nomer_lh = parseInt(parts_lhd[1]);
+        const source_lh = parts_lhd[2];
+        const next_lh = parts_lhd[3];
+        const igra = igry[kod];
+        if (!igra) return;
+        poluchitLuchshiyHod(igra, nomer_lh, source_lh);
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: '\uD83C\uDFC6 Лучший ход сохранён' });
+        await prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next_lh);
+    }
+
+    else if (data.startsWith('lh_skip_')) {
+        const parts_lhs = data.replace('lh_skip_', '').split('_');
+        const kod = parts_lhs[0];
+        const nomer_lh = parseInt(parts_lhs[1]);
+        const source_lh = parts_lhs[2];
+        const next_lh = parts_lhs[3];
+        const igra = igry[kod];
+        if (!igra) return;
+        igra.luchshie_hody = (igra.luchshie_hody || []).filter(h => !(h.igrok_nomer === nomer_lh && h.source === source_lh));
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Без лучшего хода' });
+        await prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next_lh);
     }
 
     // ===== НОЧЬ: Подрывник выбрал кого забрать =====

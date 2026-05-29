@@ -23,6 +23,25 @@
 - Save post-game admin time: points, rankings, and game history are calculated immediately after the game.
 - Reduce conflict with players by preventing common host mistakes when club rules are correctly configured.
 
+## Club Scoring Mechanics
+
+- Best move ("Лучший ход"): used in many clubs when a peaceful player is voted out on Day 1 or killed on Night 1 and correctly names mafia players.
+- This should be a structured post-game field, not just a free-text bonus:
+  - eligible player;
+  - reason: voted out Day 1 or killed Night 1;
+  - named mafia players;
+  - how many guesses were correct;
+  - bonus points from the club scoring settings.
+- The host should be able to add it after the game from the results / bonus screen, and the bonus should be stored in `bonus_info` for transparency in the rating history.
+
 ## Future Game Modes
 
 - Children's Mafia: adapted rules, softer roles, safer wording, and a simplified flow for kids' events.
+
+## Legal Docs
+
+- `LICENSE`: proprietary license, all rights reserved on code and project materials.
+- `OFFERTA.md`: public offer for clubs, hosts, and players.
+- `PRIVACY_POLICY.md`: personal data processing policy.
+- `supabase/add_soglasie_igroki.sql`: DB columns for registration consent.
+- Before accepting payments publicly, add operator legal details to the offer and get a final legal review.
