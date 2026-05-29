@@ -724,6 +724,7 @@ const ALL_ROLE_NAMES = ['Дон', 'Мафия', 'Путана', 'Эскортн�
 
 function normalizovatNazvanieRoli(input) {
     const text = String(input || '').trim().toLowerCase();
+    if (text === 'путана') return 'Эскортница';
     return ALL_ROLE_NAMES.find(r => r.toLowerCase() === text) || null;
 }
 
@@ -897,6 +898,65 @@ bot.on('message', async function(msg) {
 
     // Игнорируем команды
     if (text.startsWith('/')) return;
+
+    // ===== ФИЗИЧЕСКИЕ КАРТЫ: ночь знакомства по ролям =====
+    if (sostoyanie[tg_id]?.startsWith('noch_znakomstvo_')) {
+        const parts_nz = sostoyanie[tg_id].replace('noch_znakomstvo_', '').split('_');
+        const kod_nz = parts_nz[0];
+        const idx_nz = parseInt(parts_nz[1], 10) || 0;
+        const igra_nz = igry[kod_nz];
+        if (!igra_nz) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(chatId, '❌ Игра не найдена. Создай игру заново.');
+            return;
+        }
+
+        const roles_nz = poryadokRoleyDlyaNochi(igra_nz);
+        const rol_nz = roles_nz[idx_nz];
+        if (!rol_nz) {
+            await pokazatShagNochiZnakomstva(chatId, kod_nz, idx_nz);
+            return;
+        }
+
+        let igrok_nz = naytiIgrokaPoVvodu(igra_nz, text);
+        if (!igrok_nz) {
+            if ((igra_nz.igroki || []).length >= igra_nz.kolichestvo) {
+                bot.sendMessage(chatId,
+                    '❌ Не нашёл такого игрока за столом.\n\n' +
+                    'Отправь *номер места* или точный ник игрока. Например: `7`',
+                    { parse_mode: 'Markdown' }
+                );
+                return;
+            }
+            igrok_nz = {
+                telegram_id: null,
+                name: text.trim(),
+                nomer: (igra_nz.igroki || []).length + 1,
+                status: 'v_igre',
+                foly: 0,
+                igrok_id: null
+            };
+            igra_nz.igroki.push(igrok_nz);
+        }
+
+        if (igrok_nz.rol) {
+            bot.sendMessage(chatId,
+                '⚠️ У игрока №' + igrok_nz.nomer + ' ' + igrok_nz.name + ' уже стоит роль *' + igrok_nz.rol + '*.\n\n' +
+                'Выбери другого игрока для роли *' + rol_nz + '* или открой панель и проверь состав.',
+                { parse_mode: 'Markdown' }
+            );
+            return;
+        }
+
+        igrok_nz.rol = rol_nz;
+        igrok_nz.status = 'v_igre';
+        igrok_nz.foly = igrok_nz.foly || 0;
+        await sohranit_igru(kod_nz);
+
+        await bot.sendMessage(chatId, '\u2705 \u2116' + igrok_nz.nomer + ' ' + igrok_nz.name + ' — *' + rol_nz + '*', { parse_mode: 'Markdown' });
+        await pokazatShagNochiZnakomstva(chatId, kod_nz, idx_nz + 1);
+        return;
+    }
 
     // ===== ФИЗИЧЕСКИЕ КАРТЫ: ведущая вручную вносит игроков и роли =====
     const manualRolesKod = sostoyanie[tg_id]?.startsWith('manual_roles_')
@@ -1529,7 +1589,7 @@ bot.on('message', async function(msg) {
 
         if (igra.igroki.length === igra.kolichestvo) {
             const knopkaStarta = igra.rezhim_rolei === 'karty'
-                ? { text: '▶️ Начать игру', callback_data: 'nachat_igru_' + kod }
+                ? { text: '\u25B6\uFE0F Начать игру', callback_data: 'nachat_igru_' + kod }
                 : { text: '🎴 Раздать роли', callback_data: 'razdat_' + kod };
             bot.sendMessage(igra.vedushchii_id,
                 '🎉 *Все игроки в сборе!*\n\nМожно начинать.',
@@ -1578,17 +1638,99 @@ function razobratStrokuRoli(line, index) {
     for (const rol of roli) {
         const rolLower = rol.toLowerCase();
         if (lower === rolLower) {
-            return { name: 'Игрок ' + (index + 1), rol };
+            return { name: 'Игрок ' + (index + 1), rol: rol === 'Путана' ? 'Эскортница' : rol };
         }
         if (lower.endsWith(rolLower)) {
             const name = bezNomera.slice(0, bezNomera.length - rol.length)
                 .replace(/[—–\-:|,]+$/g, '')
                 .trim();
-            if (name) return { name, rol };
+            if (name) return { name, rol: rol === 'Путана' ? 'Эскортница' : rol };
         }
     }
 
     return null;
+}
+
+const PORYADOK_ROLEY_NOCHI = [
+    'Дон', 'Эскортница', 'Мафия', 'Консильери', 'Подрывник мафии',
+    'Шериф', 'Комиссар', 'Детектив', 'Маньяк', 'Доктор', 'Стрелок', 'Охотник',
+    'Камикадзе', 'Шахид', 'Бессмертный', 'Затычка', 'Любовница', 'Ведьма',
+    'Бомба', 'Безликий', 'Адвокат', 'Мстительный родственник'
+];
+
+function poluchitSostavDlyaIgry(igra) {
+    return [...(igra?._sostav_custom || poluchit_sostav(igra?.kolichestvo, igra?.tip_kluba || 'paskal') || [])]
+        .map(rol => rol === 'Путана' ? 'Эскортница' : rol);
+}
+
+function poryadokRoleyDlyaNochi(igra) {
+    const sostav = poluchitSostavDlyaIgry(igra).filter(rol => rol !== 'Мирный');
+    return sostav.sort((a, b) => {
+        const ia = PORYADOK_ROLEY_NOCHI.indexOf(a);
+        const ib = PORYADOK_ROLEY_NOCHI.indexOf(b);
+        return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+}
+
+function naytiIgrokaPoVvodu(igra, text) {
+    const vvod = String(text || '').trim().toLowerCase();
+    const nomer = parseInt(vvod, 10);
+    if (Number.isFinite(nomer)) {
+        const poNomeru = igra.igroki.find(i => i.nomer === nomer);
+        if (poNomeru) return poNomeru;
+    }
+    return igra.igroki.find(i =>
+        String(i.name || '').toLowerCase() === vvod ||
+        String(i.name || '').toLowerCase().includes(vvod)
+    ) || null;
+}
+
+function tekstShagaNochiZnakomstva(igra, kod, idx) {
+    const roles = poryadokRoleyDlyaNochi(igra);
+    const rol = roles[idx];
+    const vsego = roles.length;
+    const takihDo = roles.slice(0, idx + 1).filter(r => r === rol).length;
+    const takihVsego = roles.filter(r => r === rol).length;
+    const label = (rol === 'Мафия' ? 'Запись мафии: ' : '') + rol + (takihVsego > 1 ? ' ' + takihDo + '/' + takihVsego : '');
+
+    let t = '\uD83C\uDF19 *Ночь знакомства* — Игра \u2116' + kod + '\n\n';
+    if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
+    t += 'Шаг *' + (idx + 1) + '/' + vsego + '*\n';
+    t += 'Роль: *' + label + '*\n\n';
+    t += 'Отправь номер или ник игрока, у которого эта роль.\n';
+    t += '_Например: `7` или `Аня`_\n\n';
+    t += 'Мирных жителей отмечать не нужно — они автоматически останутся в остатке.';
+    return t;
+}
+
+async function pokazatShagNochiZnakomstva(chatId, kod, idx) {
+    const igra = igry[kod];
+    if (!igra) return;
+    await zagruzitNazvanieKlubaVIgru(igra);
+    const roles = poryadokRoleyDlyaNochi(igra);
+    if (idx >= roles.length) {
+        igra.rezhim_rolei = 'karty';
+        igra.roli_razdany = true;
+        igra.den = 1;
+        igra.igroki.forEach(i => {
+            i.status = 'v_igre';
+            i.foly = i.foly || 0;
+            if (!i.rol) i.rol = 'Мирный';
+        });
+        const mirnyeOstatok = igra.igroki.filter(i => i.rol === 'Мирный').length;
+        delete sostoyanie[igra.vedushchii_id];
+        await sohranit_igru(kod);
+        await bot.sendMessage(chatId, '\u2705 *Ночь знакомства завершена!*\n\nАктивные роли внесены. Остальные игроки автоматически отмечены как *Мирные* (' + mirnyeOstatok + ').\n\nМожно начинать круг знакомства или открыть панель игры.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83D\uDC4B Начать знакомство', callback_data: 'faza_znakomstvo_' + kod }],
+                [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }]
+            ] }
+        });
+        return;
+    }
+    sostoyanie[igra.vedushchii_id] = 'noch_znakomstvo_' + kod + '_' + idx;
+    await bot.sendMessage(chatId, tekstShagaNochiZnakomstva(igra, kod, idx), { parse_mode: 'Markdown' });
 }
 
 function poluchitResidentovIzNastroek(nastroyki) {
@@ -1744,6 +1886,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
     if (igra.rezhim_rolei === 'bot') {
         knopki.push([{ text: polno ? '🎭 Раздать роли' : '🎭 Раздать роли (ждём игроков)', callback_data: 'razdat_' + kod }]);
     } else {
+        knopki.push([{ text: '\uD83C\uDF19 Начать ночь знакомства', callback_data: 'noch_znakomstvo_' + kod }]);
         knopki.push([{ text: '✍️ Внести роли вручную', callback_data: 'manual_roles_' + kod }]);
         knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру / внести роли', callback_data: 'nachat_igru_' + kod }]);
     }
@@ -3685,19 +3828,18 @@ bot.on('callback_query', async function(query) {
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         if (igra.igroki.length < igra.kolichestvo) {
             if (igra.rezhim_rolei === 'karty') {
-                sostoyanie[telegram_id] = 'manual_roles_' + kod;
                 await bot.editMessageText(
-                    '✍️ *Внеси роли вручную*\n\n' +
+                    '🃏 *Физические карты*\n\n' +
                     'Сейчас подключено ' + igra.igroki.length + '/' + igra.kolichestvo + '.\n' +
-                    'Для физической игры можно не ждать подключений — пришли список на *' + igra.kolichestvo + '* игроков.\n\n' +
-                    'Формат:\n' +
-                    '`1. Аня — Дон`\n' +
-                    '`2. Оля — Мафия`\n' +
-                    '`3. Катя — Мирный`\n\n' +
-                    'После этого откроется игровая панель.',
+                    'Для физической игры можно не ждать подключений.\n\n' +
+                    'Начни ночь знакомства: бот будет по очереди спрашивать только активные роли, а мирные останутся в остатке.',
                     {
                         chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'obnovit_igru_' + kod }]] }
+                        reply_markup: { inline_keyboard: [
+                            [{ text: '\uD83C\uDF19 Начать ночь знакомства', callback_data: 'noch_znakomstvo_' + kod }],
+                            [{ text: '✍️ Внести роли списком', callback_data: 'manual_roles_' + kod }],
+                            [{ text: '⬅️ Назад', callback_data: 'obnovit_igru_' + kod }]
+                        ] }
                     }
                 );
                 return;
@@ -3719,10 +3861,29 @@ bot.on('callback_query', async function(query) {
         await bot.editMessageText('🃏 *Игра начата с физическими картами!*\n\nРоли раздаёт ведущий за столом.\nТеперь можно открыть игровую панель и запустить знакомство.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
+                [{ text: '\uD83C\uDF19 Начать ночь знакомства', callback_data: 'noch_znakomstvo_' + kod }],
+                [{ text: '\uD83D\uDC4B Начать круг знакомства', callback_data: 'faza_znakomstvo_' + kod }],
                 [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
                 [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
             ]}
         });
+    }
+
+    else if (data.startsWith('noch_znakomstvo_')) {
+        const kod = data.replace('noch_znakomstvo_', '');
+        const igra = igry[kod];
+        if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
+        igra.rezhim_rolei = 'karty';
+        igra.den = 1;
+        igra.igroki.forEach(i => { delete i.rol; });
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: '\uD83C\uDF19 Ночь знакомства' });
+        await bot.editMessageText('\uD83C\uDF19 *Ночь знакомства началась.*\n\nЯ буду по очереди показывать только активные роли из состава. Мафия повторится столько раз, сколько мафий в составе. Мирных жителей вводить не нужно — они останутся в остатке.', {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown'
+        });
+        await pokazatShagNochiZnakomstva(chatId, kod, 0);
     }
 
     // ===== ВНЕСТИ РЕЗУЛЬТАТЫ =====
