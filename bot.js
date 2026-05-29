@@ -233,7 +233,7 @@ const sostavy = {
     12: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Мирный', 'Мирный', 'Мирный'],
     13: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный'],
     14: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    15: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный'],
+    15: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     16: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     17: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     18: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
@@ -361,7 +361,8 @@ async function sohranit_igru(kod) {
     try {
         const nastroyki = {
             ...(igra._nastroyki || {}),
-            rezhim_rolei: igra.rezhim_rolei || null
+            rezhim_rolei: igra.rezhim_rolei || null,
+            klub_nazvaniye: nazvanieKlubaIgry(igra) || null
         };
         const data = {
             kod,
@@ -418,6 +419,7 @@ async function zagruzit_aktivnye_igry() {
                     kolichestvo: row.kolichestvo,
                     vedushchii_id: row.vedushchii_tg_id,
                     klub_id: row.klub_id,
+                    klub_nazvaniye: nastroyki.klub_nazvaniye || null,
                     tip_kluba: row.tip_kluba || 'paskal',
                     sportivniy: row.sportivniy || false,
                     igroki: typeof row.igroki === 'string' ? JSON.parse(row.igroki) : (row.igroki || []),
@@ -1638,6 +1640,7 @@ async function pokazatVyborResidentovIgry(chatId, messageId, kod) {
 async function pokazatLobbyIgry(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) return;
+    await zagruzitNazvanieKlubaVIgru(igra);
 
     const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 *Физические карты*' : '📱 *Роли в боте*';
     const opisanie = igra.rezhim_rolei === 'karty'
@@ -1651,6 +1654,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
 
     const polno = igra.igroki.length >= igra.kolichestvo;
     let tekst = rezhim + '\n\n';
+    if (nazvanieKlubaIgry(igra)) tekst += '🏛 Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
     tekst += '🎴 Код игры: *' + kod + '*\n';
     tekst += '👥 Подключено: *' + igra.igroki.length + '/' + igra.kolichestvo + '*\n\n';
     tekst += opisanie + '\n\n';
@@ -1795,6 +1799,68 @@ function maxFolyIgry(igra) {
     return Number.isFinite(nastroeno) ? nastroeno : 4;
 }
 
+function nazvanieKlubaIgry(igra) {
+    return igra?.klub_nazvaniye || igra?._nastroyki?.klub_nazvaniye || '';
+}
+
+async function zagruzitNazvanieKlubaVIgru(igra) {
+    if (!igra || !igra.klub_id || nazvanieKlubaIgry(igra)) return nazvanieKlubaIgry(igra);
+    const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', igra.klub_id).single();
+    if (klub?.nazvaniye) {
+        igra.klub_nazvaniye = klub.nazvaniye;
+        igra._nastroyki = { ...(igra._nastroyki || {}), klub_nazvaniye: klub.nazvaniye };
+    }
+    return nazvanieKlubaIgry(igra);
+}
+
+function limitMinShahida(igra) {
+    return Math.ceil((igra?.kolichestvo || igra?.igroki?.length || 0) * 0.3);
+}
+
+function dobavitUnikalnoPoNomeru(spisok, igrok) {
+    if (!igrok || spisok.some(i => i.nomer === igrok.nomer)) return;
+    spisok.push(igrok);
+}
+
+function sosediShahida(igra, shahid) {
+    const alive = (igra?.igroki || [])
+        .filter(i => i.status === 'v_igre' && i.nomer !== shahid.nomer)
+        .sort((a, b) => a.nomer - b.nomer);
+    if (alive.length < 2) return alive;
+    const left = [...alive].reverse().find(i => i.nomer < shahid.nomer) || alive[alive.length - 1];
+    const right = alive.find(i => i.nomer > shahid.nomer) || alive[0];
+    return [left, right].filter(Boolean);
+}
+
+function primenitSmertShahida(igra, shahid, prichina, ubitye) {
+    if (!igra || !shahid || shahid.rol !== 'Шахид') return '';
+    let tekst = '';
+
+    if (prichina === 'golosovanie' && (igra.den || 1) === 1) {
+        const sosedi = sosediShahida(igra, shahid);
+        sosedi.forEach(sosed => {
+            if (sosed.status === 'v_igre') {
+                sosed.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubitye, sosed);
+                tekst += '\uD83D\uDCA5 Шахида выголосовали в День 1 — сосед \u2116' + sosed.nomer + ' *' + sosed.name + '* (' + sosed.rol + ') покидает игру\n';
+            }
+        });
+    }
+
+    const miny = Array.isArray(igra.shahid_miny) ? igra.shahid_miny : [];
+    miny.forEach(nomer => {
+        const zamin = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
+        if (zamin) {
+            zamin.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubitye, zamin);
+            tekst += '\uD83D\uDCA3 Заминированный \u2116' + zamin.nomer + ' *' + zamin.name + '* (' + zamin.rol + ') уходит вместе с Шахидом\n';
+        }
+    });
+
+    igra.shahid_miny = [];
+    return tekst;
+}
+
 function mozhetKonsilyeriVerbovat(igra) {
     const alive = (igra?.igroki || []).filter(i => i.status === 'v_igre');
     if (alive.length === 0) return false;
@@ -1868,6 +1934,7 @@ function buildPanelText(igra, kod) {
     const alive = igra.igroki.filter(i => i.status === 'v_igre');
     const faza_names = { ozhidanie: 'Ожидание', znakomstvo: 'Знакомство', den: 'День', noch: 'Ночь', golosovanie: 'Голосование', opravdanie: 'Оправдание' };
     let t = '\uD83C\uDFAE *Игра \u2116' + kod + '* | ' + (faza_names[igra.faza] || '') + ' ' + (igra.den || 1) + '\n';
+    if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
     t += '\uD83D\uDC65 За столом: *' + alive.length + '*/' + igra.kolichestvo + '\n';
     if (igra.taymer_aktiven && igra.taymer_sekundy > 0) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
@@ -1986,10 +2053,12 @@ async function pokazat_prehod_k_nochi(chatId, messageId, kod) {
 async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     const igra = igry[kod];
     if (!igra) return;
+    await zagruzitNazvanieKlubaVIgru(igra);
     const d = igra.noch_deystviya || {};
     const roli_alive = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.rol);
 
     let t = '\uD83C\uDF19 *Ночь ' + (igra.den || 1) + '* — Игра \u2116' + kod + '\n\n';
+    if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n\n';
     if (log_msg) t += log_msg + '\n\n';
     t += '_Действия:_\n';
     t += (d.mafiya_tseli?.length ? '\u2705' : '\u25A1') + ' Мафия: ' + (d.mafiya_tseli?.length ? '\u2116' + d.mafiya_tseli[0] : 'не выбрала') + '\n';
@@ -1998,6 +2067,10 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
+    if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
+        const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
+        t += (miny.length ? '\u2705' : '\u25A1') + ' Шахид: ' + (miny.length ? miny.map(n => '\u2116' + n).join(', ') : 'не минировал') + '\n';
+    }
 
     const knopki = [
         [{ text: '\uD83D\uDD2B Мафия убивает', callback_data: 'noch_vybor_maf_' + kod }],
@@ -2007,6 +2080,9 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
     if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
     if (roli_alive.includes('Затычка')) knopki.push([{ text: '\uD83D\uDD07 Затычка блокирует', callback_data: 'noch_vybor_zat_' + kod }]);
+    if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
+        knopki.push([{ text: igra.den === 1 ? '\uD83D\uDCA3 Шахид минирует' : '\uD83D\uDCA3 Шахид переминирует', callback_data: 'noch_vybor_shahid_' + kod }]);
+    }
     knopki.push([{ text: '\uD83C\uDF1F Итоги ночи', callback_data: 'noch_itog_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
 
@@ -2127,7 +2203,7 @@ async function pokazat_reyting_kluba(chatId, messageId, klub_id, sportivniy) {
 // ============================================
 // ПРЕДПРОСМОТР СОСТАВА РОЛЕЙ
 // ============================================
-function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba) {
+function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba, nazvaniye_kluba = '') {
     // Берём кастомный состав если есть, иначе стандартный
     let sostav;
     const kastomnye = nastroyki_kluba?.kastomnye_sostavy?.[kolichestvo];
@@ -2145,10 +2221,9 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba) {
     const solo = sostav.filter(r => solo_roli.includes(r));
     const mirnye = sostav.filter(r => !isMafiaRole(r) && !solo_roli.includes(r));
 
-    const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля', sportivniy: 'Спортивная', big_family: 'Big Family' };
-
     let t = '\uD83C\uDFB2 *Состав на ' + kolichestvo + ' человек*';
-    t += ' — ' + (tip_names[tip_kluba] || tip_kluba) + '\n\n';
+    if (nazvaniye_kluba) t += '\nКлуб: *' + nazvaniye_kluba + '*';
+    t += '\n\n';
 
     t += '\uD83D\uDD34 *Мафия (' + mafiya.length + '):*\n';
     // Считаем уникальные
@@ -2907,10 +2982,9 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('igra_tip_') && !data.startsWith('igra_tip_kol_')) {
         const parts_it = data.replace('igra_tip_', '').split('_');
         const klub_id_it = parts_it[0];
-        const tip_it = parts_it[1];
+        const tip_it = parts_it.slice(1).join('_');
         // Сохраняем тип и переходим к выбору количества
         const { data: klub_it } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id_it).single();
-        const tip_names = { paskal: 'Паскаль', vip: 'VIP', naila: 'Наиля (Москва)', sportivniy: 'Спортивная', big_family: 'Big Family' };
         const kol_knopki = [];
         const dostupnye = tip_it === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20];
         for (let i = 0; i < dostupnye.length; i += 4) {
@@ -2918,7 +2992,7 @@ bot.on('callback_query', async function(query) {
         }
         kol_knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_bez_anons_' + klub_id_it }]);
         bot.editMessageText(
-            '\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_it?.nazvaniye || '') + '*\n\uD83D\uDCCB Правила: *' + (tip_names[tip_it] || tip_it) + '*\n\nСколько игроков?', {
+            '\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_it?.nazvaniye || '') + '*\n\uD83D\uDCCB Правила: *правила клуба*\n\nСколько игроков?', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: kol_knopki }
         });
@@ -2927,12 +3001,12 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('igra_tip_kol_')) {
         const parts_itk = data.replace('igra_tip_kol_', '').split('_');
         const klub_id_itk = parts_itk[0];
-        const tip_itk = parts_itk[1];
-        const kolichestvo_itk = parseInt(parts_itk[2]);
+        const kolichestvo_itk = parseInt(parts_itk[parts_itk.length - 1]);
+        const tip_itk = parts_itk.slice(1, -1).join('_');
         const { data: klub_itk } = await supabase.from('kluby').select('nazvaniye, nastroyki').eq('id', klub_id_itk).single();
 
         // Показываем предпросмотр состава перед созданием игры
-        const preview = pokazat_sostav_preview(kolichestvo_itk, tip_itk, klub_itk?.nastroyki);
+        const preview = pokazat_sostav_preview(kolichestvo_itk, tip_itk, klub_itk?.nastroyki, klub_itk?.nazvaniye || '');
         if (!preview) {
             bot.answerCallbackQuery(query.id, { text: '\u274C Нет состава для ' + kolichestvo_itk + ' игроков', show_alert: true });
             return;
@@ -2945,6 +3019,7 @@ bot.on('callback_query', async function(query) {
                 sostav: [...preview.sostav],
                 original: [...preview.sostav],
                 klub_id: klub_id_itk,
+                klub_nazvaniye: klub_itk?.nazvaniye || '',
                 tip_kluba: tip_itk,
                 kolichestvo: kolichestvo_itk,
                 _ne_sohranyat: true
@@ -2977,6 +3052,7 @@ bot.on('callback_query', async function(query) {
             igroki: [],
             roli_razdany: false,
             klub_id: preview_data.klub_id,
+            klub_nazvaniye: preview_data.klub_nazvaniye || '',
             tip_kluba: preview_data.tip_kluba,
             sportivniy: preview_data.tip_kluba === 'sportivniy',
             rezhim_rolei: null,
@@ -2987,6 +3063,7 @@ bot.on('callback_query', async function(query) {
 
         bot.editMessageText(
             '\uD83C\uDFB2 *Игра создана!*\n\n' +
+            (preview_data.klub_nazvaniye ? '\uD83C\uDFDB Клуб: *' + preview_data.klub_nazvaniye + '*\n' : '') +
             '\uD83D\uDD11 Код игры: *' + kod + '*\n' +
             '\uD83D\uDC65 Мест: ' + preview_data.kolichestvo + '\n\n' +
             'Выбери режим раздачи карт:', {
@@ -3115,7 +3192,7 @@ bot.on('callback_query', async function(query) {
         preview_data_r.sostav = [...preview_data_r.original];
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD04 Состав сброшен к стандарту' });
         // Показываем предпросмотр снова
-        const preview_r = pokazat_sostav_preview(preview_data_r.kolichestvo, preview_data_r.tip_kluba, {});
+        const preview_r = pokazat_sostav_preview(preview_data_r.kolichestvo, preview_data_r.tip_kluba, {}, preview_data_r.klub_nazvaniye || '');
         bot.editMessageText(preview_r.text, {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
@@ -3127,17 +3204,15 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('igra_bez_anons_')) {
         const klub_id = data.replace('igra_bez_anons_', '');
-        const { data: klub_bz } = await supabase.from('kluby').select('nazvaniye, sportivniy_rezhim').eq('id', klub_id).single();
+        const { data: klub_bz } = await supabase.from('kluby').select('nazvaniye, sportivniy_rezhim, nastroyki').eq('id', klub_id).single();
         const sport_ok = klub_bz?.sportivniy_rezhim;
+        const tip_kluba_bz = klub_bz?.nastroyki?.tip_kluba || 'paskal';
         const knopki_tip = [
-            [{ text: '\uD83C\uDFAD Паскаль', callback_data: 'igra_tip_' + klub_id + '_paskal' }],
-            [{ text: '\uD83D\uDCD5 Big Family (правила загружены)', callback_data: 'big_family_info_' + klub_id }],
-            [{ text: '\uD83C\uDFD9 VIP (городская)', callback_data: 'igra_tip_' + klub_id + '_vip' }],
-            [{ text: '\uD83C\uDF06 Наиля / Москва', callback_data: 'igra_tip_' + klub_id + '_naila' }],
+            [{ text: '\uD83D\uDCCB Правила клуба', callback_data: 'igra_tip_' + klub_id + '_' + tip_kluba_bz }],
         ];
         if (sport_ok) knopki_tip.push([{ text: '\uD83C\uDFC6 Спортивная (10 чел)', callback_data: 'igra_tip_' + klub_id + '_sportivniy' }]);
         knopki_tip.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_klub_' + klub_id }]);
-        bot.editMessageText('\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_bz?.nazvaniye || '') + '*\n\nКакие правила?', {
+        bot.editMessageText('\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_bz?.nazvaniye || '') + '*\n\nВыбери формат игры:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki_tip }
         });
@@ -3170,24 +3245,29 @@ bot.on('callback_query', async function(query) {
         const klub_id = p.klub_id;
         const anons_id = p.anons_id;
         const kolichestvo = parseInt(p.k, 10);
+        const { data: klub_in } = await supabase.from('kluby').select('nazvaniye, nastroyki').eq('id', klub_id).single();
         const kod = sgenerirovat_kod();
         igry[kod] = {
             kod,
             klub_id,
+            klub_nazvaniye: klub_in?.nazvaniye || '',
             anons_id: anons_id === 'null' ? null : anons_id,
             kolichestvo,
             vedushchii_id: telegram_id,
             igroki: [],
             roli_razdany: false,
+            tip_kluba: klub_in?.nastroyki?.tip_kluba || 'paskal',
             rezhim_rolei: null
         };
         bot.editMessageText(
-            '✅ *Игра создана!*\n\n🎴 Код игры: *' + kod + '*\n👥 Мест: ' + kolichestvo + '\n\nВыбери режим раздачи ролей:',
+            '✅ *Игра создана!*\n\n' +
+            (klub_in?.nazvaniye ? '🏛 Клуб: *' + klub_in.nazvaniye + '*\n' : '') +
+            '🎴 Код игры: *' + kod + '*\n👥 Мест: ' + kolichestvo + '\n\nВыбери режим раздачи ролей:',
             {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: '🃏 Физические карты (Паскаль)', callback_data: 'rezhim_karty_' + kod }],
+                        [{ text: '🃏 Физические карты', callback_data: 'rezhim_karty_' + kod }],
                         [{ text: '📱 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
                         [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }]
                     ]
@@ -3201,21 +3281,25 @@ bot.on('callback_query', async function(query) {
         const klub_id = parts[0];
         const anons_id = parts[1]; // 'null' или uuid
         const kolichestvo = parseInt(parts[2]);
+        const { data: klub_n } = await supabase.from('kluby').select('nazvaniye, nastroyki').eq('id', klub_id).single();
         const kod = sgenerirovat_kod();
 
         // Сохраняем игру в памяти
         igry[kod] = {
             kod,
             klub_id,
+            klub_nazvaniye: klub_n?.nazvaniye || '',
             anons_id: anons_id === 'null' ? null : anons_id,
             kolichestvo,
             vedushchii_id: telegram_id,
             igroki: [],
             roli_razdany: false,
+            tip_kluba: klub_n?.nastroyki?.tip_kluba || 'paskal',
             rezhim_rolei: null // 'karty' или 'bot'
         };
 
         const text = '✅ *Игра создана!*\n\n' +
+                     (klub_n?.nazvaniye ? '🏛 Клуб: *' + klub_n.nazvaniye + '*\n' : '') +
                      '🎴 Код игры: *' + kod + '*\n' +
                      '👥 Мест: ' + kolichestvo + '\n\n' +
                      'Выбери режим раздачи ролей:';
@@ -3224,7 +3308,7 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '🃏 Физические карты (Паскаль)', callback_data: 'rezhim_karty_' + kod }],
+                    [{ text: '🃏 Физические карты', callback_data: 'rezhim_karty_' + kod }],
                     [{ text: '📱 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
                     [{ text: '❌ Отменить игру', callback_data: 'otmenit_' + kod }]
                 ]
@@ -3453,6 +3537,7 @@ bot.on('callback_query', async function(query) {
             const foto_id = roli_foto[igrok.rol];
             const tekst_roli = opisanie + '\n\n' +
                 '\uD83C\uDFB4 Игра \u2116' + kod + '\n' +
+                (nazvanieKlubaIgry(igra) ? '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n' : '') +
                 '\uD83D\uDC64 Ты — игрок \u2116' + igrok.nomer + '\n\n' +
                 (komanda_mafii ? '\uD83D\uDD34 *Твоя команда:*\n' + komanda_mafii + '\n\n' : '') +
                 '\uD83E\uDD2B _Никому не показывай!_';
@@ -3474,6 +3559,7 @@ bot.on('callback_query', async function(query) {
 
         let svodka = '🎴 *Роли разданы!*\n\n' +
                      '🎴 Игра №' + kod + '\n' +
+                     (nazvanieKlubaIgry(igra) ? '🏛 Клуб: *' + nazvanieKlubaIgry(igra) + '*\n' : '') +
                      '👥 Игроков: ' + igra.kolichestvo + '\n\n' +
                      '*Раскладка (только для тебя):*\n' +
                      '─────────────────\n';
@@ -3504,9 +3590,11 @@ bot.on('callback_query', async function(query) {
             });
             return;
         }
+        await zagruzitNazvanieKlubaVIgru(igra);
 
         const v_igre = igra.igroki.filter(i => i.status === 'v_igre').length;
         let tekst = '\uD83C\uDFAE *Игра \u2116' + kod + '* | День ' + (igra.den || 1) + '\n';
+        if (nazvanieKlubaIgry(igra)) tekst += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
         tekst += '\uD83D\uDC65 В игре: *' + v_igre + '*/' + igra.kolichestvo + '\n';
         tekst += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
 
@@ -3570,6 +3658,8 @@ bot.on('callback_query', async function(query) {
         const igrok = igra.igroki.find(i => i.nomer === nomer);
         if (!igrok) return;
         igrok.status = 'vybyl';
+        const ubitye_ruchn = [igrok];
+        const shahid_effect_ruchn = primenitSmertShahida(igra, igrok, 'ruchnoy', ubitye_ruchn);
 
         if (igrok.telegram_id) {
             bot.sendMessage(igrok.telegram_id,
@@ -3577,6 +3667,11 @@ bot.on('callback_query', async function(query) {
                 { parse_mode: 'Markdown' }
             ).catch(() => {});
         }
+        ubitye_ruchn
+            .filter(i => i.nomer !== igrok.nomer)
+            .forEach(i => {
+                if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Ты выбыл из-за эффекта Шахида.*\n\nТвоя роль была: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+            });
 
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 \u2116' + nomer + ' ' + igrok.name + ' выбыл' });
         await sohranit_igru(kod);
@@ -3593,6 +3688,7 @@ bot.on('callback_query', async function(query) {
             if (i.foly > 0) tekst2 += ' [' + i.foly + ' фол]';
             tekst2 += '\n';
         });
+        if (shahid_effect_ruchn) tekst2 += '\n' + shahid_effect_ruchn;
 
         const knopki2 = igra.igroki
             .filter(i => i.status === 'v_igre')
@@ -3622,14 +3718,22 @@ bot.on('callback_query', async function(query) {
         igrok.foly = (igrok.foly || 0) + 1;
 
         const max_foly = maxFolyIgry(igra);
+        let shahid_effect_fol = '';
         if (igrok.foly >= max_foly) {
             igrok.status = 'vybyl';
+            const ubitye_fol = [igrok];
+            shahid_effect_fol = primenitSmertShahida(igra, igrok, 'fol', ubitye_fol);
             if (igrok.telegram_id) {
                 bot.sendMessage(igrok.telegram_id,
                     '\uD83D\uDEAB *Ты удалён из игры \u2116' + kod + '* за ' + max_foly + ' фола.\n\nТвоя роль была: *' + igrok.rol + '*',
                     { parse_mode: 'Markdown' }
                 ).catch(() => {});
             }
+            ubitye_fol
+                .filter(i => i.nomer !== igrok.nomer)
+                .forEach(i => {
+                    if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Ты выбыл из-за эффекта Шахида.*\n\nТвоя роль была: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+                });
             bot.answerCallbackQuery(query.id, { text: '\uD83D\uDEAB ' + igrok.name + ' удалён за ' + max_foly + ' фола!', show_alert: true });
             await sohranit_igru(kod);
             const pobeditel = opredelitPobeditelya(igra);
@@ -3649,7 +3753,7 @@ bot.on('callback_query', async function(query) {
             .map(i => [{ text: '\u26A0\uFE0F \u2116' + i.nomer + ' ' + i.name + ' (' + i.foly + '/' + maxFolyIgry(igra) + ')', callback_data: 'fol_' + kod + '_' + i.nomer }]);
         knopki3.push([{ text: '\u2B05\uFE0F К панели', callback_data: 'panel_' + kod }]);
 
-        bot.editMessageText('\u26A0\uFE0F *Выдать фол* — Игра \u2116' + kod + '\n\nВыбери игрока:', {
+        bot.editMessageText('\u26A0\uFE0F *Выдать фол* — Игра \u2116' + kod + '\n\n' + (shahid_effect_fol ? shahid_effect_fol + '\n' : '') + 'Выбери игрока:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki3 }
         });
@@ -3927,16 +4031,27 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         const igrok_gv = igra.igroki.find(i => i.nomer === nomer_gv);
+        const ubitye_gv = [];
+        let shahid_effect_gv = '';
         if (igrok_gv) {
             igrok_gv.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubitye_gv, igrok_gv);
+            shahid_effect_gv = primenitSmertShahida(igra, igrok_gv, 'golosovanie', ubitye_gv);
             if (igrok_gv.telegram_id) bot.sendMessage(igrok_gv.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + igrok_gv.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+            ubitye_gv
+                .filter(i => i.nomer !== igrok_gv.nomer)
+                .forEach(i => {
+                    if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Ты выбыл из-за эффекта Шахида.*\n\nТвоя роль была: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+                });
         }
         igra.naznacheny_golos = [];
+        await sohranit_igru(kod);
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 ' + (igrok_gv?.name || '') + ' выбыл' });
         const pobeditel = opredelitPobeditelya(igra);
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.faza = 'noch';
-        await pokazat_prehod_k_nochi(chatId, messageId, kod);
+        if (shahid_effect_gv) await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDC80 Голосование: \u2116' + nomer_gv + ' выбыл\n' + shahid_effect_gv);
+        else await pokazat_prehod_k_nochi(chatId, messageId, kod);
     }
 
     // ===== ГОЛОСОВАНИЕ: НИКТО =====
@@ -4150,6 +4265,75 @@ bot.on('callback_query', async function(query) {
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD07 Затычка заблокировала \u2116' + nomer_nz);
     }
 
+    // ===== НОЧЬ: Шахид минирует / переминирует =====
+    else if (data.startsWith('noch_vybor_shahid_')) {
+        const kod = data.replace('noch_vybor_shahid_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        if (!(igra.den === 1 || igra.den === 2)) {
+            bot.answerCallbackQuery(query.id, { text: 'Шахид минирует только в Н1 и Н2.', show_alert: true });
+            return;
+        }
+
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        const vybrany = igra.noch_deystviya.shahid_miny_tseli || (igra.den === 2 ? [...(igra.shahid_miny || [])] : []);
+        igra.noch_deystviya.shahid_miny_tseli = vybrany;
+        const limit = limitMinShahida(igra);
+        const alive_sh = igra.igroki.filter(i => i.status === 'v_igre' && i.rol !== 'Шахид');
+        const knopki_sh = alive_sh.map(i => [{
+            text: (vybrany.includes(i.nomer) ? '\u2705 ' : '\u25AB\uFE0F ') + '\u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'noch_shahid_toggle_' + kod + '_' + i.nomer
+        }]);
+        knopki_sh.push([{ text: '\u2705 Готово (' + vybrany.length + '/' + limit + ')', callback_data: 'noch_panel_' + kod }]);
+        knopki_sh.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText(
+            '\uD83D\uDCA3 *Шахид: ' + (igra.den === 1 ? 'минирование' : 'переминирование') + '*\n\n' +
+            'Выбери до *' + limit + '* игроков — 30% стола.\n' +
+            'Сейчас выбрано: *' + vybrany.length + '/' + limit + '*',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_sh } }
+        );
+    }
+
+    else if (data.startsWith('noch_shahid_toggle_')) {
+        const parts_sh = data.replace('noch_shahid_toggle_', '').split('_');
+        const kod = parts_sh[0];
+        const nomer_sh = parseInt(parts_sh[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        const limit = limitMinShahida(igra);
+        const vybrany = igra.noch_deystviya.shahid_miny_tseli || (igra.den === 2 ? [...(igra.shahid_miny || [])] : []);
+        const idx = vybrany.indexOf(nomer_sh);
+        if (idx >= 0) {
+            vybrany.splice(idx, 1);
+            bot.answerCallbackQuery(query.id, { text: 'Снято' });
+        } else {
+            if (vybrany.length >= limit) {
+                bot.answerCallbackQuery(query.id, { text: 'Можно выбрать максимум ' + limit, show_alert: true });
+                return;
+            }
+            vybrany.push(nomer_sh);
+            bot.answerCallbackQuery(query.id, { text: 'Заминирован №' + nomer_sh });
+        }
+        igra.noch_deystviya.shahid_miny_tseli = vybrany;
+        await sohranit_igru(kod);
+
+        const alive_sh = igra.igroki.filter(i => i.status === 'v_igre' && i.rol !== 'Шахид');
+        const knopki_sh = alive_sh.map(i => [{
+            text: (vybrany.includes(i.nomer) ? '\u2705 ' : '\u25AB\uFE0F ') + '\u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'noch_shahid_toggle_' + kod + '_' + i.nomer
+        }]);
+        knopki_sh.push([{ text: '\u2705 Готово (' + vybrany.length + '/' + limit + ')', callback_data: 'noch_panel_' + kod }]);
+        knopki_sh.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText(
+            '\uD83D\uDCA3 *Шахид: ' + (igra.den === 1 ? 'минирование' : 'переминирование') + '*\n\n' +
+            'Выбери до *' + limit + '* игроков — 30% стола.\n' +
+            'Сейчас выбрано: *' + vybrany.length + '/' + limit + '*',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_sh } }
+        );
+    }
+
     // ===== НОЧЬ: итоги =====
     else if (data.startsWith('noch_itog_')) {
         const kod = data.replace('noch_itog_', '');
@@ -4202,6 +4386,10 @@ bot.on('callback_query', async function(query) {
                 }
             }
         }
+        if (d.shahid_miny_tseli) {
+            igra.shahid_miny = [...d.shahid_miny_tseli];
+            itog_t += '\uD83D\uDCA3 Шахид ' + ((igra.den || 1) === 1 ? 'заминировал' : 'переминировал') + ': ' + igra.shahid_miny.map(n => '\u2116' + n).join(', ') + '\n';
+        }
         const ubity_t = [];
         maf_t.forEach(nomer => {
             const i = igra.igroki.find(x => x.nomer === nomer);
@@ -4209,14 +4397,16 @@ bot.on('callback_query', async function(query) {
             if (doc_t === nomer) { itog_t += '\uD83D\uDC89 \u2116' + nomer + ' *' + i.name + '* — спасён доктором\n'; }
             else {
                 i.status = 'vybyl';
-                ubity_t.push(i);
+                dobavitUnikalnoPoNomeru(ubity_t, i);
                 itog_t += '\uD83D\uDC80 \u2116' + nomer + ' *' + i.name + '* (' + i.rol + ') — убит\n';
+                itog_t += primenitSmertShahida(igra, i, 'noch', ubity_t);
                 if (i.rol === 'Подрывник' && d.podryvnik_zabiraet) {
                     const zabiraet = igra.igroki.find(x => x.nomer === d.podryvnik_zabiraet && x.status === 'v_igre');
                     if (zabiraet) {
                         zabiraet.status = 'vybyl';
-                        ubity_t.push(zabiraet);
+                        dobavitUnikalnoPoNomeru(ubity_t, zabiraet);
                         itog_t += '\uD83D\uDCA5 Подрывник забрал с собой \u2116' + zabiraet.nomer + ' *' + zabiraet.name + '* (' + zabiraet.rol + ')\n';
+                        itog_t += primenitSmertShahida(igra, zabiraet, 'noch', ubity_t);
                     }
                 }
             }

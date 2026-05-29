@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prime Mafia — виртуальный стол</title>
+  <style>
+    :root {
+      --bg: #070507;
+      --panel: #141116;
+      --panel2: #1d171b;
+      --text: #f7efe8;
+      --muted: #b9aca6;
+      --dim: #776d69;
+      --gold: #d9b46a;
+      --red: #8e1832;
+      --red2: #c52a4b;
+      --green: #60c58c;
+      --yellow: #e0b95c;
+      --line: rgba(247, 239, 232, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(142, 24, 50, 0.34), transparent 34%),
+        radial-gradient(circle at 82% 18%, rgba(217, 180, 106, 0.12), transparent 30%),
+        linear-gradient(180deg, #070507, #120c10 52%, #070507);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 300px 1fr 340px;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .panel {
+      background: rgba(20, 17, 22, 0.88);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 20px;
+      min-height: 0;
+    }
+
+    .left,
+    .right {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: var(--red);
+      border: 1px solid rgba(217, 180, 106, 0.36);
+      color: var(--gold);
+      font-weight: 900;
+      letter-spacing: -0.08em;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-size: 22px;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+    }
+
+    h2 {
+      font-size: 18px;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.04);
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .pill.gold {
+      color: var(--gold);
+      border-color: rgba(217, 180, 106, 0.34);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 28px;
+      letter-spacing: -0.06em;
+      margin-bottom: 2px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .players-list {
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 4px;
+    }
+
+    .player-row {
+      display: grid;
+      grid-template-columns: 30px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.035);
+      border-radius: 16px;
+      padding: 10px;
+    }
+
+    .num {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      color: var(--gold);
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .main {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 34px;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(142, 24, 50, 0.22), transparent 52%),
+        rgba(12, 9, 12, 0.86);
+      overflow: hidden;
+    }
+
+    .main-top {
+      position: absolute;
+      top: 20px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 2;
+    }
+
+    .table-wrap {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 74px 38px 34px;
+    }
+
+    .table {
+      width: min(78vh, 760px);
+      aspect-ratio: 1;
+      border-radius: 999px;
+      border: 1px solid rgba(217, 180, 106, 0.42);
+      position: relative;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle, rgba(217, 180, 106, 0.09), transparent 58%),
+        rgba(255,255,255,0.025);
+    }
+
+    .inner {
+      width: 54%;
+      aspect-ratio: 1;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(7, 5, 7, 0.88);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 34px;
+    }
+
+    .phase {
+      color: var(--gold);
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .timer {
+      font-size: clamp(60px, 7vw, 108px);
+      font-weight: 950;
+      letter-spacing: -0.08em;
+      margin: 8px 0 2px;
+    }
+
+    .current {
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .seat {
+      position: absolute;
+      width: 112px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 10px;
+      background: var(--panel);
+      transform: translate(-50%, -50%);
+    }
+
+    .seat.active {
+      border-color: var(--gold);
+      background: rgba(217, 180, 106, 0.08);
+    }
+
+    .seat.vote {
+      border-color: var(--yellow);
+      background: rgba(224, 185, 92, 0.07);
+    }
+
+    .seat.out {
+      opacity: 0.45;
+      background: rgba(255,255,255,0.025);
+    }
+
+    .seat-name {
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .seat-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .seat-status {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+    }
+
+    .seat.vote .seat-status { background: var(--yellow); }
+    .seat.out .seat-status { background: var(--dim); }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.045);
+      color: var(--text);
+      font: inherit;
+      font-weight: 800;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--red);
+      border-color: rgba(217, 180, 106, 0.32);
+    }
+
+    button:hover {
+      border-color: rgba(217, 180, 106, 0.46);
+    }
+
+    .night-list {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .night-item {
+      display: grid;
+      grid-template-columns: 16px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(247, 239, 232, 0.08);
+    }
+
+    .check {
+      width: 13px;
+      height: 13px;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+    }
+
+    .done .check {
+      background: var(--gold);
+      border-color: var(--gold);
+    }
+
+    .done {
+      color: var(--text);
+    }
+
+    @media (max-width: 1100px) {
+      body { overflow: auto; }
+      .app {
+        height: auto;
+        grid-template-columns: 1fr;
+      }
+      .main { min-height: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="left">
+      <section class="panel">
+        <div class="brand">
+          <div>
+            <h1>Prime Mafia</h1>
+            <p class="muted">Виртуальный стол ведущей</p>
+          </div>
+          <div class="logo">PM</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Игра</h2>
+        <div class="stats">
+          <div class="stat"><strong>16</strong><span>мест</span></div>
+          <div class="stat"><strong>13</strong><span>в игре</span></div>
+          <div class="stat"><strong>2</strong><span>на голосовании</span></div>
+          <div class="stat"><strong>1</strong><span>фол</span></div>
+        </div>
+      </section>
+
+      <section class="panel" style="min-height: 0; flex: 1;">
+        <h2>Игроки</h2>
+        <div class="players-list">
+          <div class="player-row"><div class="num">1</div><div><strong>Арина</strong><div class="muted">резидент</div></div><span class="pill">в игре</span></div>
+          <div class="player-row"><div class="num">2</div><div><strong>Марко</strong><div class="muted">турист</div></div><span class="pill gold">говорит</span></div>
+          <div class="player-row"><div class="num">3</div><div><strong>Ника</strong><div class="muted">резидент</div></div><span class="pill">в игре</span></div>
+          <div class="player-row"><div class="num">4</div><div><strong>Саша</strong><div class="muted">резидент</div></div><span class="pill">в игре</span></div>
+          <div class="player-row"><div class="num">5</div><div><strong>Лея</strong><div class="muted">резидент</div></div><span class="pill">в игре</span></div>
+          <div class="player-row"><div class="num">6</div><div><strong>Вера</strong><div class="muted">турист</div></div><span class="pill">в игре</span></div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div class="main-top">
+        <div>
+          <span class="pill gold">Клуб: название зарегистрированного клуба</span>
+          <span class="pill">Правила клуба · 16 игроков</span>
+        </div>
+        <span class="pill">Код игры 4821</span>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table" id="table">
+          <div class="inner">
+            <div>
+              <div class="phase">День 2</div>
+              <div class="timer">00:37</div>
+              <div class="current">говорит игрок 2 — Марко</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="right">
+      <section class="panel">
+        <h2>Панель ведущей</h2>
+        <div class="actions">
+          <button class="primary">Следующий игрок</button>
+          <button>Пауза таймера</button>
+          <button>Выставить на голосование</button>
+          <button>Добавить фол</button>
+          <button>Перейти к ночи</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Ночная подсказка</h2>
+        <div class="night-list">
+          <div class="night-item done"><span class="check"></span><span>Мафия выбрала цель</span><span>№7</span></div>
+          <div class="night-item done"><span class="check"></span><span>Дон проверил</span><span>№3</span></div>
+          <div class="night-item"><span class="check"></span><span>Доктор лечит</span><span>ждём</span></div>
+          <div class="night-item"><span class="check"></span><span>Комиссар проверяет</span><span>ждём</span></div>
+          <div class="night-item"><span class="check"></span><span>Маньяк выбирает</span><span>ждём</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Главная идея</h2>
+        <p class="muted">Этот экран должен не развлекать, а помогать ведущей спокойно управлять живой игрой: кто говорит, кто выбыл, что делать дальше и какая фаза сейчас идёт.</p>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    const names = ["Арина","Марко","Ника","Саша","Лея","Вера","Даниил","Мила","Игорь","Ева","Роман","Кира","Анна","Тимур","Лана","Макс"];
+    const table = document.getElementById("table");
+    names.forEach((name, i) => {
+      const angle = (-90 + (360 / names.length) * i) * Math.PI / 180;
+      const radius = 48;
+      const x = 50 + radius * Math.cos(angle);
+      const y = 50 + radius * Math.sin(angle);
+      const seat = document.createElement("div");
+      seat.className = "seat" + (i === 1 ? " active" : "") + ([7, 8].includes(i) ? " vote" : "") + ([10, 13].includes(i) ? " out" : "");
+      seat.style.left = x + "%";
+      seat.style.top = y + "%";
+      seat.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;"><div class="seat-name">' + (i + 1) + ". " + name + '</div><div class="seat-status"></div></div><div class="seat-meta">' + (i === 1 ? "говорит" : ([7,8].includes(i) ? "голосование" : ([10,13].includes(i) ? "выбыл" : "в игре"))) + '</div>';
+      table.appendChild(seat);
+    });
+  </script>
+</body>
+</html>

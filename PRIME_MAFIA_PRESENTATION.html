@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prime Mafia — презентация</title>
+  <style>
+    :root {
+      --bg: #080608;
+      --panel: #121014;
+      --panel-2: #1b1518;
+      --text: #f6efe8;
+      --muted: #b7aaa3;
+      --muted-2: #7f7370;
+      --gold: #d9b46a;
+      --burgundy: #6b1024;
+      --burgundy-2: #981c37;
+      --line: rgba(246, 239, 232, 0.14);
+      --green: #58c486;
+      --red: #d95c66;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-snap-type: y mandatory;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 14% 8%, rgba(152, 28, 55, 0.36), transparent 34%),
+        radial-gradient(circle at 90% 18%, rgba(217, 180, 106, 0.13), transparent 28%),
+        linear-gradient(180deg, #080608 0%, #100b0e 48%, #080608 100%);
+      color: var(--text);
+    }
+
+    .deck {
+      width: 100%;
+    }
+
+    .slide {
+      min-height: 100vh;
+      padding: 64px 72px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      scroll-snap-align: start;
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: auto -12% -26% auto;
+      width: 480px;
+      height: 480px;
+      border: 1px solid rgba(217, 180, 106, 0.18);
+      border-radius: 999px;
+      pointer-events: none;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 24px;
+      color: var(--muted);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand {
+      color: var(--gold);
+      font-weight: 800;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      align-self: center;
+      max-width: 1180px;
+      width: 100%;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 56px;
+      align-items: center;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 34px;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(58px, 7vw, 112px);
+      line-height: 0.92;
+      letter-spacing: -0.08em;
+      max-width: 980px;
+    }
+
+    h2 {
+      font-size: clamp(42px, 5vw, 76px);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+      max-width: 980px;
+    }
+
+    h3 {
+      font-size: 22px;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .lead {
+      margin-top: 28px;
+      font-size: clamp(22px, 2.3vw, 34px);
+      line-height: 1.18;
+      color: var(--muted);
+      max-width: 850px;
+    }
+
+    .caption {
+      margin-top: 22px;
+      color: var(--gold);
+      font-size: 20px;
+      font-weight: 700;
+      max-width: 720px;
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 14px;
+      margin-bottom: 18px;
+      font-weight: 800;
+    }
+
+    .card {
+      background: rgba(18, 16, 20, 0.82);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 24px;
+    }
+
+    .card.big {
+      padding: 34px;
+    }
+
+    .card p,
+    li {
+      color: var(--muted);
+      font-size: 20px;
+      line-height: 1.38;
+    }
+
+    ul {
+      padding-left: 22px;
+      margin: 18px 0 0;
+    }
+
+    li + li {
+      margin-top: 10px;
+    }
+
+    .number {
+      color: var(--gold);
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .mockup {
+      border: 1px solid var(--line);
+      border-radius: 34px;
+      padding: 22px;
+      background: linear-gradient(180deg, rgba(27, 21, 24, 0.96), rgba(8, 6, 8, 0.96));
+    }
+
+    .app-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .table {
+      margin: 28px auto;
+      width: min(480px, 100%);
+      aspect-ratio: 1;
+      border: 1px solid rgba(217, 180, 106, 0.42);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      position: relative;
+      background: rgba(107, 16, 36, 0.18);
+    }
+
+    .table-inner {
+      width: 58%;
+      aspect-ratio: 1;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 22px;
+      background: rgba(8, 6, 8, 0.74);
+    }
+
+    .timer {
+      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: -0.05em;
+    }
+
+    .phase {
+      color: var(--gold);
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .seat {
+      position: absolute;
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .seat.active { border-color: var(--gold); color: var(--gold); }
+    .seat.out { color: var(--muted-2); background: rgba(255,255,255,0.03); }
+
+    .s1 { top: -10px; left: calc(50% - 23px); }
+    .s2 { top: 10%; right: 10%; }
+    .s3 { top: calc(50% - 23px); right: -10px; }
+    .s4 { bottom: 10%; right: 10%; }
+    .s5 { bottom: -10px; left: calc(50% - 23px); }
+    .s6 { bottom: 10%; left: 10%; }
+    .s7 { top: calc(50% - 23px); left: -10px; }
+    .s8 { top: 10%; left: 10%; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      background: var(--burgundy);
+      border-color: rgba(217, 180, 106, 0.28);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 32px;
+    }
+
+    .stat {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 34px;
+      letter-spacing: -0.04em;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    footer {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted-2);
+      font-size: 13px;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .tag {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.035);
+      font-weight: 700;
+    }
+
+    .tag.gold {
+      color: var(--gold);
+      border-color: rgba(217, 180, 106, 0.32);
+    }
+
+    .pricing {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 32px;
+    }
+
+    .price {
+      font-size: 42px;
+      color: var(--gold);
+      font-weight: 900;
+      letter-spacing: -0.05em;
+      margin: 8px 0 10px;
+    }
+
+    @media (max-width: 900px) {
+      .slide { padding: 40px 24px; }
+      .two-col, .three-col, .pricing, .stats { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      html { scroll-snap-type: none; }
+      body { background: var(--bg); }
+      .slide {
+        min-height: 100vh;
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <header>
+        <span class="brand">Prime Mafia</span>
+        <span>Платформа для мафия-клубов</span>
+      </header>
+      <div class="content two-col">
+        <div>
+          <div class="eyebrow">Для ведущих, собственников и организаторов</div>
+          <h1>Цифровой помощник для мафия-клубов</h1>
+          <p class="lead">Автоматизация игр, ролей, таймеров, рейтингов, анонсов и базы игроков.</p>
+          <p class="caption">Меньше рутины для ведущего. Больше порядка, эстетики и дохода для клуба.</p>
+        </div>
+        <div class="mockup">
+          <div class="app-top">
+            <span>Игра 4821</span>
+            <span>Правила клуба · 16 игроков</span>
+          </div>
+          <div class="table">
+            <div class="seat s1">1</div>
+            <div class="seat s2">2</div>
+            <div class="seat s3 active">3</div>
+            <div class="seat s4">4</div>
+            <div class="seat s5">5</div>
+            <div class="seat s6 out">6</div>
+            <div class="seat s7">7</div>
+            <div class="seat s8">8</div>
+            <div class="table-inner">
+              <div>
+                <div class="phase">День 2</div>
+                <div class="timer">00:37</div>
+                <div style="color: var(--muted);">говорит игрок 3</div>
+              </div>
+            </div>
+          </div>
+          <div class="controls">
+            <div class="btn primary">Следующий игрок</div>
+            <div class="btn">Пауза</div>
+            <div class="btn">Голосование</div>
+            <div class="btn">Панель ночи</div>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <span>Prime Mafia</span>
+        <span>01 / 12</span>
+      </footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Проблема</span></header>
+      <div class="content">
+        <div class="eyebrow">Почему это нужно</div>
+        <h2>Ведущий держит слишком много процессов вручную</h2>
+        <div class="three-col">
+          <div class="card"><h3>Ошибки ведущего</h3><p>Если правила не удержать в голове, можно убить Бессмертного, не озвучить спасение Доктора или неверно обработать ночь.</p></div>
+          <div class="card"><h3>Баллы и рейтинг</h3><p>Подсчёт результатов, личных баллов, истории игр и рейтинга часто ведётся вручную после игры.</p></div>
+          <div class="card"><h3>Дорогой опыт</h3><p>Клуб зависит от сильного ведущего, который может просить высокую оплату за вечер, потому что всё держит на себе.</p></div>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>02 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Решение</span></header>
+      <div class="content two-col">
+        <div>
+          <div class="eyebrow">Что делает продукт</div>
+          <h2>Автоматизирует работу клуба от создания игры до финального рейтинга</h2>
+          <p class="lead">Если правила клуба корректно загружены, система снижает риск ошибки ведущего и помогает быстро вводить в работу даже ведущего без большого опыта.</p>
+        </div>
+        <div class="card big">
+          <div class="number">Сценарий</div>
+          <ul>
+            <li>Создать игру и выбрать правила клуба.</li>
+            <li>Добавить игроков по коду, вручную или из резидентов.</li>
+            <li>Раздать роли в Telegram или играть физическими картами.</li>
+            <li>Автоматически вести день, ночь, оправдание, голосование и фолы.</li>
+            <li>Сразу после игры посчитать баллы, рейтинг, историю и результаты.</li>
+          </ul>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>03 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Для кого</span></header>
+      <div class="content">
+        <div class="eyebrow">Целевая аудитория</div>
+        <h2>Для ведущих, собственников и организаторов мафия-клубов</h2>
+        <div class="tag-row">
+          <span class="tag gold">Ведущие</span>
+          <span class="tag gold">Собственники клубов</span>
+          <span class="tag gold">Организаторы</span>
+          <span class="tag">Франшизы</span>
+          <span class="tag">Офлайн-комьюнити</span>
+          <span class="tag">Корпоративные игры</span>
+          <span class="tag">Городские клубы</span>
+        </div>
+        <p class="lead">Prime Mafia — не просто приложение для игроков. Это рабочий инструмент клуба.</p>
+      </div>
+      <footer><span>Prime Mafia</span><span>04 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Виртуальный стол</span></header>
+      <div class="content two-col">
+        <div class="mockup">
+          <div class="app-top"><span>Виртуальный стол</span><span>Live</span></div>
+          <div class="table">
+            <div class="seat s1">1</div><div class="seat s2">2</div><div class="seat s3">3</div><div class="seat s4 active">4</div>
+            <div class="seat s5">5</div><div class="seat s6">6</div><div class="seat s7 out">7</div><div class="seat s8">8</div>
+            <div class="table-inner"><div><div class="phase">Ночь 1</div><div class="timer">03:12</div><div style="color: var(--muted);">панель ведущей</div></div></div>
+          </div>
+        </div>
+        <div>
+          <div class="eyebrow">Экран игры</div>
+          <h2>Красивый стол для iPad, Mac и телефона</h2>
+          <p class="lead">Круг игроков, текущая фаза, таймер, статусы, голосование и действия ведущей в одном интерфейсе.</p>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>05 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>База клуба</span></header>
+      <div class="content">
+        <div class="eyebrow">Игроки и история</div>
+        <h2>Клуб сохраняет свою базу, рейтинг и историю игр</h2>
+        <div class="stats">
+          <div class="stat"><strong>124</strong><span>игрока в базе</span></div>
+          <div class="stat"><strong>38</strong><span>резидентов клуба</span></div>
+          <div class="stat"><strong>9</strong><span>туристов</span></div>
+          <div class="stat"><strong>5</strong><span>игр за вечер</span></div>
+        </div>
+        <p class="lead">Резиденты, туристы, карточки игроков, рейтинг и история помогают клубу удерживать комьюнити.</p>
+      </div>
+      <footer><span>Prime Mafia</span><span>06 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Анонсы</span></header>
+      <div class="content two-col">
+        <div>
+          <div class="eyebrow">Города и продвижение</div>
+          <h2>Анонсы игр внутри приложения по городам</h2>
+          <p class="lead">Игроки видят ближайшие игры в своём городе, а клуб получает дополнительный канал продаж и набора игроков.</p>
+        </div>
+        <div class="card big">
+          <div class="number">Пример</div>
+          <h3>Платный анонс игры</h3>
+          <p>Размещение игры в городской витрине приложения.</p>
+          <div class="price">300 ₽</div>
+          <p>Дальше можно добавить закрепление, поднятие и выделение анонса.</p>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>07 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Стилизация</span></header>
+      <div class="content">
+        <div class="eyebrow">Клубный бренд</div>
+        <h2>Каждый клуб может получить свой визуальный стиль</h2>
+        <div class="three-col">
+          <div class="card"><h3>Стол</h3><p>Виртуальный стол по брендбуку клуба: цвета, фон, логотип и атмосфера.</p></div>
+          <div class="card"><h3>Карты ролей</h3><p>Клуб загружает свой дизайн карт, как у бумажной колоды.</p></div>
+          <div class="card"><h3>Профили</h3><p>Рамки, бейджи, подарки и визуальные элементы для игроков.</p></div>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>08 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Монетизация</span></header>
+      <div class="content">
+        <div class="eyebrow">Экономика продукта</div>
+        <h2>Несколько источников дохода для платформы и клуба</h2>
+        <div class="pricing">
+          <div class="card"><h3>Игры</h3><div class="price">500 ₽</div><p>Разовая игра или пакеты для ведущих и клубов.</p></div>
+          <div class="card"><h3>Пакеты</h3><div class="price">от 3000 ₽</div><p>Основной формат оплаты для регулярных клубов.</p></div>
+          <div class="card"><h3>Анонсы</h3><div class="price">300 ₽</div><p>Платная городская витрина игр внутри приложения.</p></div>
+          <div class="card"><h3>Персонализация клуба</h3><div class="price">5000 ₽</div><p>Разово: стол по брендбуку и карты ролей с дизайном клуба.</p></div>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>09 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Удержание</span></header>
+      <div class="content two-col">
+        <div>
+          <div class="eyebrow">Комьюнити</div>
+          <h2>Игроки возвращаются, потому что клуб становится цифровым пространством</h2>
+          <p class="lead">Рейтинги, история, награды, бонусы, профили и клубные статусы добавляют игре долгую жизнь между встречами.</p>
+        </div>
+        <div class="card big">
+          <ul>
+            <li>Рейтинг и история игрока.</li>
+            <li>Резиденты и туристы.</li>
+            <li>Награды и клубные бонусы.</li>
+            <li>Подарки и визуальные покупки.</li>
+            <li>Амбассадоры и реферальные программы.</li>
+          </ul>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>10 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>MVP</span></header>
+      <div class="content">
+        <div class="eyebrow">Первый фокус</div>
+        <h2>Сначала автоматизация ведущего и клуба</h2>
+        <div class="three-col">
+          <div class="card"><h3>Игра</h3><p>Создание игры, правила, роли, таймеры, фазы, голосование и фолы.</p></div>
+          <div class="card"><h3>Клуб</h3><p>Резиденты, база игроков, история игр, рейтинги и результаты сразу после игры.</p></div>
+          <div class="card"><h3>Будущие режимы</h3><p>Детская мафия: мягкие правила, понятные роли и безопасная подача для мероприятий.</p></div>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>11 / 12</span></footer>
+    </section>
+
+    <section class="slide">
+      <header><span class="brand">Prime Mafia</span><span>Следующий шаг</span></header>
+      <div class="content two-col">
+        <div>
+          <div class="eyebrow">Пилот</div>
+          <h2>Запустить первые клубы и собрать обратную связь ведущих</h2>
+          <p class="lead">Проверить живой сценарий за столом, допилить Mini App, упаковать тарифы и выйти на регулярные клубы.</p>
+        </div>
+        <div class="card big">
+          <div class="number">Что делаем дальше</div>
+          <ul>
+            <li>Тестируем текущего Telegram-бота на живой игре.</li>
+            <li>Собираем виртуальный стол Mini App.</li>
+            <li>Готовим демо для ведущих и собственников.</li>
+            <li>Запускаем первые платные пакеты.</li>
+          </ul>
+        </div>
+      </div>
+      <footer><span>Prime Mafia</span><span>12 / 12</span></footer>
+    </section>
+  </main>
+</body>
+</html>
