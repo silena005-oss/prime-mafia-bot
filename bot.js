@@ -1263,14 +1263,13 @@ bot.on('message', async function(msg) {
         igra.roli_razdany = true;
         igra.den = 1;
         delete sostoyanie[tg_id];
+        await podgruzitImmunitetIgrokam(igra);
         await sohranit_igru(kod);
 
-        let svodka = '✅ *Роли внесены вручную!*\n\n';
-        svodka += '🎴 Игра №' + kod + '\n';
-        svodka += '👥 Игроков: ' + igra.kolichestvo + '\n\n';
-        igra.igroki.forEach(i => {
-            svodka += '№' + i.nomer + ' ' + i.name + ' — *' + i.rol + '*\n';
-        });
+        let svodka = '\u2705 *Роли внесены вручную!*\n\n';
+        svodka += '\uD83C\uDFB4 Игра \u2116' + kod + '\n';
+        svodka += '\uD83D\uDC65 Игроков: ' + igra.kolichestvo + '\n\n';
+        svodka += tekstSpiskaPosleRoley(igra);
 
         bot.sendMessage(chatId, svodka, {
             parse_mode: 'Markdown',
@@ -2091,6 +2090,7 @@ async function zavershitNochZnakomstva(chatId, kod) {
     const bezReytinga = igra.igroki.filter(i => !i.igrok_id).map(i => i.name);
     delete sostoyanie[igra.vedushchii_id];
     if (igra.klub_id) await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
+    await podgruzitImmunitetIgrokam(igra);
     await sohranit_igru(kod);
 
     let t = '\u2705 *Ночь знакомства завершена!*\n\n';
@@ -2100,7 +2100,8 @@ async function zavershitNochZnakomstva(chatId, kod) {
         t += '\n\u26A0\uFE0F Без привязки к боту (баллы не запишутся): ' + bezReytinga.join(', ') + '\n';
         t += '_Пусть зарегистрируются в боте и в следующий раз вводи их игровой ник._\n';
     }
-    t += '\nМожно начинать круг знакомства или открыть панель игры.';
+    t += '\n' + tekstSpiskaPosleRoley(igra);
+    t += '\n\nМожно начинать круг знакомства или открыть панель игры.';
 
     await bot.sendMessage(chatId, t, {
         parse_mode: 'Markdown',
@@ -3496,6 +3497,46 @@ function buildTimerKnopki(kod, faza) {
 
 function estImmunitetOtGolosovaniya(igrok) {
     return !!(igrok?.immunitet || igrok?.immunitet_golos || igrok?.immunitet_do || igrok?.bonus_immunitet);
+}
+
+async function podgruzitImmunitetIgrokam(igra) {
+    const ids = [...new Set((igra?.igroki || []).map(i => i.igrok_id).filter(Boolean))];
+    if (!ids.length) return;
+    try {
+        const { data, error } = await supabase
+            .from('igroki')
+            .select('id, immunitet, immunitet_golos, immunitet_do, bonus_immunitet')
+            .in('id', ids);
+        if (error || !data) return;
+        const map = Object.fromEntries(data.map(r => [r.id, r]));
+        (igra.igroki || []).forEach(i => {
+            const row = i.igrok_id && map[i.igrok_id];
+            if (!row) return;
+            if (row.immunitet) i.immunitet = row.immunitet;
+            if (row.immunitet_golos) i.immunitet_golos = row.immunitet_golos;
+            if (row.immunitet_do) i.immunitet_do = row.immunitet_do;
+            if (row.bonus_immunitet) i.bonus_immunitet = row.bonus_immunitet;
+        });
+    } catch (_) {}
+}
+
+function tekstImmuniteta(igra) {
+    const sImm = (igra.igroki || []).filter(i => i.status === 'v_igre' && estImmunitetOtGolosovaniya(i));
+    if (sImm.length === 0) {
+        return '\uD83D\uDEE1 *Иммунитет:* _нет_\n';
+    }
+    return '\uD83D\uDEE1 *Иммунитет:* ' + sImm.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
+}
+
+function tekstSpiskaPosleRoley(igra) {
+    let t = '*Состав стола:*\n';
+    [...(igra.igroki || [])].sort((a, b) => a.nomer - b.nomer).forEach(i => {
+        const sh = estImmunitetOtGolosovaniya(i) ? ' \uD83D\uDEE1' : '';
+        t += '\u2116' + i.nomer + ' ' + i.name + ' — *' + (i.rol || '?') + '*' + sh + '\n';
+    });
+    t += '\n' + tekstImmuniteta(igra);
+    t += '_Игроков с иммунитетом нельзя выставить на голосование._';
+    return t;
 }
 
 function kandidatyNaVystavlenie(igra, govoryashchiyNomer) {
