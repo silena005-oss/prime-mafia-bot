@@ -1082,43 +1082,43 @@ bot.on('message', async function(msg) {
     // ===== ДЕНЬ: выставить на голосование по нику во время минуты игрока =====
     if (sostoyanie[tg_id]?.startsWith('vystav_golos_')) {
         const kod_vg = sostoyanie[tg_id].replace('vystav_golos_', '');
-        delete sostoyanie[tg_id];
         const igra_vg = igry[kod_vg];
         if (!igra_vg) {
+            delete sostoyanie[tg_id];
             bot.sendMessage(chatId, '❌ Игра не найдена.');
             return;
         }
         const igrok_vg = naytiIgrokaPoVvodu(igra_vg, text);
         if (!igrok_vg) {
-            bot.sendMessage(chatId, '❌ Игрок не найден. Отправь *номер* или *ник* из состава.', { parse_mode: 'Markdown' });
-            sostoyanie[tg_id] = 'vystav_golos_' + kod_vg;
+            bot.sendMessage(chatId,
+                '❌ Игрок не найден.\n\n' + tekstVystavleniyaNaGolos(igra_vg),
+                { parse_mode: 'Markdown', reply_markup: knopkiVystavleniyaNaGolos(igra_vg, kod_vg) }
+            );
             return;
         }
-        const rez_vg = vystavitIgrokaNaGolos(igra_vg, igrok_vg);
-        if (!rez_vg.ok) {
-            const msg_vg = rez_vg.error === 'immunitet'
-                ? '⚠️ У этого игрока иммунитет — его нельзя выставить.'
-                : rez_vg.error === 'vybyl'
-                    ? '⚠️ Игрок уже выбыл.'
-                    : '❌ Не удалось выставить.';
-            bot.sendMessage(chatId, msg_vg);
-            return;
-        }
-        await sohranit_igru(kod_vg);
-        const tekst_vg = rez_vg.already
-            ? 'ℹ️ №' + igrok_vg.nomer + ' *' + igrok_vg.name + '* уже на голосовании.'
-            : '✅ №' + igrok_vg.nomer + ' *' + igrok_vg.name + '* выставлен на голосование.';
-        bot.sendMessage(chatId, tekst_vg, {
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: '💥 Выставить ещё', callback_data: 'vystav_nick_' + kod_vg }],
-                [{ text: '📋 К таймеру', callback_data: 'timer_back_' + kod_vg }]
-            ]}
-        });
+        await vypolnitVystavlenieNaGolos(chatId, igra_vg, kod_vg, igrok_vg, tg_id);
         return;
     }
 
     // ===== ФИЗИЧЕСКИЕ КАРТЫ: состав игроков списком (лобби / игровой вечер) =====
+    if (sostoyanie[tg_id]?.startsWith('perviy_hod_')) {
+        const kod_ph = sostoyanie[tg_id].replace('perviy_hod_', '');
+        const igra_ph = igry[kod_ph];
+        if (!igra_ph) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(chatId, '❌ Игра не найдена.');
+            return;
+        }
+        const faza_ph = igra_ph._zhdat_fazu || 'den';
+        const igrok_ph = naytiIgrokaPoVvodu(igra_ph, text);
+        if (!igrok_ph || igrok_ph.status !== 'v_igre') {
+            bot.sendMessage(chatId, '❌ Не нашёл такого игрока. Отправь *номер* или *ник* из списка.', { parse_mode: 'Markdown' });
+            return;
+        }
+        await ustanovitPervogoHoda(chatId, null, kod_ph, igrok_ph.nomer, faza_ph);
+        return;
+    }
+
     if (sostoyanie[tg_id]?.startsWith('lobby_spisok_')) {
         const kod_ls = sostoyanie[tg_id].replace('lobby_spisok_', '');
         const igra_ls = igry[kod_ls];
@@ -1870,6 +1870,43 @@ function stopTimer(kod) {
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
 }
 
+function obnovitPanelTaymera(kod) {
+    const igra = igry[kod];
+    if (!igra || !igra._taymer_chat_id || !igra._taymer_message_id) return;
+    bot.editMessageText(buildPanelText(igra, kod), {
+        chat_id: igra._taymer_chat_id,
+        message_id: igra._taymer_message_id,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buildTimerKnopki(kod, igra.faza) }
+    }).catch(() => {});
+}
+
+function zapustitTaymer(chatId, messageId, kod, sekundy) {
+    const igra = igry[kod];
+    if (!igra) return;
+    stopTimer(kod);
+    igra.taymer_sekundy = sekundy;
+    igra.taymer_aktiven = true;
+    igra._taymer_chat_id = chatId;
+    igra._taymer_message_id = messageId;
+
+    obnovitPanelTaymera(kod);
+
+    igra._interval = setInterval(() => {
+        const ig = igry[kod];
+        if (!ig || !ig.taymer_aktiven) {
+            if (ig?._interval) { clearInterval(ig._interval); ig._interval = null; }
+            return;
+        }
+        ig.taymer_sekundy--;
+        obnovitPanelTaymera(kod);
+        if (ig.taymer_sekundy <= 0) {
+            stopTimer(kod);
+            sleduyushchiy(ig._taymer_chat_id, ig._taymer_message_id, kod);
+        }
+    }, 1000);
+}
+
 async function ostanovitIgruTest(kod, telegram_id) {
     const igra = igry[kod];
     if (!igra) return { ok: false, error: 'not_found' };
@@ -2425,6 +2462,24 @@ function tekstVvodaSpiskaIgrokov(igra, kod) {
     return t;
 }
 
+async function pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
+    const igra = igry[kod];
+    if (!igra) return;
+    sostoyanie[telegram_id] = 'lobby_spisok_' + kod;
+    const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '\uD83D\uDCF1 Раздать в боте', callback_data: 'rezhim_bot_' + kod }]
+        ]}
+    };
+    const text = tekstVvodaSpiskaIgrokov(igra, kod);
+    if (messageId) {
+        await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+    } else {
+        await bot.sendMessage(chatId, text, opts);
+    }
+}
+
 async function nachatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
     const igra = igry[kod];
     if (!igra) return;
@@ -2446,13 +2501,7 @@ async function nachatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
     }
 
     sostoyanie[telegram_id] = 'lobby_spisok_' + kod;
-    await bot.editMessageText(tekstVvodaSpiskaIgrokov(igra, kod), {
-        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [
-            [{ text: '\uD83D\uDCF1 Раздать в боте', callback_data: 'rezhim_bot_' + kod }],
-            [{ text: '\u2B05\uFE0F К лобби', callback_data: 'obnovit_igru_' + kod }]
-        ]}
-    });
+    await pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id);
 }
 
 async function vnestiSpisokIgrokovLobby(chatId, igra, kod, text) {
@@ -2594,27 +2643,26 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
     if (!igra) return;
     await zagruzitNazvanieKlubaVIgru(igra);
 
-    const rezhim = igra.rezhim_rolei === 'karty' ? '🃏 *Физические карты*' : '📱 *Роли в боте*';
+    const rezhim = igra.rezhim_rolei === 'karty' ? '\uD83C\uDFB4 *Физические карты*' : '\uD83D\uDCF1 *Роли в боте*';
+    const polno = igra.igroki.length >= igra.kolichestvo;
     const opisanie = igra.rezhim_rolei === 'karty'
-        ? 'Внеси состав *списком* (каждый ник с новой строки), затем ночь знакомства по ролям. Список сохранится для следующих игр вечера.'
+        ? (polno
+            ? 'Состав внесён — можно начинать ночь знакомства.'
+            : 'Внеси *' + igra.kolichestvo + ' игроков* списком — каждый ник с новой строки.')
         : 'Игроки подключаются по коду, бот отправит каждому роль в личку.';
+    let tekst = rezhim + '\n\n';
+    if (nazvanieKlubaIgry(igra)) tekst += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
+    tekst += '\uD83C\uDFB4 Игра \u2116' + kod + '\n';
+    tekst += '\uD83D\uDC65 Игроков: *' + igra.igroki.length + '/' + igra.kolichestvo + '*\n\n';
+    tekst += opisanie + '\n\n';
 
     let spisok = '';
     igra.igroki.forEach((ig, i) => {
         spisok += (i + 1) + '. ' + (ig.name || ig.imya || 'Игрок') + '\n';
     });
-
-    const polno = igra.igroki.length >= igra.kolichestvo;
-    let tekst = rezhim + '\n\n';
-    if (nazvanieKlubaIgry(igra)) tekst += '🏛 Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
-    tekst += '🎴 Код игры: *' + kod + '*\n';
-    tekst += '👥 Подключено: *' + igra.igroki.length + '/' + igra.kolichestvo + '*\n\n';
-    tekst += opisanie + '\n\n';
-    if (igra.rezhim_rolei === 'karty' && !polno) {
-        tekst += '\u270D\uFE0F *Отправь список игроков столбиком* — каждый ник с новой строки.\n\n';
-    }
     tekst += spisok || '_Список игроков ещё не внесён_';
-    if (!polno) tekst += '\n\n_Ждём ещё ' + (igra.kolichestvo - igra.igroki.length) + ' игрок(ов)._';
+    if (!polno) tekst += '\n\n_Осталось: ' + (igra.kolichestvo - igra.igroki.length) + ' игрок(ов)._';
+
 
     const knopki = [[{ text: '🔄 Обновить список', callback_data: 'obnovit_igru_' + kod }]];
     if (igra.klub_id) knopki.push([{ text: '⭐ Добавить резидентов', callback_data: cbBtn('rez_', { kod }) }]);
@@ -3217,24 +3265,151 @@ function buildPanelText(igra, kod) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
         t += '\u25B6\uFE0F Ход: \u2116' + (cur ? cur.nomer : '?') + ' *' + (cur ? cur.name : '') + '*\n';
     }
-    const vystavleny = (igra.naznacheny_golos || [])
-        .map(n => igra.igroki.find(i => i.nomer === n))
-        .filter(i => i && i.status === 'v_igre')
-        .map(i => '\u2116' + i.nomer + ' ' + i.name);
+    const vystavleny = nominirovannyePoPoryadku(igra);
     if (vystavleny.length && (igra.faza === 'den' || igra.faza === 'znakomstvo')) {
-        t += '\n\uD83D\uDCA5 *На голосовании:* ' + vystavleny.join(', ') + '\n';
+        t += '\n\uD83D\uDCA5 *На голосовании:* ' + vystavleny.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
     }
     t += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
-    igra.igroki.forEach(i => {
-        let em = i.status === 'v_igre' ? (i.foly > 0 ? '\u26A0\uFE0F' : '\u2705') : '\uD83D\uDC80';
-        if (igra.tekushchiy_nomer === i.nomer && i.status === 'v_igre') em = '\u25B6\uFE0F';
-        if ((igra.naznacheny_golos || []).includes(i.nomer) && i.status === 'v_igre') em = '\uD83D\uDCA5';
-        t += em + ' \u2116' + i.nomer + ' *' + i.name + '*';
-        if (i.foly > 0) t += ' [' + i.foly + '\uD83D\uDD34]';
-        if (igra.zablokirovan_nomer === i.nomer && i.status === 'v_igre') t += ' \uD83D\uDD07';
-        t += '\n';
+    if (igra.faza === 'opravdanie' || igra.faza === 'golosovanie') {
+        if (vystavleny.length) {
+            t += '\uD83D\uDCA5 *На голосовании (по порядку):*\n';
+            vystavleny.forEach((i, idx) => {
+                let em = '\uD83D\uDCA5';
+                if (igra.tekushchiy_nomer === i.nomer) em = '\u25B6\uFE0F';
+                t += (idx + 1) + '. ' + em + ' \u2116' + i.nomer + ' *' + i.name + '*';
+                if (i.foly > 0) t += ' [' + i.foly + '\uD83D\uDD34]';
+                t += '\n';
+            });
+        } else {
+            t += '_Список на голосование пуст._\n';
+        }
+    } else {
+        igra.igroki.forEach(i => {
+            let em = i.status === 'v_igre' ? (i.foly > 0 ? '\u26A0\uFE0F' : '\u2705') : '\uD83D\uDC80';
+            if (igra.tekushchiy_nomer === i.nomer && i.status === 'v_igre') em = '\u25B6\uFE0F';
+            if ((igra.naznacheny_golos || []).includes(i.nomer) && i.status === 'v_igre') em = '\uD83D\uDCA5';
+            t += em + ' \u2116' + i.nomer + ' *' + i.name + '*';
+            if (i.foly > 0) t += ' [' + i.foly + '\uD83D\uDD34]';
+            if (igra.zablokirovan_nomer === i.nomer && i.status === 'v_igre') t += ' \uD83D\uDD07';
+            t += '\n';
+        });
+    }
+    return t;
+}
+
+function poryadokHodaOtStarta(igra, startNomer, poChasovoy) {
+    const alive = igra.igroki
+        .filter(i => i.status === 'v_igre')
+        .map(i => i.nomer)
+        .sort((a, b) => a - b);
+    let ordered = poChasovoy ? alive : [...alive].reverse();
+    if (!startNomer || !ordered.includes(startNomer)) {
+        return ordered.filter(n => n !== igra.zablokirovan_nomer);
+    }
+    const idx = ordered.indexOf(startNomer);
+    const rotated = [...ordered.slice(idx), ...ordered.slice(0, idx)];
+    return rotated.filter(n => n !== igra.zablokirovan_nomer);
+}
+
+function tekstVyboraPervogoHoda(igra, kod, faza) {
+    let t = faza === 'znakomstvo'
+        ? '\uD83D\uDC4B *Кто начинает знакомство?*'
+        : '\u2600\uFE0F *Кто начинает день ' + (igra.den || 1) + '?*';
+    t += ' — Игра \u2116' + kod + '\n\n';
+    t += 'Выбери игрока или отправь *номер / ник*.\n';
+    t += 'Ход пойдёт по списку *с этого места*.\n\n';
+    igra.igroki.filter(i => i.status === 'v_igre').forEach(i => {
+        t += i.nomer + '. ' + i.name + '\n';
     });
     return t;
+}
+
+function knopkiVyboraPervogoHoda(igra, kod, faza) {
+    const knopki = igra.igroki
+        .filter(i => i.status === 'v_igre')
+        .map(i => [{
+            text: '\u25B6\uFE0F \u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'perviy_hod_' + kod + '_' + i.nomer + '_' + faza
+        }]);
+    knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
+    return { inline_keyboard: knopki };
+}
+
+async function zaprositPervogoHoda(chatId, messageId, kod, faza, telegram_id) {
+    const igra = igry[kod];
+    if (!igra) return;
+    igra._zhdat_fazu = faza;
+    sostoyanie[telegram_id] = 'perviy_hod_' + kod;
+    await bot.editMessageText(tekstVyboraPervogoHoda(igra, kod, faza), {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: knopkiVyboraPervogoHoda(igra, kod, faza)
+    });
+}
+
+async function nachatFazuZnakomstva(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) return;
+    let nastroyki = igra._nastroyki || {};
+    if (igra.klub_id && !nastroyki.tip_kluba) {
+        const { data: klub } = await supabase.from('kluby').select('nastroyki').eq('id', igra.klub_id).single();
+        nastroyki = klub?.nastroyki || {};
+    }
+    igra._nastroyki = nastroyki;
+    if (nastroyki.tip_kluba) igra.tip_kluba = nastroyki.tip_kluba;
+    igra.max_foly = nastroyki.max_foly || 4;
+    igra.faza = 'znakomstvo';
+    igra.poryadok_hoda = poryadokHodaOtStarta(igra, igra.perviy_hod_nomer, true);
+    igra.tekushchiy_nomer = igra.poryadok_hoda[0] || null;
+    const sek_z = nastroyki.znakomstvo_sek || 15;
+    const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'znakomstvo') }
+    };
+    const text = buildPanelText(igra, kod);
+    if (messageId) {
+        await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+        zapustitTaymer(chatId, messageId, kod, sek_z);
+    } else {
+        const msg = await bot.sendMessage(chatId, text, opts);
+        zapustitTaymer(chatId, msg.message_id, kod, sek_z);
+    }
+}
+
+async function nachatFazuDen(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) return;
+    stopTimer(kod);
+    igra.faza = 'den';
+    igra.poryadok_hoda = poryadokHodaOtStarta(igra, igra.perviy_hod_nomer, false);
+    igra.tekushchiy_nomer = igra.poryadok_hoda[0] || null;
+    igra.naznacheny_golos = igra.naznacheny_golos || [];
+    const sek_d = lichnoeVremyaSek(igra);
+    const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'den') }
+    };
+    const text = buildPanelText(igra, kod);
+    if (messageId) {
+        await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+        zapustitTaymer(chatId, messageId, kod, sek_d);
+    } else {
+        const msg = await bot.sendMessage(chatId, text, opts);
+        zapustitTaymer(chatId, msg.message_id, kod, sek_d);
+    }
+}
+
+async function ustanovitPervogoHoda(chatId, messageId, kod, nomer, faza) {
+    const igra = igry[kod];
+    if (!igra) return false;
+    const igrok = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
+    if (!igrok) return false;
+    igra.perviy_hod_nomer = nomer;
+    delete igra._zhdat_fazu;
+    delete sostoyanie[igra.vedushchii_id];
+    await sohranit_igru(kod);
+    if (faza === 'znakomstvo') await nachatFazuZnakomstva(chatId, messageId, kod);
+    else await nachatFazuDen(chatId, messageId, kod);
+    return true;
 }
 
 async function sleduyushchiy(chatId, messageId, kod) {
@@ -3296,7 +3471,10 @@ function buildTimerKnopki(kod, faza) {
         [{ text: '\u23ED\uFE0F Пас', callback_data: 'pas_' + kod }, { text: '\u23F9 Стоп', callback_data: 'stop_taymer_' + kod }],
     ];
     if (faza === 'den' || faza === 'znakomstvo') {
-        knopki.push([{ text: '\uD83D\uDCA5 Выставить (ник)', callback_data: 'vystav_nick_' + kod }]);
+        const igra_t = igry[kod];
+        if (kandidatyNaVystavlenie(igra_t, igra_t?.tekushchiy_nomer).length > 0) {
+            knopki.push([{ text: '\uD83D\uDCA5 Выставить (ник)', callback_data: 'vystav_nick_' + kod }]);
+        }
     }
     if (faza === 'den') {
         knopki.push([
@@ -3320,28 +3498,181 @@ function estImmunitetOtGolosovaniya(igrok) {
     return !!(igrok?.immunitet || igrok?.immunitet_golos || igrok?.immunitet_do || igrok?.bonus_immunitet);
 }
 
+function kandidatyNaVystavlenie(igra, govoryashchiyNomer) {
+    if (!igra) return [];
+    const uzhe = new Set(igra.naznacheny_golos || []);
+    return (igra.igroki || []).filter(i =>
+        i.status === 'v_igre' &&
+        !estImmunitetOtGolosovaniya(i) &&
+        i.nomer !== govoryashchiyNomer &&
+        !uzhe.has(i.nomer)
+    );
+}
+
+function nominirovannyePoPoryadku(igra) {
+    if (!igra) return [];
+    return (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(i => i && i.status === 'v_igre');
+}
+
+function kandidatyDobavitNaGolos(igra) {
+    return kandidatyNaVystavlenie(igra, null);
+}
+
+function tekstSpiskaNominacii(igra) {
+    const nom = nominirovannyePoPoryadku(igra);
+    let t = '\uD83D\uDCA5 *Список на голосование*\n\n';
+    if (nom.length === 0) {
+        t += '_Пока никто не выставлен._\n';
+        t += '_Номинируй во время речи или нажми «Добавить игрока»._';
+    } else {
+        t += '*Порядок оправданий:*\n';
+        nom.forEach((i, idx) => {
+            t += (idx + 1) + '. \u2116' + i.nomer + ' *' + i.name + '*\n';
+        });
+    }
+    return t;
+}
+
+function knopkiSpiskaNominacii(igra, kod) {
+    const nom = nominirovannyePoPoryadku(igra);
+    const knopki = nom.map((i, idx) => [{
+        text: '\u274C ' + (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name,
+        callback_data: 'golos_toggle_' + kod + '_' + i.nomer
+    }]);
+    if (kandidatyDobavitNaGolos(igra).length > 0) {
+        knopki.push([{ text: '\u2795 Добавить игрока', callback_data: 'golos_dobavit_' + kod }]);
+    }
+    if (nom.length > 0) {
+        knopki.push([{ text: '\u2705 Начать оправдание (' + nom.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
+    }
+    knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
+    return knopki;
+}
+
+function tekstDobavitNaGolos(igra) {
+    let t = '\u2795 *Добавить на голосование*\n\n';
+    t += '_Выбери игрока — он добавится в конец списка._\n';
+    t += '_Игроки с иммунитетом и уже выставленные здесь не показываются._';
+    return t;
+}
+
+function knopkiDobavitNaGolos(igra, kod) {
+    const kandidaty = kandidatyDobavitNaGolos(igra);
+    const knopki = kandidaty.map(i => [{
+        text: '\uD83D\uDCA5 \u2116' + i.nomer + ' ' + i.name,
+        callback_data: 'golos_add_' + kod + '_' + i.nomer
+    }]);
+    knopki.push([{ text: '\u2B05\uFE0F К списку', callback_data: 'vybrat_na_golos_' + kod }]);
+    return knopki;
+}
+
+function tekstVystavleniyaNaGolos(igra) {
+    const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
+    const kandidaty = kandidatyNaVystavlenie(igra, igra.tekushchiy_nomer);
+    let t = '\uD83D\uDCA5 *Выставить на голосование*\n\n';
+    if (cur) {
+        t += 'Говорит: *№' + cur.nomer + ' ' + cur.name + '*';
+        if (igra.taymer_aktiven && igra.taymer_sekundy > 0) {
+            t += ' — ⏱ *' + formatTime(igra.taymer_sekundy) + '*';
+        }
+        t += '\n\n';
+    }
+    const uzheV = (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(i => i && i.status === 'v_igre');
+    if (uzheV.length) {
+        t += '*Уже на голосовании:* ' + uzheV.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n\n';
+    }
+    if (kandidaty.length === 0) {
+        t += '_Некого выставить — все доступные игроки уже номинированы._';
+    } else {
+        t += 'Кого выставляет *№' + cur.nomer + ' ' + cur.name + '*?\n';
+        t += 'Выбери из списка или отправь *номер / ник*:\n\n';
+        kandidaty.forEach(i => { t += i.nomer + '. ' + i.name + '\n'; });
+        t += '\n_Таймер идёт — время не останавливается._';
+    }
+    return t;
+}
+
+function knopkiVystavleniyaNaGolos(igra, kod) {
+    const kandidaty = kandidatyNaVystavlenie(igra, igra.tekushchiy_nomer);
+    const knopki = kandidaty.map(i => [{
+        text: '\uD83D\uDCA5 \u2116' + i.nomer + ' ' + i.name,
+        callback_data: 'vystav_pick_' + kod + '_' + i.nomer
+    }]);
+    knopki.push([{ text: '\u2B05\uFE0F Отмена', callback_data: 'timer_back_' + kod }]);
+    return { inline_keyboard: knopki };
+}
+
+async function vypolnitVystavlenieNaGolos(chatId, igra, kod, igrok_vg, telegram_id) {
+    if (!igrok_vg || igrok_vg.status !== 'v_igre') {
+        await bot.sendMessage(chatId, '\u274C Игрок не найден или уже выбыл.');
+        return false;
+    }
+    if ((igra.naznacheny_golos || []).includes(igrok_vg.nomer)) {
+        sostoyanie[telegram_id] = 'vystav_golos_' + kod;
+        await bot.sendMessage(chatId,
+            '\u2139\uFE0F \u2116' + igrok_vg.nomer + ' *' + igrok_vg.name + '* уже на голосовании.\n\n' + tekstVystavleniyaNaGolos(igra),
+            { parse_mode: 'Markdown', reply_markup: knopkiVystavleniyaNaGolos(igra, kod) }
+        );
+        return false;
+    }
+    const govoryashchiy = igra.igroki.find(i => i.nomer === igra._vystav_ot_nomer);
+    if (govoryashchiy && igrok_vg.nomer === govoryashchiy.nomer) {
+        await bot.sendMessage(chatId, '\u26A0\uFE0F Нельзя выставить самого себя.');
+        return false;
+    }
+    const rez_vg = vystavitIgrokaNaGolos(igra, igrok_vg);
+    if (!rez_vg.ok) {
+        const msg_vg = rez_vg.error === 'immunitet'
+            ? '\u26A0\uFE0F У этого игрока иммунитет — его нельзя выставить.'
+            : rez_vg.error === 'vybyl'
+                ? '\u26A0\uFE0F Игрок уже выбыл.'
+                : '\u274C Не удалось выставить.';
+        await bot.sendMessage(chatId, msg_vg);
+        return false;
+    }
+    delete sostoyanie[telegram_id];
+    await sohranit_igru(kod);
+    const otKogo = govoryashchiy ? ('\u2116' + govoryashchiy.nomer + ' *' + govoryashchiy.name + '* выставил: ') : '';
+    const tekst_vg = '\u2705 ' + otKogo + '\u2116' + igrok_vg.nomer + ' *' + igrok_vg.name + '* на голосовании.';
+    const ostalos = igra.taymer_aktiven ? (' \u23F1 ' + formatTime(igra.taymer_sekundy)) : '';
+    const knopki_posle = [[{ text: '\uD83D\uDCCB К таймеру', callback_data: 'timer_back_' + kod }]];
+    if (kandidatyNaVystavlenie(igra, igra.tekushchiy_nomer).length > 0) {
+        knopki_posle.unshift([{ text: '\uD83D\uDCA5 Выставить ещё', callback_data: 'vystav_nick_' + kod }]);
+    }
+    await bot.sendMessage(chatId, tekst_vg + ostalos, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki_posle }
+    });
+    obnovitPanelTaymera(kod);
+    return true;
+}
+
 function tekstGolosovaniyaSPodschetom(igra, kod) {
     const golosa = igra.golosa_dnya || {};
-    const naznacheny = (igra.naznacheny_golos || [])
-        .map(n => igra.igroki.find(i => i.nomer === n))
-        .filter(Boolean);
+    const naznacheny = nominirovannyePoPoryadku(igra);
     let t = '\uD83D\uDDF3 *Голосование* — Игра \u2116' + kod + '\n\n';
-    t += 'Внеси количество голосов за каждого выставленного игрока.\n';
-    t += 'Игроков с иммунитетом не выставляем на голосование.\n\n';
-    naznacheny.forEach(i => {
-        const val = golosa[i.nomer];
-        t += '\u2116' + i.nomer + ' ' + i.name + ' — *' + (Number.isFinite(val) ? val : 'не внесено') + '* голос(ов)\n';
-    });
+    t += 'Внеси количество голосов за каждого выставленного игрока.\n\n';
+    if (naznacheny.length === 0) {
+        t += '_Список на голосование пуст._';
+    } else {
+        t += '*Выставлены (по порядку):*\n';
+        naznacheny.forEach((i, idx) => {
+            const val = golosa[i.nomer];
+            t += (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + ' — *' + (Number.isFinite(val) ? val : 'не внесено') + '* голос(ов)\n';
+        });
+    }
     return t;
 }
 
 function knopkiGolosovaniyaSPodschetom(igra, kod) {
     const golosa = igra.golosa_dnya || {};
-    const naznacheny = (igra.naznacheny_golos || [])
-        .map(n => igra.igroki.find(i => i.nomer === n))
-        .filter(Boolean);
-    const knopki = naznacheny.map(i => [{
-        text: '\uD83D\uDD22 \u2116' + i.nomer + ' ' + i.name + ' — ' + (Number.isFinite(golosa[i.nomer]) ? golosa[i.nomer] : '?'),
+    const naznacheny = nominirovannyePoPoryadku(igra);
+    const knopki = naznacheny.map((i, idx) => [{
+        text: '\uD83D\uDD22 ' + (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + ' — ' + (Number.isFinite(golosa[i.nomer]) ? golosa[i.nomer] : '?'),
         callback_data: 'golos_count_' + kod + '_' + i.nomer
     }]);
     knopki.push([{ text: '\u2705 Подвести итог голосования', callback_data: 'golos_itog_auto_' + kod }]);
@@ -3349,33 +3680,6 @@ function knopkiGolosovaniyaSPodschetom(igra, kod) {
     knopki.push([{ text: '\u2B05\uFE0F К оправданию', callback_data: 'faza_opravdanie_' + kod }]);
     return knopki;
 }
-
-function zapustitTaymer(chatId, messageId, kod, sekundy) {
-    const igra = igry[kod];
-    if (!igra) return;
-    stopTimer(kod);
-    igra.taymer_sekundy = sekundy;
-    igra.taymer_aktiven = true;
-
-    igra._interval = setInterval(async () => {
-        const ig = igry[kod];
-        if (!ig || !ig.taymer_aktiven) { clearInterval(igra._interval); return; }
-        ig.taymer_sekundy--;
-
-        if (ig.taymer_sekundy % 5 === 0 || ig.taymer_sekundy <= 10) {
-            bot.editMessageText(buildPanelText(ig, kod), {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: buildTimerKnopki(kod, ig.faza) }
-            }).catch(() => {});
-        }
-
-        if (ig.taymer_sekundy <= 0) {
-            stopTimer(kod);
-            sleduyushchiy(chatId, messageId, kod);
-        }
-    }, 1000);
-}
-
 
 async function pokazat_prehod_k_nochi(chatId, messageId, kod) {
     const igra = igry[kod];
@@ -4474,7 +4778,7 @@ bot.on('callback_query', async function(query) {
         }
         kol_knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_bez_anons_' + klub_id_it }]);
         bot.editMessageText(
-            '\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_it?.nazvaniye || '') + '*\n\uD83D\uDCCB Правила: *правила клуба*\n\nСколько игроков?', {
+            '\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_it?.nazvaniye || '') + '*\n\nСколько игроков?', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: kol_knopki }
         });
@@ -4508,11 +4812,14 @@ bot.on('callback_query', async function(query) {
             };
         }
 
-        bot.editMessageText(preview.text, {
+        bot.editMessageText(
+            preview.text + '\n\n' +
+            '_Дальше внеси список игроков столбиком — каждый ник с новой строки._',
+            {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\u2705 Подтвердить состав', callback_data: 'sostav_ok_' + preview_key }],
-                [{ text: '\u270F\uFE0F Изменить роли', callback_data: 'sostav_edit_' + preview_key }],
+                [{ text: '\u2705 Создать игру', callback_data: 'sostav_ok_' + preview_key }],
+                [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + preview_key }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_tip_' + klub_id_itk + '_' + tip_itk }]
             ]}
         });
@@ -4661,11 +4968,14 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD04 Состав сброшен к стандарту' });
         // Показываем предпросмотр снова
         const preview_r = pokazat_sostav_preview(preview_data_r.kolichestvo, preview_data_r.tip_kluba, {}, preview_data_r.klub_nazvaniye || '');
-        bot.editMessageText(preview_r.text, {
+        bot.editMessageText(
+            preview_r.text + '\n\n' +
+            '_Дальше внеси список игроков столбиком — каждый ник с новой строки._',
+            {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\u2705 Подтвердить состав', callback_data: 'sostav_ok_' + preview_key_r }],
-                [{ text: '\u270F\uFE0F Изменить роли', callback_data: 'sostav_edit_' + preview_key_r }],
+                [{ text: '\u2705 Создать игру', callback_data: 'sostav_ok_' + preview_key_r }],
+                [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + preview_key_r }],
             ]}
         });
     }
@@ -4673,17 +4983,23 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('igra_bez_anons_')) {
         const klub_id = data.replace('igra_bez_anons_', '');
         const { data: klub_bz } = await supabase.from('kluby').select('nazvaniye, sportivniy_rezhim, nastroyki').eq('id', klub_id).single();
-        const sport_ok = klub_bz?.sportivniy_rezhim;
         const tip_kluba_bz = klub_bz?.nastroyki?.tip_kluba || 'paskal';
-        const knopki_tip = [
-            [{ text: '\uD83D\uDCCB Правила клуба', callback_data: 'igra_tip_' + klub_id + '_' + tip_kluba_bz }],
-        ];
-        if (sport_ok) knopki_tip.push([{ text: '\uD83C\uDFC6 Спортивная (10 чел)', callback_data: 'igra_tip_' + klub_id + '_sportivniy' }]);
-        knopki_tip.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_klub_' + klub_id }]);
-        bot.editMessageText('\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_bz?.nazvaniye || '') + '*\n\nВыбери формат игры:', {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: knopki_tip }
-        });
+        const kol_knopki = [];
+        const dostupnye = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        for (let i = 0; i < dostupnye.length; i += 4) {
+            kol_knopki.push(dostupnye.slice(i, i + 4).map(n => ({
+                text: String(n),
+                callback_data: 'igra_tip_kol_' + klub_id + '_' + tip_kluba_bz + '_' + n
+            })));
+        }
+        if (klub_bz?.sportivniy_rezhim) {
+            kol_knopki.push([{ text: '\uD83C\uDFC6 Спортивная — 10', callback_data: 'igra_tip_kol_' + klub_id + '_sportivniy_10' }]);
+        }
+        kol_knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_klub_' + klub_id }]);
+        bot.editMessageText(
+            '\uD83C\uDFB2 *Создание игры*\n\nКлуб: *' + (klub_bz?.nazvaniye || '') + '*\n\nСколько игроков?',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: kol_knopki } }
+        );
     }
 
     else if (data.startsWith('big_family_info_')) {
@@ -4779,6 +5095,11 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
         delete sostoyanie[telegram_id];
+        if (igra.rezhim_rolei === 'karty' && (igra.igroki || []).length < igra.kolichestvo) {
+            bot.answerCallbackQuery(query.id);
+            await pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id);
+            return;
+        }
         await pokazatLobbyIgry(chatId, messageId, kod);
     }
 
@@ -4801,9 +5122,8 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('vecher_edit_', '');
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
-        sostoyanie[telegram_id] = 'lobby_spisok_' + kod;
         bot.answerCallbackQuery(query.id);
-        await bot.sendMessage(chatId, tekstVvodaSpiskaIgrokov(igra, kod), { parse_mode: 'Markdown' });
+        await pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id);
     }
 
     else if (data.startsWith('vecher_pokaz_')) {
@@ -4823,9 +5143,8 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('lobby_spisok_', '');
         const igra = igry[kod];
         if (!igra) { bot.sendMessage(chatId, '❌ Игра не найдена.'); return; }
-        sostoyanie[telegram_id] = 'lobby_spisok_' + kod;
         bot.answerCallbackQuery(query.id);
-        await bot.sendMessage(chatId, tekstVvodaSpiskaIgrokov(igra, kod), { parse_mode: 'Markdown' });
+        await pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id);
     }
 
     else if (data.startsWith('status_')) {
@@ -5484,21 +5803,11 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('faza_znakomstvo_', '');
         const igra = igry[kod];
         if (!igra) return;
-        let nastroyki = {};
-        if (igra.klub_id) {
-            const { data: klub } = await supabase.from('kluby').select('nastroyki').eq('id', igra.klub_id).single();
-            nastroyki = klub?.nastroyki || {};
+        if (!igra.perviy_hod_nomer) {
+            await zaprositPervogoHoda(chatId, messageId, kod, 'znakomstvo', telegram_id);
+            return;
         }
-        igra._nastroyki = nastroyki;
-        if (nastroyki.tip_kluba) igra.tip_kluba = nastroyki.tip_kluba;
-        igra.max_foly = nastroyki.max_foly || 4;
-        igra.faza = 'znakomstvo';
-        const alive_z = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
-        igra.poryadok_hoda = alive_z;
-        igra.tekushchiy_nomer = alive_z[0];
-        const sek_z = nastroyki.znakomstvo_sek || 15;
-        await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'znakomstvo') } });
-        zapustitTaymer(chatId, messageId, kod, sek_z);
+        await nachatFazuZnakomstva(chatId, messageId, kod);
     }
 
     // ===== ФАЗА: ДЕНЬ =====
@@ -5506,17 +5815,23 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('faza_den_', '');
         const igra = igry[kod];
         if (!igra) return;
-        stopTimer(kod);
-        igra.faza = 'den';
-        // Знакомство идет по часовой стрелке (1 -> N), дневная минута - против часовой.
-        const alive_d = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer).reverse();
-        // Заблокированный Затычкой пропускает личную минуту.
-        igra.poryadok_hoda = alive_d.filter(n => n !== igra.zablokirovan_nomer);
-        igra.tekushchiy_nomer = igra.poryadok_hoda[0];
-        igra.naznacheny_golos = igra.naznacheny_golos || [];
-        const sek_d = lichnoeVremyaSek(igra);
-        await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'den') } });
-        zapustitTaymer(chatId, messageId, kod, sek_d);
+        if (!igra.perviy_hod_nomer) {
+            await zaprositPervogoHoda(chatId, messageId, kod, 'den', telegram_id);
+            return;
+        }
+        await nachatFazuDen(chatId, messageId, kod);
+    }
+
+    else if (data.startsWith('perviy_hod_')) {
+        const rest_ph = data.replace('perviy_hod_', '');
+        const parts_ph = rest_ph.split('_');
+        const faza_ph = parts_ph.pop();
+        const nomer_ph = parseInt(parts_ph.pop(), 10);
+        const kod_ph = parts_ph.join('_');
+        const igra_ph = igry[kod_ph];
+        if (!igra_ph || !Number.isFinite(nomer_ph)) return;
+        bot.answerCallbackQuery(query.id, { text: 'Старт с №' + nomer_ph });
+        await ustanovitPervogoHoda(chatId, messageId, kod_ph, nomer_ph, faza_ph);
     }
 
     // ===== ТАЙМЕР: личное время 40-60 секунд =====
@@ -5562,17 +5877,33 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: 'Сейчас не идёт круг речи', show_alert: true });
             return;
         }
+        if (!igra.tekushchiy_nomer) {
+            bot.answerCallbackQuery(query.id, { text: 'Сейчас никто не говорит', show_alert: true });
+            return;
+        }
+        if (kandidatyNaVystavlenie(igra, igra.tekushchiy_nomer).length === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Все доступные игроки уже номинированы', show_alert: true });
+            return;
+        }
+        igra._vystav_ot_nomer = igra.tekushchiy_nomer;
         sostoyanie[telegram_id] = 'vystav_golos_' + kod;
-        const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
-        let t_vn = '\uD83D\uDCA5 *Выставить на голосование*\n\n';
-        if (cur) t_vn += 'Сейчас говорит: *№' + cur.nomer + ' ' + cur.name + '*\n\n';
-        t_vn += 'Отправь *номер* или *ник* игрока, которого выставляешь.\n';
-        t_vn += '_Игроки с иммунитетом не выставляются._';
-        bot.answerCallbackQuery(query.id, { text: 'Введи ник или номер' });
-        bot.sendMessage(chatId, t_vn, {
+        bot.answerCallbackQuery(query.id, { text: 'Выбери игрока' });
+        bot.sendMessage(chatId, tekstVystavleniyaNaGolos(igra), {
             parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'timer_back_' + kod }]] }
+            reply_markup: knopkiVystavleniyaNaGolos(igra, kod)
         });
+    }
+
+    else if (data.startsWith('vystav_pick_')) {
+        const rest = data.replace('vystav_pick_', '');
+        const pos = rest.lastIndexOf('_');
+        const kod = rest.slice(0, pos);
+        const nomer = parseInt(rest.slice(pos + 1), 10);
+        const igra = igry[kod];
+        if (!igra || !Number.isFinite(nomer)) return;
+        const igrok = igra.igroki.find(i => i.nomer === nomer);
+        bot.answerCallbackQuery(query.id, { text: 'Выставляю…' });
+        await vypolnitVystavlenieNaGolos(chatId, igra, kod, igrok, telegram_id);
     }
 
     else if (data.startsWith('timer_back_')) {
@@ -5581,10 +5912,21 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         bot.answerCallbackQuery(query.id, { text: 'К таймеру' });
-        bot.editMessageText(buildPanelText(igra, kod), {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        const msgId = igra._taymer_message_id || messageId;
+        const cId = igra._taymer_chat_id || chatId;
+        await bot.editMessageText(buildPanelText(igra, kod), {
+            chat_id: cId, message_id: msgId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: buildTimerKnopki(kod, igra.faza) }
         });
+        if (!igra.taymer_aktiven && igra.tekushchiy_nomer) {
+            const nastroyki = igra._nastroyki || {};
+            const sek = igra.taymer_sekundy > 0
+                ? igra.taymer_sekundy
+                : (igra.faza === 'znakomstvo' ? (nastroyki.znakomstvo_sek || 15)
+                    : igra.faza === 'opravdanie' ? (nastroyki.opravdanie_sek || 30)
+                    : lichnoeVremyaSek(igra));
+            zapustitTaymer(cId, msgId, kod, sek);
+        }
     }
 
     // ===== ВЫСТАВИТЬ НА ГОЛОСОВАНИЕ =====
@@ -5593,35 +5935,76 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         stopTimer(kod);
-        const alive_g = igra.igroki.filter(i => i.status === 'v_igre' && !estImmunitetOtGolosovaniya(i));
-        const uzhe_g = igra.naznacheny_golos || [];
-        const knopki_g = alive_g.map(i => [{ text: (uzhe_g.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
-        knopki_g.push([{ text: '\u2705 Начать оправдание (' + uzhe_g.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
-        knopki_g.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
-        bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбери игроков. Игроки с иммунитетом здесь не показываются:', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_g } });
+        bot.editMessageText(tekstSpiskaNominacii(igra), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiSpiskaNominacii(igra, kod) }
+        });
     }
 
-    // ===== НАЗНАЧИТЬ НА ГОЛОСОВАНИЕ (тоггл) =====
+    else if (data.startsWith('golos_dobavit_')) {
+        const kod = data.replace('golos_dobavit_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const kandidaty = kandidatyDobavitNaGolos(igra);
+        if (kandidaty.length === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Некого добавить', show_alert: true });
+            return;
+        }
+        bot.answerCallbackQuery(query.id);
+        bot.editMessageText(tekstDobavitNaGolos(igra), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiDobavitNaGolos(igra, kod) }
+        });
+    }
+
+    // ===== НАЗНАЧИТЬ НА ГОЛОСОВАНИЕ (убрать из списка) =====
     else if (data.startsWith('golos_toggle_')) {
         const parts_n = data.replace('golos_toggle_', '').split('_');
         const kod = parts_n[0];
         const nomer_n = parseInt(parts_n[1]);
         const igra = igry[kod];
         if (!igra) return;
-        const kandidat_n = igra.igroki.find(i => i.nomer === nomer_n);
-        if (estImmunitetOtGolosovaniya(kandidat_n)) {
-            bot.answerCallbackQuery(query.id, { text: 'У игрока иммунитет — его нельзя выставить.', show_alert: true });
+        igra.naznacheny_golos = igra.naznacheny_golos || [];
+        const idx_n = igra.naznacheny_golos.indexOf(nomer_n);
+        if (idx_n >= 0) {
+            igra.naznacheny_golos.splice(idx_n, 1);
+            bot.answerCallbackQuery(query.id, { text: 'Убран из списка' });
+        } else {
+            bot.answerCallbackQuery(query.id, { text: 'Игрок не в списке', show_alert: true });
+            return;
+        }
+        await sohranit_igru(kod);
+        bot.editMessageText(tekstSpiskaNominacii(igra), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiSpiskaNominacii(igra, kod) }
+        });
+    }
+
+    else if (data.startsWith('golos_add_')) {
+        const parts_a = data.replace('golos_add_', '').split('_');
+        const kod = parts_a[0];
+        const nomer_a = parseInt(parts_a[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+        const kandidat_a = igra.igroki.find(i => i.nomer === nomer_a);
+        if (!kandidat_a || kandidat_a.status !== 'v_igre') {
+            bot.answerCallbackQuery(query.id, { text: 'Игрок не найден', show_alert: true });
+            return;
+        }
+        if (estImmunitetOtGolosovaniya(kandidat_a)) {
+            bot.answerCallbackQuery(query.id, { text: 'У игрока иммунитет', show_alert: true });
             return;
         }
         igra.naznacheny_golos = igra.naznacheny_golos || [];
-        const idx_n = igra.naznacheny_golos.indexOf(nomer_n);
-        if (idx_n >= 0) { igra.naznacheny_golos.splice(idx_n, 1); bot.answerCallbackQuery(query.id, { text: 'Снято' }); }
-        else { igra.naznacheny_golos.push(nomer_n); bot.answerCallbackQuery(query.id, { text: '\uD83D\uDCA5 Выставлен' }); }
-        const alive_n = igra.igroki.filter(i => i.status === 'v_igre' && !estImmunitetOtGolosovaniya(i));
-        const knopki_n = alive_n.map(i => [{ text: (igra.naznacheny_golos.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
-        knopki_n.push([{ text: '\u2705 Начать оправдание (' + igra.naznacheny_golos.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
-        knopki_n.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
-        bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбраны: ' + igra.naznacheny_golos.length, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_n } });
+        if (!igra.naznacheny_golos.includes(nomer_a)) {
+            igra.naznacheny_golos.push(nomer_a);
+        }
+        bot.answerCallbackQuery(query.id, { text: '\uD83D\uDCA5 Добавлен' });
+        await sohranit_igru(kod);
+        bot.editMessageText(tekstSpiskaNominacii(igra), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiSpiskaNominacii(igra, kod) }
+        });
     }
 
     // ===== ФАЗА: ОПРАВДАНИЕ =====
