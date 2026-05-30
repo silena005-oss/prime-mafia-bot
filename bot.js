@@ -1115,7 +1115,7 @@ bot.on('message', async function(msg) {
             bot.sendMessage(chatId, '❌ Не нашёл такого игрока. Отправь *номер* или *ник* из списка.', { parse_mode: 'Markdown' });
             return;
         }
-        await ustanovitPervogoHoda(chatId, null, kod_ph, igrok_ph.nomer, faza_ph);
+        await ustanovitPervogoHoda(chatId, null, kod_ph, igrok_ph.nomer, faza_ph, tg_id);
         return;
     }
 
@@ -1275,7 +1275,7 @@ bot.on('message', async function(msg) {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
-                [{ text: '👋 Начать знакомство', callback_data: 'faza_znakomstvo_' + kod }]
+                [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }]
             ]}
         });
         return;
@@ -2100,13 +2100,13 @@ async function zavershitNochZnakomstva(chatId, kod) {
         t += '\n\u26A0\uFE0F Без привязки к боту (баллы не запишутся): ' + bezReytinga.join(', ') + '\n';
         t += '_Пусть зарегистрируются в боте и в следующий раз вводи их игровой ник._\n';
     }
-    t += '\n' + tekstSpiskaPosleRoley(igra);
-    t += '\n\nМожно начинать круг знакомства или открыть панель игры.';
+    t += '\n\n' + tekstSpiskaPosleRoley(igra);
+    t += '\n\nНажми *«Кто начинает представление?»* — выберешь первого игрока, с которого пойдёт круг.';
 
     await bot.sendMessage(chatId, t, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [
-            [{ text: '\uD83D\uDC4B Начать знакомство', callback_data: 'faza_znakomstvo_' + kod }],
+            [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
             [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }]
         ] }
     });
@@ -3186,12 +3186,12 @@ async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
     if (next === 'day') {
         igra.den = (igra.den || 1) + 1;
         await sohranit_igru(kod);
-        await bot.editMessageText('\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + igra.den + '.', {
+        await bot.editMessageText('\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + igra.den + '.\n_Сначала выберешь, кто начинает дневные речи._', {
             chat_id: chatId,
             message_id: messageId,
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\uD83C\uDF1E Начать день ' + igra.den, callback_data: 'faza_den_' + kod }],
+                [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
                 [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
             ] }
         });
@@ -3314,15 +3314,22 @@ function poryadokHodaOtStarta(igra, startNomer, poChasovoy) {
 
 function tekstVyboraPervogoHoda(igra, kod, faza) {
     let t = faza === 'znakomstvo'
-        ? '\uD83D\uDC4B *Кто начинает знакомство?*'
+        ? '\uD83D\uDC4B *Кто начинает представление?*'
         : '\u2600\uFE0F *Кто начинает день ' + (igra.den || 1) + '?*';
     t += ' — Игра \u2116' + kod + '\n\n';
-    t += 'Выбери игрока или отправь *номер / ник*.\n';
-    t += 'Ход пойдёт по списку *с этого места*.\n\n';
+    t += 'Выбери игрока кнопкой или отправь *номер / ник*.\n';
+    t += faza === 'znakomstvo'
+        ? 'Круг представления пойдёт *по часовой* с этого места.\n\n'
+        : 'Дневные речи пойдут *против часовой* с этого места.\n\n';
     igra.igroki.filter(i => i.status === 'v_igre').forEach(i => {
         t += i.nomer + '. ' + i.name + '\n';
     });
     return t;
+}
+
+function knopkaKtoNachinaet(faza, den) {
+    if (faza === 'znakomstvo') return '\uD83D\uDC4B Кто начинает представление?';
+    return '\u2600\uFE0F Кто начинает день ' + (den || 1) + '?';
 }
 
 function knopkiVyboraPervogoHoda(igra, kod, faza) {
@@ -3394,7 +3401,8 @@ async function nachatFazuDen(chatId, messageId, kod) {
     igra.faza = 'den';
     igra.poryadok_hoda = poryadokHodaOtStarta(igra, igra.perviy_hod_nomer, false);
     igra.tekushchiy_nomer = igra.poryadok_hoda[0] || null;
-    igra.naznacheny_golos = igra.naznacheny_golos || [];
+    igra.naznacheny_golos = [];
+    igra.golosa_dnya = {};
     const sek_d = lichnoeVremyaSek(igra);
     const opts = {
         parse_mode: 'Markdown',
@@ -3410,14 +3418,15 @@ async function nachatFazuDen(chatId, messageId, kod) {
     }
 }
 
-async function ustanovitPervogoHoda(chatId, messageId, kod, nomer, faza) {
+async function ustanovitPervogoHoda(chatId, messageId, kod, nomer, faza, telegram_id) {
     const igra = igry[kod];
     if (!igra) return false;
     const igrok = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
     if (!igrok) return false;
     igra.perviy_hod_nomer = nomer;
     delete igra._zhdat_fazu;
-    delete sostoyanie[igra.vedushchii_id];
+    if (telegram_id) delete sostoyanie[telegram_id];
+    else delete sostoyanie[igra.vedushchii_id];
     await sohranit_igru(kod);
     if (faza === 'znakomstvo') await nachatFazuZnakomstva(chatId, messageId, kod);
     else await nachatFazuDen(chatId, messageId, kod);
@@ -3441,7 +3450,7 @@ async function sleduyushchiy(chatId, messageId, kod) {
         let t = buildPanelText(igra, kod);
         t += '\n\u2705 *Все высказались*\n';
         const knopki = [];
-        if (faza === 'znakomstvo') knopki.push([{ text: '\uD83C\uDF1E Начать день', callback_data: 'faza_den_' + kod }]);
+        if (faza === 'znakomstvo') knopki.push([{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }]);
         if (faza === 'den') {
             knopki.push([{ text: '\uD83D\uDCA5 Выставить на голосование', callback_data: 'vybrat_na_golos_' + kod }]);
             knopki.push([{ text: '\uD83C\uDF19 Перейти к ночи', callback_data: 'faza_noch_' + kod }]);
@@ -3497,7 +3506,10 @@ function buildTimerKnopki(kod, faza) {
         knopki.push([{ text: '\uD83D\uDCCB Список на голосование', callback_data: 'vybrat_na_golos_' + kod }]);
         knopki.push([{ text: '\uD83C\uDF19 Ночь', callback_data: 'faza_noch_' + kod }]);
     }
-    if (faza === 'znakomstvo') knopki.push([{ text: '\uD83C\uDF1E К дню', callback_data: 'faza_den_' + kod }]);
+    if (faza === 'znakomstvo') {
+        const igra_z = igry[kod];
+        knopki.push([{ text: knopkaKtoNachinaet('den', igra_z?.den), callback_data: 'faza_den_' + kod }]);
+    }
     if (faza === 'opravdanie') {
         knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
         knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
@@ -5309,7 +5321,7 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '\uD83C\uDF19 Начать ночь знакомства', callback_data: 'noch_znakomstvo_' + kod }],
-                [{ text: '\uD83D\uDC4B Начать круг знакомства', callback_data: 'faza_znakomstvo_' + kod }],
+                [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
                 [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
                 [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
             ]}
@@ -5494,8 +5506,8 @@ bot.on('callback_query', async function(query) {
 
         // Кнопки фаз
         if (!igra.faza || igra.faza === 'ozhidanie') {
-            knopki.push([{ text: '\uD83D\uDC4B Начать знакомство', callback_data: 'faza_znakomstvo_' + kod }]);
-            knopki.push([{ text: '\uD83C\uDF1E Пропустить к дню', callback_data: 'faza_den_' + kod }]);
+            knopki.push([{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }]);
+            knopki.push([{ text: knopkaKtoNachinaet('den', igra.den || 1), callback_data: 'faza_den_' + kod }]);
         } else if (igra.faza === 'den') {
             knopki.push([{ text: '\uD83D\uDCA5 На голосование', callback_data: 'vybrat_na_golos_' + kod }]);
             knopki.push([{ text: '\uD83C\uDF19 Перейти к ночи', callback_data: 'faza_noch_' + kod }]);
@@ -5877,7 +5889,7 @@ bot.on('callback_query', async function(query) {
         const igra_ph = igry[kod_ph];
         if (!igra_ph || !Number.isFinite(nomer_ph)) return;
         bot.answerCallbackQuery(query.id, { text: 'Старт с №' + nomer_ph });
-        await ustanovitPervogoHoda(chatId, messageId, kod_ph, nomer_ph, faza_ph);
+        await ustanovitPervogoHoda(chatId, messageId, kod_ph, nomer_ph, faza_ph, telegram_id);
     }
 
     // ===== ТАЙМЕР: личное время 40-60 секунд =====
@@ -6827,8 +6839,8 @@ bot.on('callback_query', async function(query) {
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.den = (igra.den || 1) + 1;
         await sohranit_igru(kod);
-        bot.editMessageText(itog_t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-            [{ text: '\uD83C\uDF1E Начать день ' + igra.den, callback_data: 'faza_den_' + kod }],
+        bot.editMessageText(itog_t + '\n\n_Сначала выберешь, кто начинает дневные речи._', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+            [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
             [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
         ]}});
     }
