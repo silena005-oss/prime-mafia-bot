@@ -899,6 +899,34 @@ bot.on('message', async function(msg) {
     // Игнорируем команды
     if (text.startsWith('/')) return;
 
+    // ===== ГОЛОСОВАНИЕ: ведущий вводит количество голосов =====
+    if (sostoyanie[tg_id]?.startsWith('golos_count_')) {
+        const parts_gc = sostoyanie[tg_id].replace('golos_count_', '').split('_');
+        const kod_gc = parts_gc[0];
+        const nomer_gc = parseInt(parts_gc[1], 10);
+        const igra_gc = igry[kod_gc];
+        if (!igra_gc) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(chatId, '❌ Игра не найдена.');
+            return;
+        }
+        const count = parseInt(text, 10);
+        if (!Number.isFinite(count) || count < 0 || count > (igra_gc.igroki || []).length) {
+            bot.sendMessage(chatId, '❌ Введи число голосов от 0 до ' + (igra_gc.igroki || []).length + '.');
+            return;
+        }
+        igra_gc.golosa_dnya = igra_gc.golosa_dnya || {};
+        igra_gc.golosa_dnya[nomer_gc] = count;
+        delete sostoyanie[tg_id];
+        await sohranit_igru(kod_gc);
+        const igrok_gc = igra_gc.igroki.find(i => i.nomer === nomer_gc);
+        await bot.sendMessage(chatId, '\u2705 За \u2116' + nomer_gc + ' ' + (igrok_gc?.name || '') + ': *' + count + '* голос(ов)', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra_gc, kod_gc) }
+        });
+        return;
+    }
+
     // ===== ФИЗИЧЕСКИЕ КАРТЫ: ночь знакомства по ролям =====
     if (sostoyanie[tg_id]?.startsWith('noch_znakomstvo_')) {
         const parts_nz = sostoyanie[tg_id].replace('noch_znakomstvo_', '').split('_');
@@ -2312,6 +2340,40 @@ function buildTimerKnopki(kod, faza) {
     if (faza === 'znakomstvo') knopki.push([{ text: '\uD83C\uDF1E К дню', callback_data: 'faza_den_' + kod }]);
     if (faza === 'opravdanie') knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
+    return knopki;
+}
+
+function estImmunitetOtGolosovaniya(igrok) {
+    return !!(igrok?.immunitet || igrok?.immunitet_golos || igrok?.immunitet_do || igrok?.bonus_immunitet);
+}
+
+function tekstGolosovaniyaSPodschetom(igra, kod) {
+    const golosa = igra.golosa_dnya || {};
+    const naznacheny = (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(Boolean);
+    let t = '\uD83D\uDDF3 *Голосование* — Игра \u2116' + kod + '\n\n';
+    t += 'Внеси количество голосов за каждого выставленного игрока.\n';
+    t += 'Игроков с иммунитетом не выставляем на голосование.\n\n';
+    naznacheny.forEach(i => {
+        const val = golosa[i.nomer];
+        t += '\u2116' + i.nomer + ' ' + i.name + ' — *' + (Number.isFinite(val) ? val : 'не внесено') + '* голос(ов)\n';
+    });
+    return t;
+}
+
+function knopkiGolosovaniyaSPodschetom(igra, kod) {
+    const golosa = igra.golosa_dnya || {};
+    const naznacheny = (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(Boolean);
+    const knopki = naznacheny.map(i => [{
+        text: '\uD83D\uDD22 \u2116' + i.nomer + ' ' + i.name + ' — ' + (Number.isFinite(golosa[i.nomer]) ? golosa[i.nomer] : '?'),
+        callback_data: 'golos_count_' + kod + '_' + i.nomer
+    }]);
+    knopki.push([{ text: '\u2705 Подвести итог голосования', callback_data: 'golos_itog_auto_' + kod }]);
+    knopki.push([{ text: '\u2705 Никто не выбывает', callback_data: 'golos_nikto_' + kod }]);
+    knopki.push([{ text: '\u2B05\uFE0F К оправданию', callback_data: 'faza_opravdanie_' + kod }]);
     return knopki;
 }
 
@@ -4388,12 +4450,12 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         stopTimer(kod);
-        const alive_g = igra.igroki.filter(i => i.status === 'v_igre');
+        const alive_g = igra.igroki.filter(i => i.status === 'v_igre' && !estImmunitetOtGolosovaniya(i));
         const uzhe_g = igra.naznacheny_golos || [];
         const knopki_g = alive_g.map(i => [{ text: (uzhe_g.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
         knopki_g.push([{ text: '\u2705 Начать оправдание (' + uzhe_g.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
         knopki_g.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
-        bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбери игроков:', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_g } });
+        bot.editMessageText('\uD83D\uDCA5 *Выставить на голосование*\n\nВыбери игроков. Игроки с иммунитетом здесь не показываются:', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_g } });
     }
 
     // ===== НАЗНАЧИТЬ НА ГОЛОСОВАНИЕ (тоггл) =====
@@ -4403,11 +4465,16 @@ bot.on('callback_query', async function(query) {
         const nomer_n = parseInt(parts_n[1]);
         const igra = igry[kod];
         if (!igra) return;
+        const kandidat_n = igra.igroki.find(i => i.nomer === nomer_n);
+        if (estImmunitetOtGolosovaniya(kandidat_n)) {
+            bot.answerCallbackQuery(query.id, { text: 'У игрока иммунитет — его нельзя выставить.', show_alert: true });
+            return;
+        }
         igra.naznacheny_golos = igra.naznacheny_golos || [];
         const idx_n = igra.naznacheny_golos.indexOf(nomer_n);
         if (idx_n >= 0) { igra.naznacheny_golos.splice(idx_n, 1); bot.answerCallbackQuery(query.id, { text: 'Снято' }); }
         else { igra.naznacheny_golos.push(nomer_n); bot.answerCallbackQuery(query.id, { text: '\uD83D\uDCA5 Выставлен' }); }
-        const alive_n = igra.igroki.filter(i => i.status === 'v_igre');
+        const alive_n = igra.igroki.filter(i => i.status === 'v_igre' && !estImmunitetOtGolosovaniya(i));
         const knopki_n = alive_n.map(i => [{ text: (igra.naznacheny_golos.includes(i.nomer) ? '\uD83D\uDCA5 ' : '') + '\u2116' + i.nomer + ' ' + i.name, callback_data: 'golos_toggle_' + kod + '_' + i.nomer }]);
         knopki_n.push([{ text: '\u2705 Начать оправдание (' + igra.naznacheny_golos.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
         knopki_n.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
@@ -4443,13 +4510,182 @@ bot.on('callback_query', async function(query) {
         stopTimer(kod);
         igra.faza = 'golosovanie';
         igra.tekushchiy_nomer = null;
+        igra.golosa_dnya = {};
         const naznacheny_v = (igra.naznacheny_golos || []).map(n => igra.igroki.find(x => x.nomer === n)).filter(Boolean);
-        let t_v = '\uD83D\uDDF3 *Голосование*\n\nКто выбывает?\n\n';
-        naznacheny_v.forEach((i, idx) => { t_v += (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + '\n'; });
-        const knopki_v = naznacheny_v.map(i => [{ text: '\uD83D\uDC80 \u2116' + i.nomer + ' ' + i.name + ' — выбывает', callback_data: 'golos_vybyl_' + kod + '_' + i.nomer }]);
-        knopki_v.push([{ text: '\u2705 Никто не выбывает', callback_data: 'golos_nikto_' + kod }]);
-        knopki_v.push([{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }]);
-        bot.editMessageText(t_v, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_v } });
+        if (naznacheny_v.length === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Некого выводить на голосование', show_alert: true });
+            return;
+        }
+        bot.editMessageText(tekstGolosovaniyaSPodschetom(igra, kod), {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra, kod) }
+        });
+    }
+
+    // ===== ГОЛОСОВАНИЕ: внести количество голосов =====
+    else if (data.startsWith('golos_count_')) {
+        const parts_gc = data.replace('golos_count_', '').split('_');
+        const kod = parts_gc[0];
+        const nomer_gc = parseInt(parts_gc[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        const igrok_gc = igra.igroki.find(i => i.nomer === nomer_gc);
+        if (!igrok_gc) return;
+        sostoyanie[telegram_id] = 'golos_count_' + kod + '_' + nomer_gc;
+        bot.editMessageText(
+            '\uD83D\uDD22 *Голоса за \u2116' + nomer_gc + ' ' + igrok_gc.name + '*\n\n' +
+            'Введи число голосов одним сообщением:',
+            {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад к голосованию', callback_data: 'faza_golosovanie_' + kod }]] }
+            }
+        );
+    }
+
+    // ===== ГОЛОСОВАНИЕ: автоматический итог =====
+    else if (data.startsWith('golos_itog_auto_')) {
+        const kod = data.replace('golos_itog_auto_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const naznacheny = (igra.naznacheny_golos || [])
+            .map(n => igra.igroki.find(i => i.nomer === n))
+            .filter(Boolean);
+        const golosa = igra.golosa_dnya || {};
+        const neVneseny = naznacheny.filter(i => !Number.isFinite(golosa[i.nomer]));
+        if (neVneseny.length > 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Внеси голоса за всех выставленных.', show_alert: true });
+            return;
+        }
+        const max = Math.max(...naznacheny.map(i => golosa[i.nomer] || 0));
+        const lidery = naznacheny.filter(i => (golosa[i.nomer] || 0) === max);
+
+        if (lidery.length !== 1 || max === 0) {
+            let t_eq = '\uD83D\uDDF3 *Итог голосования:* равенство\n\n';
+            lidery.forEach(i => { t_eq += '\u2116' + i.nomer + ' ' + i.name + ' — ' + (golosa[i.nomer] || 0) + ' голос(ов)\n'; });
+
+            if (!igra.peregolosovanie_aktivno) {
+                igra.peregolosovanie_aktivno = true;
+                igra.naznacheny_golos = lidery.map(i => i.nomer);
+                igra.golosa_dnya = {};
+                await sohranit_igru(kod);
+                t_eq += '\n\uD83D\uDD01 Назначено *переголосование* только между игроками с равным результатом.';
+                bot.editMessageText(t_eq + '\n\n' + tekstGolosovaniyaSPodschetom(igra, kod), {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra, kod) }
+                });
+                return;
+            }
+
+            igra.peregolosovanie_finalisty = lidery.map(i => i.nomer);
+            await sohranit_igru(kod);
+            t_eq += '\n\u26A0\uFE0F Равенство повторилось. Стол должен решить: оставить всех или удалить всех спорных игроков.';
+            bot.editMessageText(t_eq, {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '\u2705 Оставить всех', callback_data: 'golos_ostavit_spor_' + kod }],
+                    [{ text: '\uD83D\uDC80 Все спорные покидают стол', callback_data: 'golos_vybyli_spor_' + kod }]
+                ] }
+            });
+            return;
+        }
+
+        const vybyv = lidery[0];
+        bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC80 Выбывает \u2116' + vybyv.nomer });
+        const igrok_gv = vybyv;
+        const ubitye_gv = [];
+        let shahid_effect_gv = '';
+        igrok_gv.status = 'vybyl';
+        dobavitUnikalnoPoNomeru(ubitye_gv, igrok_gv);
+        shahid_effect_gv = primenitSmertShahida(igra, igrok_gv, 'golosovanie', ubitye_gv);
+        if (igrok_gv.telegram_id) bot.sendMessage(igrok_gv.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + igrok_gv.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+        ubitye_gv
+            .filter(i => i.nomer !== igrok_gv.nomer)
+            .forEach(i => {
+                if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Ты выбыл из-за эффекта Шахида.*\n\nТвоя роль была: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+            });
+        igra.naznacheny_golos = [];
+        igra.golosa_dnya = {};
+        igra.peregolosovanie_aktivno = false;
+        igra.peregolosovanie_finalisty = [];
+        await sohranit_igru(kod);
+        if ((igra.den || 1) === 1 && mozhetBytLuchshiyHod(igrok_gv)) {
+            await pokazatLuchshiyHod(chatId, messageId, kod, igrok_gv.nomer, 'den1', 'noch');
+            return;
+        }
+        const pobeditel = opredelitPobeditelya(igra);
+        if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
+        igra.faza = 'noch';
+        if (shahid_effect_gv) await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDC80 Голосование: \u2116' + igrok_gv.nomer + ' выбыл\n' + shahid_effect_gv);
+        else await pokazat_prehod_k_nochi(chatId, messageId, kod);
+    }
+
+    // ===== ПЕРЕГОЛОСОВАНИЕ: оставить спорных игроков =====
+    else if (data.startsWith('golos_ostavit_spor_')) {
+        const kod = data.replace('golos_ostavit_spor_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const finalisty = (igra.peregolosovanie_finalisty || [])
+            .map(n => igra.igroki.find(i => i.nomer === n))
+            .filter(Boolean);
+        let t = '\u2705 *Решение стола:* оставить игроков\n\n';
+        finalisty.forEach(i => { t += '\u2116' + i.nomer + ' ' + i.name + ' остаётся в игре\n'; });
+        igra.naznacheny_golos = [];
+        igra.golosa_dnya = {};
+        igra.peregolosovanie_aktivno = false;
+        igra.peregolosovanie_finalisty = [];
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Игроки остаются' });
+        bot.editMessageText(t, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }]] }
+        });
+    }
+
+    // ===== ПЕРЕГОЛОСОВАНИЕ: все спорные покидают стол =====
+    else if (data.startsWith('golos_vybyli_spor_')) {
+        const kod = data.replace('golos_vybyli_spor_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const finalisty = (igra.peregolosovanie_finalisty || [])
+            .map(n => igra.igroki.find(i => i.nomer === n && i.status === 'v_igre'))
+            .filter(Boolean);
+        const ubitye_spor = [];
+        let effect_text = '';
+        let t = '\uD83D\uDC80 *Решение стола:* спорные игроки покидают стол\n\n';
+        finalisty.forEach(i => {
+            i.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubitye_spor, i);
+            t += '\uD83D\uDC80 \u2116' + i.nomer + ' ' + i.name + ' (' + i.rol + ')\n';
+            effect_text += primenitSmertShahida(igra, i, 'golosovanie', ubitye_spor);
+        });
+        if (effect_text) t += '\n' + effect_text;
+        ubitye_spor.forEach(i => {
+            if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Голосование: ты выбыл.*\n\nТвоя роль была: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {});
+        });
+        igra.naznacheny_golos = [];
+        igra.golosa_dnya = {};
+        igra.peregolosovanie_aktivno = false;
+        igra.peregolosovanie_finalisty = [];
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Спорные игроки выбыли' });
+        const pobeditel = opredelitPobeditelya(igra);
+        if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
+        bot.editMessageText(t, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }]] }
+        });
     }
 
     // ===== ГОЛОСОВАНИЕ: ВЫБЫЛ =====
@@ -4493,6 +4729,9 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         igra.naznacheny_golos = [];
+        igra.golosa_dnya = {};
+        igra.peregolosovanie_aktivno = false;
+        igra.peregolosovanie_finalisty = [];
         bot.answerCallbackQuery(query.id, { text: '\u2705 Никто не выбыл' });
         igra.faza = 'noch';
         await pokazat_prehod_k_nochi(chatId, messageId, kod);
@@ -4506,6 +4745,9 @@ bot.on('callback_query', async function(query) {
         stopTimer(kod);
         igra.faza = 'noch';
         igra.naznacheny_golos = [];
+        igra.golosa_dnya = {};
+        igra.peregolosovanie_aktivno = false;
+        igra.peregolosovanie_finalisty = [];
         await sohranit_igru(kod);
         await pokazat_prehod_k_nochi(chatId, messageId, kod);
     }
