@@ -3339,12 +3339,23 @@ function knopkiVyboraPervogoHoda(igra, kod, faza) {
 async function zaprositPervogoHoda(chatId, messageId, kod, faza, telegram_id) {
     const igra = igry[kod];
     if (!igra) return;
+    stopTimer(kod);
     igra._zhdat_fazu = faza;
     sostoyanie[telegram_id] = 'perviy_hod_' + kod;
-    await bot.editMessageText(tekstVyboraPervogoHoda(igra, kod, faza), {
-        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+    const text = tekstVyboraPervogoHoda(igra, kod, faza);
+    const opts = {
+        parse_mode: 'Markdown',
         reply_markup: knopkiVyboraPervogoHoda(igra, kod, faza)
-    });
+    };
+    try {
+        if (messageId) {
+            await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+        } else {
+            await bot.sendMessage(chatId, text, opts);
+        }
+    } catch (_) {
+        await bot.sendMessage(chatId, text, opts);
+    }
 }
 
 async function nachatFazuZnakomstva(chatId, messageId, kod) {
@@ -5844,11 +5855,8 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('faza_znakomstvo_', '');
         const igra = igry[kod];
         if (!igra) return;
-        if (!igra.perviy_hod_nomer) {
-            await zaprositPervogoHoda(chatId, messageId, kod, 'znakomstvo', telegram_id);
-            return;
-        }
-        await nachatFazuZnakomstva(chatId, messageId, kod);
+        bot.answerCallbackQuery(query.id);
+        await zaprositPervogoHoda(chatId, messageId, kod, 'znakomstvo', telegram_id);
     }
 
     // ===== ФАЗА: ДЕНЬ =====
@@ -5856,11 +5864,8 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('faza_den_', '');
         const igra = igry[kod];
         if (!igra) return;
-        if (!igra.perviy_hod_nomer) {
-            await zaprositPervogoHoda(chatId, messageId, kod, 'den', telegram_id);
-            return;
-        }
-        await nachatFazuDen(chatId, messageId, kod);
+        bot.answerCallbackQuery(query.id);
+        await zaprositPervogoHoda(chatId, messageId, kod, 'den', telegram_id);
     }
 
     else if (data.startsWith('perviy_hod_')) {
