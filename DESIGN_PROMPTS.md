@@ -32,6 +32,63 @@ Mood: premium dark club, elegant, clear, focused on host automation.
 Avoid: cartoon mafia characters, casino chips, guns, childish icons, cluttered UI.
 ```
 
+## Варианты дизайна стола
+
+### Classic Noir
+
+```text
+Design a premium virtual Mafia table for Prime Mafia in "Classic Noir" style.
+
+Visual style: black lacquer table, deep burgundy velvet, subtle gold accents, dim private club lighting, elegant typography.
+Layout: iPad landscape, 16 seats around a circular table, large readable player numbers, central timer, phase indicator, host controls.
+Mood: expensive intellectual club, serious, cinematic, calm.
+Avoid: cartoon characters, casino symbols, aggressive weapons, clutter.
+```
+
+### Pink Club
+
+```text
+Design a glamorous but still premium virtual Mafia table for Prime Mafia in "Pink Club" style.
+
+Visual style: soft dusty pink, black, champagne gold, velvet texture, feminine luxury, clean interface.
+Layout: iPad landscape, circular table, 16 seats, player names, status markers, central timer, elegant host controls.
+Mood: stylish club night, confident, social, polished, not childish.
+Avoid: Barbie-like cartoon look, neon overload, casino mood.
+```
+
+### Royal Gold
+
+```text
+Design a luxury virtual Mafia table for Prime Mafia in "Royal Gold" style.
+
+Visual style: deep black, royal gold, subtle embossed patterns, premium cards, high contrast, franchise-ready club branding.
+Layout: iPad landscape, 18-20 player seats possible, central timer, game phase, host action panel, club logo area.
+Mood: powerful, expensive, ceremonial, organized.
+Avoid: cheap gold, gambling visuals, too many decorative elements.
+```
+
+### Minimal Sport
+
+```text
+Design a tournament-focused virtual Mafia table for Prime Mafia in "Minimal Sport" style.
+
+Visual style: dark graphite, white text, small burgundy/gold accents, maximum readability, fewer decorations.
+Layout: iPad landscape, circular/oval table, 20 seats, large numbers, fouls, statuses, timer, voting controls.
+Mood: fast, precise, professional, for hosts who need zero visual noise.
+Avoid: decorative clutter, low contrast, tiny controls.
+```
+
+### Custom Brand Book
+
+```text
+Design a customizable virtual Mafia table template for Prime Mafia where a club can upload its own brand book.
+
+Use placeholders for: club logo, club colors, background texture, physical role card designs, table surface style, player badge style.
+Layout: iPad landscape, 16 seats, central timer, phase, host controls, club name always visible.
+Mood: premium SaaS white-label product for offline Mafia clubs.
+Avoid: generic unrelated branding and role leaks to players.
+```
+
 ## Экран ведущей
 
 ```text

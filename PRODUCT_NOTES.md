@@ -16,6 +16,60 @@
 - Support gift codes for 1 game or the 12-game package.
 - Keep a 7-day free trial before requiring balance.
 
+## Payment Methods
+
+- Telegram payments for simple in-app purchases: one game, game packages, gifts, player frames, and announcement boosts.
+- Bank card / SBP payment link for Russian clubs, issued from the host billing screen.
+- Manual invoice for clubs and franchises that need payment by legal entity or bank transfer.
+- Promo codes for ambassadors, partner clubs, trial extensions, and compensation after support cases.
+- Internal balance in the host menu: paid games are deducted only when the host actually starts the game, not when a draft game is created.
+
+## Paid Packages To Build
+
+- Starter: 1 paid game for a new host who wants to test after trial.
+- Club Month: 12 games for regular clubs, positioned as 3 games per week for 4 weeks.
+- Club Pro: larger bundle with announcements, extra resident slots, and priority support.
+- Personalization: one-time branded table and role cards for 5000 RUB.
+- Player cosmetics: paid profile frame, table badge, gift to another player, seasonal visual items.
+- City announcement: paid game announcement in the app, filtered by city, starting from 300 RUB.
+
+## Club Table Design Directions
+
+- Classic Noir: black table, burgundy velvet, gold accents, premium private-club feeling.
+- Pink Club: soft pink / black / champagne gold for clubs with a feminine glam identity.
+- Royal Gold: black and deep gold with sharper contrast for expensive franchise-style clubs.
+- Minimal Sport: dark graphite, clean numbers, high readability for tournaments and large tables.
+- Custom Brand Book: club uploads its physical role cards, logo, colors, background texture, and preferred table style.
+
+## Security And Access Protection
+
+- Bot ownership must not depend on one personal Telegram account only. Keep a second trusted admin account added in BotFather / Telegram bot management where possible.
+- Store the bot token only in Railway environment variables, never in code, screenshots, chats, or public docs.
+- Enable 2FA on Telegram, Supabase, Railway, GitHub, email, and payment accounts. Use a password manager.
+- Keep backup recovery codes for Telegram/email/password manager offline and in a second secure place.
+- Add at least two Supabase project owners: the founder account and a backup admin account.
+- Schedule database backups and export game/rating data regularly, especially before big refactors or production launches.
+- Create an incident checklist: revoke bot token in BotFather, rotate Railway env vars, rotate Supabase keys, check GitHub deploy keys, review recent payments and admin actions.
+- For club owners, limit permissions by role: host can run games, owner can pay/manage residents, super-admin can manage billing and global settings.
+
+## Missing Product Pieces
+
+- Admin billing screen: balance, package history, payment status, invoice links, promo codes.
+- Support panel: club requests, failed payment cases, rating correction requests, old game import.
+- Audit log: who changed scores, roles, club settings, residents, and payment status.
+- Club onboarding wizard: city, club name, ruleset, scoring preset, logo/cards upload, host admins, trial start.
+- Data export/import: CSV/Google Sheets import for past games and export for support review.
+- Mini App public pages: club profile, upcoming games by city, player profile, rating, achievements.
+- Notification strategy: game announcements, reminders, payment reminders, trial ending, rating updates.
+
+## Adjacent Idea: Real Estate AI Agent
+
+- Separate product idea: an AI agent for realtors that monitors market listings, keeps a base of owners, tracks price changes, and helps identify real owner contacts.
+- Core modules: listing parser, duplicate detection, owner CRM, call/task history, price-change alerts, neighborhood analytics, and lead quality scoring.
+- MVP angle: start with one city and one listing source, then expand to more portals and agencies.
+- Main value: realtor spends less time manually checking listings and more time calling verified owners.
+- Risk to study: legal limits of scraping, personal data processing, portal terms, and owner consent.
+
 ## Product Value
 
 - Reduce dependence on highly experienced hosts: the app guides phases, timers, votes, night actions, scoring, and rankings.
