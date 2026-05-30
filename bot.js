@@ -291,21 +291,21 @@ const roli_opisaniya = {
     // Мафия
     'Дон': '\uD83D\uDD34 *Дон мафии*\n\nТы — глава мафии. Знаешь всю команду. Ночью выбираете жертву вместе, твоё слово решающее. Можешь искать Шерифа/Комиссара.',
     'Мафия': '\uD83D\uDD34 *Мафия*\n\nТы — часть команды мафии. Знаешь своих. Ночью голосуете за жертву.',
-    'Путана': '\uD83D\uDD34 *Путана (Эскортница)*\n\nЧасть мафии. Ночью можешь 2-3 раза убрать игровую роль. Угадала — игрок уходит. Промахнулась — он остаётся.',
-    'Эскортница': '\uD83D\uDD34 *Эскортница*\n\nЧасть мафии. Можешь блокировать роль игрока на одну ночь.',
+    'Путана': '\uD83D\uDD34 *Путана (Эскортница)*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: до 11 игроков — 1, с 12 до 14 — 2, от 15 — 3.',
+    'Эскортница': '\uD83D\uDD34 *Эскортница*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: до 11 игроков — 1, с 12 до 14 — 2, от 15 — 3.\n\u2B50 За угаданную роль: *+0.5 балла*.',
     'Подрывник мафии': '\uD83D\uDD34 *Подрывник мафии*\n\nЧасть мафии. Если в тебя выстрелит Стрелок или Маньяк — ты забираешь стрелявшего с собой.',
     'Консильери': '\uD83D\uDD34 *Консильери*\n\nЧасть мафии. Советник Дона.',
     // Мирные
     'Шериф': '\uD83D\uDFE2 *Шериф*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия.',
     'Комиссар': '\uD83D\uDFE2 *Комиссар (Детектив)*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Детектив': '\uD83D\uDFE2 *Детектив*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
-    'Доктор': '\uD83D\uDFE2 *Доктор*\n\nКаждую ночь спасаешь одного игрока от убийства. Нельзя лечить одного два раза подряд. Можно лечить себя.',
+    'Доктор': '\uD83D\uDFE2 *Доктор*\n\nКаждую ночь спасаешь одного игрока от одного ночного выстрела.\n\n\u274C Если в игрока стреляли и мафия, и маньяк — доктор его не спасает.\n\nPascal: одного и того же игрока можно лечить сколько угодно, себя — до 2 ночей подряд.\nVIP: нельзя лечить одного игрока две ночи подряд, себя — через ночь.',
     'Подрывник': '\uD83D\uDFE2 *Подрывник*\n\nЕсли ночью тебя убивает мафия — ты взрываешься и забираешь с собой того мафиози, которого выбрал.',
     'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока. Убил 2 мирных — выбываешь сам.',
     'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
     'Камикадзе': '\uD83D\uDFE2 *Камикадзе*\n\nКаждую ночь идёшь к игроку. Пошёл к мафии — вы оба выбываете. К мирному/маньяку — ничего.',
-    'Бессмертный': '\uD83D\uDFE2 *Бессмертный — Мирный житель*\n\nПросыпаешься только в первую ночь для знакомства с ведущим.\n\n\uD83D\uDEE1\uFE0F Не может быть убит ночью обычными выстрелами.\n\u274C Умирает только от: Путаны / выстрела Маньяка / голосования днём.\n\n\uD83C\uDFAF Задача: притягивай выстрелы на себя, спасай мирных жителей.',
+    'Бессмертный': '\uD83D\uDFE2 *Бессмертный — Мирный житель*\n\nПросыпаешься только в первую ночь для знакомства с ведущим.\n\n\uD83D\uDEE1\uFE0F Не умирает от выстрела мафии и стрелка.\n\u274C Умирает от: эскортницы (если угадали роль), выстрела маньяка, голосования днём.\n\n\uD83C\uDFAF Задача: притягивай выстрелы мафии на себя.',
     'Шахид': '\uD83D\uDFE2 *Шахид*\n\nПри выбывании забираешь с собой случайных игроков.',
     'Затычка': '\uD83D\uDFE2 *Затычка — Мирный житель*\n\nКаждую ночь просыпаешься и выбираешь одного игрока.\n\n\uD83D\uDD07 Заблокированный игрок:\n— лишается своей минуты речи на дне\n— не может голосовать\n— но может быть выставлен на голосование другими\n\n\uD83C\uDFAF Задача: найди мафию и лишай её голоса.\n\u2B50 За правильный ход: *+0.5 балла*',
     'Любовница': '\uD83D\uDFE2 *Любовница*\n\nМожешь заблокировать роль одного игрока на голосовании.',
@@ -2081,39 +2081,6 @@ function zapisatDen1Vybyl(igra, igrok) {
     if (!igra.den1_vygolosovany.includes(igrok.nomer)) igra.den1_vygolosovany.push(igrok.nomer);
 }
 
-function peremeshatSpisok(spisok) {
-    const result = [...(spisok || [])];
-    for (let i = result.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [result[i], result[j]] = [result[j], result[i]];
-    }
-    return result;
-}
-
-function tekstPublichnogoItogaNochi(igra, kod, ubitye, doctorSpasNoch, bessmertnyyPopali) {
-    const den = igra?.den || 1;
-    const pogibshie = peremeshatSpisok(ubitye);
-    const imena = pogibshie.map(i => i.name).filter(Boolean);
-    const aliveCount = (igra?.igroki || []).filter(i => i.status === 'v_igre').length;
-
-    let t = '\uD83C\uDF19 *Итоги ночи ' + den + '* — Игра \u2116' + kod + '\n\n';
-    if (doctorSpasNoch) t += '\uD83D\uDC89 Доктор сегодня сработал правильно. Поздравляем: лечение спасло игрока.\n';
-    if (bessmertnyyPopali) t += '\uD83D\uDEE1\uFE0F Этой ночью попали в Бессмертного.\n';
-    if (doctorSpasNoch || bessmertnyyPopali) t += '\n';
-
-    if (imena.length === 0) {
-        t += '\u2705 Сегодняшнюю ночь пережили все игроки.\n';
-    } else {
-        t += '\uD83D\uDC80 Сегодняшнюю ночь не пережили игроки';
-        t += imena.length > 1 ? ' (' + imena.length + ')' : '';
-        t += ': *' + imena.join('*, *') + '*.\n';
-        t += 'Кладите свои таблички.\n';
-    }
-
-    t += '\n\uD83D\uDC65 За столом: *' + aliveCount + '*';
-    return t;
-}
-
 function maxFolyIgry(igra) {
     const nastroeno = parseInt(igra?.max_foly || igra?._nastroyki?.max_foly, 10);
     return Number.isFinite(nastroeno) ? nastroeno : 4;
@@ -2135,6 +2102,220 @@ async function zagruzitNazvanieKlubaVIgru(igra) {
 
 function limitMinShahida(igra) {
     return Math.ceil((igra?.kolichestvo || igra?.igroki?.length || 0) * 0.3);
+}
+
+function limitVystrelovEskort(igra) {
+    const n = igra?.kolichestvo || igra?.igroki?.length || 0;
+    if (n >= 15) return 3;
+    if (n >= 12) return 2;
+    return 1;
+}
+
+function eskortVyboryNochi(igra) {
+    return igra?.noch_deystviya?.eskort_vybory || [];
+}
+
+function roliDlyaUgadivaniyaEskort() {
+    return ALL_ROLE_NAMES.filter(r => r !== 'Путана');
+}
+
+function sravnitRoliEskort(ugadannaya, fakticheskaya) {
+    const u = normalizovatNazvanieRoli(ugadannaya) || ugadannaya;
+    const f = normalizovatNazvanieRoli(fakticheskaya) || fakticheskaya;
+    return u === f;
+}
+
+function tekstStatusaEskort(igra) {
+    const vybory = eskortVyboryNochi(igra);
+    const limit = limitVystrelovEskort(igra);
+    if (vybory.length === 0) return 'не стреляла (' + limit + ' доступно)';
+    const chasti = vybory.map(v => '\u2116' + v.nomer + ' \u2192 ' + v.ugadannaya_rol);
+    return chasti.join('; ') + ' (' + vybory.length + '/' + limit + ')';
+}
+
+const PRAVILA_PRESET = {
+    paskal: { doktor_sebya: 'dva_podryad', doktor_dvoynoy_vystrel: true, doktor_povtor_celi: true },
+    vip: { doktor_sebya: 'cherez_raz', doktor_dvoynoy_vystrel: true, doktor_povtor_celi: false },
+    naila: { doktor_sebya: 'dva_podryad', doktor_dvoynoy_vystrel: true, doktor_povtor_celi: true },
+    sportivniy: { doktor_sebya: 'dva_podryad', doktor_dvoynoy_vystrel: true, doktor_povtor_celi: true },
+    big_family: { doktor_sebya: 'dva_podryad', doktor_dvoynoy_vystrel: true, doktor_povtor_celi: true }
+};
+
+function pravilaIgry(igra) {
+    const tip = igra?.tip_kluba || igra?._nastroyki?.tip_kluba || 'paskal';
+    const preset = PRAVILA_PRESET[tip] || PRAVILA_PRESET.paskal;
+    const custom = igra?._nastroyki?.pravila || {};
+    return { ...preset, ...custom };
+}
+
+function nazvaniePravilKluba(igra) {
+    const tip = igra?.tip_kluba || igra?._nastroyki?.tip_kluba || 'paskal';
+    if (tip === 'vip') return 'VIP';
+    if (tip === 'sportivniy') return 'Спортивный';
+    return 'Pascal';
+}
+
+function tekstPravilDoktora(igra) {
+    const p = pravilaIgry(igra);
+    const sebya = p.doktor_sebya === 'cherez_raz' ? 'себя — через ночь' : 'себя — 2 ночи подряд';
+    const drugih = p.doktor_povtor_celi ? 'других — без ограничений' : 'одного игрока — не 2 ночи подряд';
+    return drugih + ', ' + sebya;
+}
+
+function dvoynoyVystrelMafiyaManyak(d) {
+    const maf = (d?.mafiya_tseli || [])[0];
+    const man = d?.manyak_tseli;
+    return maf != null && man != null && maf === man;
+}
+
+function doktorSpasTsel(d, igra, nomer) {
+    if (d?.doctor_tseli !== nomer) return false;
+    if (pravilaIgry(igra).doktor_dvoynoy_vystrel !== false && dvoynoyVystrelMafiyaManyak(d)) return false;
+    return true;
+}
+
+function proveritLechitDoktor(igra, nomerTsel) {
+    const doctor = igra.igroki.find(i => i.status === 'v_igre' && i.rol === 'Доктор');
+    if (!doctor) return { ok: true };
+    const pravila = pravilaIgry(igra);
+    const proshlaya = igra.doctor_proshlaya_tsel;
+
+    if (nomerTsel !== doctor.nomer && proshlaya === nomerTsel && !pravila.doktor_povtor_celi) {
+        return { ok: false, text: 'Доктор не может лечить одного игрока две ночи подряд (VIP).' };
+    }
+    if (nomerTsel === doctor.nomer) {
+        if (pravila.doktor_sebya === 'cherez_raz' && proshlaya === doctor.nomer) {
+            return { ok: false, text: 'По правилам VIP доктор лечит себя через ночь.' };
+        }
+        if (pravila.doktor_sebya === 'dva_podryad' && proshlaya === doctor.nomer && (igra.doctor_sebya_podryad || 0) >= 2) {
+            return { ok: false, text: 'Доктор уже лечил себя 2 ночи подряд (Pascal).' };
+        }
+    }
+    return { ok: true };
+}
+
+function zapisatIstoriyuDoktora(igra, docTsel) {
+    if (!docTsel) return;
+    const doctor = igra.igroki.find(i => i.rol === 'Доктор');
+    const proshlaya = igra.doctor_proshlaya_tsel;
+    igra.doctor_proshlaya_tsel = docTsel;
+    if (doctor && docTsel === doctor.nomer) {
+        igra.doctor_sebya_podryad = proshlaya === doctor.nomer ? (igra.doctor_sebya_podryad || 0) + 1 : 1;
+    } else {
+        igra.doctor_sebya_podryad = 0;
+    }
+}
+
+function primenitNochnyeVystrely(igra, d) {
+    const lines = [];
+    const ubity_t = [];
+    const maf = (d.mafiya_tseli || [])[0] ?? null;
+    const man = d.manyak_tseli ?? null;
+    const str = d.strelok_tseli ?? null;
+    const doctor = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Доктор');
+    const manyak = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Маньяк');
+    const strelok = igra.igroki.find(x => x.status === 'v_igre' && rolStrelyayushchegoZaMirnyh(x.rol));
+    const vseCeli = [...new Set([maf, man, str].filter(n => n != null))];
+
+    for (const nomer of vseCeli) {
+        const igrok = igra.igroki.find(x => x.nomer === nomer && x.status === 'v_igre');
+        if (!igrok) {
+            if (maf === nomer) lines.push('_Мафия стреляла в \u2116' + nomer + ', цель уже не за столом_');
+            continue;
+        }
+        const mafiya = maf === nomer;
+        const manyakStr = man === nomer;
+        const strelokStr = str === nomer;
+        const bessmert = igrok.rol === 'Бессмертный';
+        const docSpas = doktorSpasTsel(d, igra, nomer);
+
+        if (mafiya && manyakStr) {
+            igrok.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubity_t, igrok);
+            lines.push('\uD83D\uDCA5 \u2116' + nomer + ' *' + igrok.name + '* — в него стреляли и мафия, и маньяк. Доктор не спасает.');
+            lines.push(primenitSmertShahida(igra, igrok, 'noch', ubity_t));
+            if (igrok.rol === 'Подрывник мафии' && manyak?.status === 'v_igre') {
+                manyak.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubity_t, manyak);
+                lines.push('\uD83D\uDCA5 Подрывник мафии забрал Маньяка с собой\n');
+            }
+            continue;
+        }
+        if (manyakStr) {
+            igrok.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubity_t, igrok);
+            lines.push('\uD83C\uDFAF Маньяк убил \u2116' + nomer + ' *' + igrok.name + '* (' + igrok.rol + ')\n');
+            if (manyak && isMafiaRole(igrok.rol)) {
+                dobavitAvtoBonus(igra, manyak.nomer, 'bonus_pravilnyy_otstrel_mafii', BALLY_DEFAULT.bonus_pravilnyy_otstrel_mafii, 'Маньяк правильно отстрелил мафию', { tsel: nomer });
+            }
+            lines.push(primenitSmertShahida(igra, igrok, 'noch', ubity_t));
+            if (igrok.rol === 'Подрывник мафии' && manyak?.status === 'v_igre') {
+                manyak.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubity_t, manyak);
+                lines.push('\uD83D\uDCA5 Подрывник мафии забрал Маньяка с собой\n');
+            }
+            continue;
+        }
+        if (mafiya) {
+            if (bessmert) {
+                dobavitAvtoBonus(igra, igrok.nomer, 'bonus_bessmertnyy_prinyal_vystrel', BALLY_DEFAULT.bonus_bessmertnyy_prinyal_vystrel, 'Бессмертный принял выстрел мафии', { tsel: nomer });
+                lines.push('\uD83D\uDEE1\uFE0F \u2116' + nomer + ' *' + igrok.name + '* (Бессмертный) — принял выстрел мафии и остался в игре\n');
+                continue;
+            }
+            if (docSpas) {
+                if (doctor) dobavitAvtoBonus(igra, doctor.nomer, 'bonus_doctor_spas', BALLY_DEFAULT.bonus_doctor_spas, 'Доктор правильно вылечил цель мафии', { tsel: nomer });
+                lines.push('\uD83D\uDC89 \u2116' + nomer + ' *' + igrok.name + '* — спасён доктором\n');
+                continue;
+            }
+            igrok.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubity_t, igrok);
+            lines.push('\uD83D\uDC80 \u2116' + nomer + ' *' + igrok.name + '* (' + igrok.rol + ') — убит мафией\n');
+            lines.push(primenitSmertShahida(igra, igrok, 'noch', ubity_t));
+            if (igrok.rol === 'Подрывник' && d.podryvnik_zabiraet) {
+                const zabiraet = igra.igroki.find(x => x.nomer === d.podryvnik_zabiraet && x.status === 'v_igre');
+                if (zabiraet) {
+                    zabiraet.status = 'vybyl';
+                    dobavitUnikalnoPoNomeru(ubity_t, zabiraet);
+                    lines.push('\uD83D\uDCA5 Подрывник забрал с собой \u2116' + zabiraet.nomer + ' *' + zabiraet.name + '* (' + zabiraet.rol + ')\n');
+                    lines.push(primenitSmertShahida(igra, zabiraet, 'noch', ubity_t));
+                }
+            }
+            continue;
+        }
+        if (strelokStr) {
+            if (bessmert) {
+                lines.push('\uD83D\uDEE1\uFE0F Стрелок/Охотник стрелял в \u2116' + nomer + ' *' + igrok.name + '* (Бессмертный), цель осталась в игре\n');
+                continue;
+            }
+            if (docSpas) {
+                if (doctor) dobavitAvtoBonus(igra, doctor.nomer, 'bonus_doctor_spas', BALLY_DEFAULT.bonus_doctor_spas, 'Доктор правильно вылечил цель ночного выстрела', { tsel: nomer });
+                lines.push('\uD83D\uDC89 Стрелок/Охотник стрелял в \u2116' + nomer + ' *' + igrok.name + '*, но Доктор спас цель\n');
+                continue;
+            }
+            igrok.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubity_t, igrok);
+            lines.push('\uD83D\uDD2B Стрелок/Охотник убил \u2116' + nomer + ' *' + igrok.name + '* (' + igrok.rol + ')\n');
+            if (strelok && isMafiaRole(igrok.rol)) {
+                dobavitAvtoBonus(igra, strelok.nomer, 'bonus_pravilnyy_otstrel_mafii', BALLY_DEFAULT.bonus_pravilnyy_otstrel_mafii, 'Стрелок/Охотник правильно отстрелил мафию', { tsel: nomer });
+            } else if (strelok && isPeacefulRole(igrok.rol)) {
+                strelok.mirnye_ubitye_strelkom = (strelok.mirnye_ubitye_strelkom || 0) + 1;
+                if (strelok.mirnye_ubitye_strelkom >= 2 && strelok.status === 'v_igre') {
+                    strelok.status = 'vybyl';
+                    dobavitUnikalnoPoNomeru(ubity_t, strelok);
+                    lines.push('\u26A0\uFE0F Стрелок/Охотник убил двух мирных и покидает игру\n');
+                }
+            }
+            lines.push(primenitSmertShahida(igra, igrok, 'noch', ubity_t));
+            if (igrok.rol === 'Подрывник мафии' && strelok?.status === 'v_igre') {
+                strelok.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubity_t, strelok);
+                lines.push('\uD83D\uDCA5 Подрывник мафии забрал Стрелка/Охотника с собой\n');
+            }
+        }
+    }
+
+    if (maf == null && !(d.mafiya_tseli || []).length) lines.push('_Мафия не выбрала цель_\n');
+    return { lines, ubity_t };
 }
 
 function dobavitUnikalnoPoNomeru(spisok, igrok) {
@@ -2481,6 +2662,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     t += '_Действия:_\n';
     t += (d.mafiya_tseli?.length ? '\u2705' : '\u25A1') + ' Мафия: ' + (d.mafiya_tseli?.length ? '\u2116' + d.mafiya_tseli[0] : 'не выбрала') + '\n';
     if (roli_alive.includes('Дон')) t += (d.don_tseli ? '\u2705' : '\u25A1') + ' Дон: ' + (d.don_tseli ? '\u2116' + d.don_tseli + ' проверен' : 'не проверял') + '\n';
+    if (roli_alive.includes('Эскортница')) t += (eskortVyboryNochi(igra).length ? '\u2705' : '\u25A1') + ' Эскортница: ' + tekstStatusaEskort(igra) + '\n';
     if (roli_alive.includes('Консильери')) t += (d.kons_tseli ? '\u2705' : '\u25A1') + ' Консильери: ' + (d.kons_tseli ? '\u2116' + d.kons_tseli + ' завербован' : (mozhetKonsilyeriVerbovat(igra) ? 'может вербовать' : 'ждёт условия <30%')) + '\n';
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
@@ -2496,6 +2678,9 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
         [{ text: '\uD83D\uDD2B Мафия убивает', callback_data: 'noch_vybor_maf_' + kod }],
     ];
     if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
+    if (roli_alive.includes('Эскортница') && eskortVyboryNochi(igra).length < limitVystrelovEskort(igra)) {
+        knopki.push([{ text: '\uD83D\uDC8B Эскортница (' + eskortVyboryNochi(igra).length + '/' + limitVystrelovEskort(igra) + ')', callback_data: 'noch_vybor_eskort_' + kod }]);
+    }
     if (roli_alive.includes('Консильери') && mozhetKonsilyeriVerbovat(igra)) knopki.push([{ text: '\uD83E\uDD1D Консильери вербует', callback_data: 'noch_vybor_kons_' + kod }]);
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
     if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
@@ -4465,6 +4650,7 @@ bot.on('callback_query', async function(query) {
             nastroyki = klub?.nastroyki || {};
         }
         igra._nastroyki = nastroyki;
+        if (nastroyki.tip_kluba) igra.tip_kluba = nastroyki.tip_kluba;
         igra.max_foly = nastroyki.max_foly || 4;
         igra.faza = 'znakomstvo';
         const alive_z = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
@@ -4948,6 +5134,11 @@ bot.on('callback_query', async function(query) {
         const kod = parts_nd[0]; const nomer_nd = parseInt(parts_nd[1]);
         const igra = igry[kod];
         if (!igra) return;
+        const proverkaDoc = proveritLechitDoktor(igra, nomer_nd);
+        if (!proverkaDoc.ok) {
+            bot.answerCallbackQuery(query.id, { text: proverkaDoc.text, show_alert: true });
+            return;
+        }
         igra.noch_deystviya = igra.noch_deystviya || {};
         igra.noch_deystviya.doctor_tseli = nomer_nd;
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDC89 Вылечит \u2116' + nomer_nd });
@@ -5033,6 +5224,80 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD2B Цель: ' + (zhertva_ns?.name || '') });
         await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD2B Стрелок/Охотник выбрал \u2116' + nomer_ns);
+    }
+
+    // ===== НОЧЬ: выбор цели Эскортницы =====
+    else if (data.startsWith('noch_vybor_eskort_')) {
+        const kod = data.replace('noch_vybor_eskort_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const limit = limitVystrelovEskort(igra);
+        const vybory = eskortVyboryNochi(igra);
+        if (vybory.length >= limit) {
+            bot.answerCallbackQuery(query.id, { text: 'Лимит выстрелов эскортницы на эту ночь исчерпан.', show_alert: true });
+            return;
+        }
+        const eskort = igra.igroki.find(i => i.status === 'v_igre' && i.rol === 'Эскортница');
+        const uzhe = new Set(vybory.map(v => v.nomer));
+        const kandidaty = igra.igroki.filter(i => i.status === 'v_igre' && i.nomer !== eskort?.nomer && !uzhe.has(i.nomer));
+        if (kandidaty.length === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет игроков для выбора.', show_alert: true });
+            return;
+        }
+        const knopki_esk = kandidaty.map(i => [{ text: '\uD83D\uDC8B \u2116' + i.nomer + ' ' + i.name, callback_data: 'noch_eskort_pick_' + kod + '_' + i.nomer }]);
+        knopki_esk.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText(
+            '\uD83D\uDC8B *Эскортница: выбери игрока*\n\nВыстрел ' + (vybory.length + 1) + ' из ' + limit,
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_esk } }
+        );
+    }
+
+    // ===== НОЧЬ: Эскортница выбрала игрока — угадываем роль =====
+    else if (data.startsWith('noch_eskort_pick_')) {
+        const parts_ep = data.replace('noch_eskort_pick_', '').split('_');
+        const kod = parts_ep[0];
+        const nomer_ep = parseInt(parts_ep[1]);
+        const igra = igry[kod];
+        if (!igra) return;
+        const tsel_ep = igra.igroki.find(i => i.nomer === nomer_ep && i.status === 'v_igre');
+        if (!tsel_ep) {
+            bot.answerCallbackQuery(query.id, { text: 'Игрок уже не в игре.', show_alert: true });
+            return;
+        }
+        const roli_esk = roliDlyaUgadivaniyaEskort();
+        const knopki_rol = [];
+        for (let idx = 0; idx < roli_esk.length; idx += 2) {
+            const row = [{ text: roli_esk[idx], callback_data: 'noch_eskort_rol_' + kod + '_' + nomer_ep + '_' + idx }];
+            if (roli_esk[idx + 1]) row.push({ text: roli_esk[idx + 1], callback_data: 'noch_eskort_rol_' + kod + '_' + nomer_ep + '_' + (idx + 1) });
+            knopki_rol.push(row);
+        }
+        knopki_rol.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_vybor_eskort_' + kod }]);
+        bot.editMessageText(
+            '\uD83D\uDC8B *Эскортница называет роль*\n\nИгрок: \u2116' + nomer_ep + ' *' + tsel_ep.name + '*\nКакую роль назвала?',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_rol } }
+        );
+    }
+
+    // ===== НОЧЬ: Эскортница назвала роль =====
+    else if (data.startsWith('noch_eskort_rol_')) {
+        const parts_er = data.replace('noch_eskort_rol_', '').split('_');
+        const kod = parts_er[0];
+        const nomer_er = parseInt(parts_er[1]);
+        const idx_er = parseInt(parts_er[2]);
+        const igra = igry[kod];
+        if (!igra) return;
+        const roli_esk = roliDlyaUgadivaniyaEskort();
+        const ugadannaya = roli_esk[idx_er];
+        if (!ugadannaya) {
+            bot.answerCallbackQuery(query.id, { text: 'Роль не найдена.', show_alert: true });
+            return;
+        }
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        if (!Array.isArray(igra.noch_deystviya.eskort_vybory)) igra.noch_deystviya.eskort_vybory = [];
+        igra.noch_deystviya.eskort_vybory.push({ nomer: nomer_er, ugadannaya_rol: ugadannaya });
+        bot.answerCallbackQuery(query.id, { text: '\u2116' + nomer_er + ': ' + ugadannaya });
+        await sohranit_igru(kod);
+        await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDC8B Эскортница: \u2116' + nomer_er + ' \u2192 *' + ugadannaya + '*');
     }
 
 
@@ -5178,9 +5443,7 @@ bot.on('callback_query', async function(query) {
                 return;
             }
         }
-        let itog_t = '';
-        let doctorSpasNoch = false;
-        let bessmertnyyPopali = false;
+        let itog_t = '\uD83C\uDF19 *Итоги ночи ' + (igra.den || 1) + ':*\n\n';
         if (d.don_tseli) {
             const proverka_don = igra.igroki.find(x => x.nomer === d.don_tseli);
             const don = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Дон');
@@ -5214,107 +5477,34 @@ bot.on('callback_query', async function(query) {
             igra.shahid_miny = [...d.shahid_miny_tseli];
             itog_t += '\uD83D\uDCA3 Шахид ' + ((igra.den || 1) === 1 ? 'заминировал' : 'переминировал') + ': ' + igra.shahid_miny.map(n => '\u2116' + n).join(', ') + '\n';
         }
-        const ubity_t = [];
-        maf_t.forEach(nomer => {
-            const i = igra.igroki.find(x => x.nomer === nomer);
-            if (!i) return;
-            if (doc_t === nomer) {
-                doctorSpasNoch = true;
-                const doctor = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Доктор');
-                if (doctor) {
-                    dobavitAvtoBonus(igra, doctor.nomer, 'bonus_doctor_spas', BALLY_DEFAULT.bonus_doctor_spas, 'Доктор правильно вылечил цель мафии', { tsel: nomer });
-                }
-                itog_t += '\uD83D\uDC89 \u2116' + nomer + ' *' + i.name + '* — спасён доктором\n';
+        const vystrely = primenitNochnyeVystrely(igra, d);
+        vystrely.lines.forEach(line => { itog_t += line; });
+        const ubity_t = vystrely.ubity_t;
+        const eskortVybory = d.eskort_vybory || [];
+        const eskortNoch = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Эскортница');
+        eskortVybory.forEach(v => {
+            const tselEsk = igra.igroki.find(x => x.nomer === v.nomer);
+            if (!tselEsk || tselEsk.status !== 'v_igre') {
+                itog_t += '\uD83D\uDC8B Эскортница: \u2116' + v.nomer + ' \u2192 ' + v.ugadannaya_rol + ' (игрок уже не за столом)\n';
+                return;
             }
-            else if (i.rol === 'Бессмертный') {
-                bessmertnyyPopali = true;
-                dobavitAvtoBonus(igra, i.nomer, 'bonus_bessmertnyy_prinyal_vystrel', BALLY_DEFAULT.bonus_bessmertnyy_prinyal_vystrel, 'Бессмертный принял выстрел мафии', { tsel: nomer });
-                itog_t += '\uD83D\uDEE1\uFE0F \u2116' + nomer + ' *' + i.name + '* (Бессмертный) — принял выстрел мафии и остался в игре\n';
-            }
-            else {
-                i.status = 'vybyl';
-                dobavitUnikalnoPoNomeru(ubity_t, i);
-                itog_t += '\uD83D\uDC80 \u2116' + nomer + ' *' + i.name + '* (' + i.rol + ') — убит\n';
-                itog_t += primenitSmertShahida(igra, i, 'noch', ubity_t);
-                if (i.rol === 'Подрывник' && d.podryvnik_zabiraet) {
-                    const zabiraet = igra.igroki.find(x => x.nomer === d.podryvnik_zabiraet && x.status === 'v_igre');
-                    if (zabiraet) {
-                        zabiraet.status = 'vybyl';
-                        dobavitUnikalnoPoNomeru(ubity_t, zabiraet);
-                        itog_t += '\uD83D\uDCA5 Подрывник забрал с собой \u2116' + zabiraet.nomer + ' *' + zabiraet.name + '* (' + zabiraet.rol + ')\n';
-                        itog_t += primenitSmertShahida(igra, zabiraet, 'noch', ubity_t);
-                    }
+            if (sravnitRoliEskort(v.ugadannaya_rol, tselEsk.rol)) {
+                tselEsk.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubity_t, tselEsk);
+                if (eskortNoch) {
+                    dobavitAvtoBonus(igra, eskortNoch.nomer, 'bonus_eskort_ugadala_rol', BALLY_DEFAULT.bonus_eskort_ugadala_rol, 'Эскортница угадала роль игрока', { tsel: tselEsk.nomer, rol: tselEsk.rol });
                 }
+                itog_t += '\uD83D\uDC8B Эскортница угадала: \u2116' + tselEsk.nomer + ' *' + tselEsk.name + '* — ' + tselEsk.rol + '. Не пережил утро.\n';
+                itog_t += primenitSmertShahida(igra, tselEsk, 'noch', ubity_t);
+            } else {
+                itog_t += '\uD83D\uDC8B Эскортница промахнулась: \u2116' + tselEsk.nomer + ' *' + tselEsk.name + '* не ' + v.ugadannaya_rol + '\n';
             }
         });
-        if (d.manyak_tseli) {
-            const tselManyak = igra.igroki.find(x => x.nomer === d.manyak_tseli && x.status === 'v_igre');
-            const manyak = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Маньяк');
-            if (!tselManyak) {
-                itog_t += '\uD83C\uDFAF Маньяк стрелял в \u2116' + d.manyak_tseli + ', но цель уже не за столом\n';
-            } else if (doc_t === tselManyak.nomer) {
-                doctorSpasNoch = true;
-                const doctor = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Доктор');
-                if (doctor) {
-                    dobavitAvtoBonus(igra, doctor.nomer, 'bonus_doctor_spas', BALLY_DEFAULT.bonus_doctor_spas, 'Доктор правильно вылечил цель ночного выстрела', { tsel: tselManyak.nomer });
-                }
-                itog_t += '\uD83D\uDC89 Маньяк стрелял в \u2116' + tselManyak.nomer + ' *' + tselManyak.name + '*, но Доктор спас цель\n';
-            } else {
-                tselManyak.status = 'vybyl';
-                dobavitUnikalnoPoNomeru(ubity_t, tselManyak);
-                itog_t += '\uD83C\uDFAF Маньяк убил \u2116' + tselManyak.nomer + ' *' + tselManyak.name + '* (' + tselManyak.rol + ')\n';
-                if (manyak && isMafiaRole(tselManyak.rol)) {
-                    dobavitAvtoBonus(igra, manyak.nomer, 'bonus_pravilnyy_otstrel_mafii', BALLY_DEFAULT.bonus_pravilnyy_otstrel_mafii, 'Маньяк правильно отстрелил мафию', { tsel: tselManyak.nomer });
-                }
-                itog_t += primenitSmertShahida(igra, tselManyak, 'noch', ubity_t);
-                if (manyak && tselManyak.rol === 'Подрывник мафии' && manyak.status === 'v_igre') {
-                    manyak.status = 'vybyl';
-                    dobavitUnikalnoPoNomeru(ubity_t, manyak);
-                    itog_t += '\uD83D\uDCA5 Подрывник мафии забрал Маньяка с собой\n';
-                }
-            }
-        }
-        if (d.strelok_tseli) {
-            const strelok = igra.igroki.find(x => x.status === 'v_igre' && rolStrelyayushchegoZaMirnyh(x.rol));
-            const tselStrelok = igra.igroki.find(x => x.nomer === d.strelok_tseli && x.status === 'v_igre');
-            if (!strelok) {
-                itog_t += '\uD83D\uDD2B Стрелок/Охотник не в игре\n';
-            } else if (!tselStrelok) {
-                itog_t += '\uD83D\uDD2B Стрелок/Охотник стрелял в \u2116' + d.strelok_tseli + ', но цель уже не за столом\n';
-            } else if (doc_t === tselStrelok.nomer) {
-                doctorSpasNoch = true;
-                const doctor = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Доктор');
-                if (doctor) {
-                    dobavitAvtoBonus(igra, doctor.nomer, 'bonus_doctor_spas', BALLY_DEFAULT.bonus_doctor_spas, 'Доктор правильно вылечил цель ночного выстрела', { tsel: tselStrelok.nomer });
-                }
-                itog_t += '\uD83D\uDC89 Стрелок/Охотник стрелял в \u2116' + tselStrelok.nomer + ' *' + tselStrelok.name + '*, но Доктор спас цель\n';
-            } else if (tselStrelok.rol === 'Бессмертный') {
-                bessmertnyyPopali = true;
-                itog_t += '\uD83D\uDEE1\uFE0F Стрелок/Охотник стрелял в \u2116' + tselStrelok.nomer + ' *' + tselStrelok.name + '* (Бессмертный), цель осталась в игре\n';
-            } else {
-                tselStrelok.status = 'vybyl';
-                dobavitUnikalnoPoNomeru(ubity_t, tselStrelok);
-                itog_t += '\uD83D\uDD2B Стрелок/Охотник убил \u2116' + tselStrelok.nomer + ' *' + tselStrelok.name + '* (' + tselStrelok.rol + ')\n';
-                if (isMafiaRole(tselStrelok.rol)) {
-                    dobavitAvtoBonus(igra, strelok.nomer, 'bonus_pravilnyy_otstrel_mafii', BALLY_DEFAULT.bonus_pravilnyy_otstrel_mafii, 'Стрелок/Охотник правильно отстрелил мафию', { tsel: tselStrelok.nomer });
-                } else if (isPeacefulRole(tselStrelok.rol)) {
-                    strelok.mirnye_ubitye_strelkom = (strelok.mirnye_ubitye_strelkom || 0) + 1;
-                    if (strelok.mirnye_ubitye_strelkom >= 2 && strelok.status === 'v_igre') {
-                        strelok.status = 'vybyl';
-                        dobavitUnikalnoPoNomeru(ubity_t, strelok);
-                        itog_t += '\u26A0\uFE0F Стрелок/Охотник убил двух мирных и покидает игру\n';
-                    }
-                }
-                itog_t += primenitSmertShahida(igra, tselStrelok, 'noch', ubity_t);
-                if (tselStrelok.rol === 'Подрывник мафии' && strelok.status === 'v_igre') {
-                    strelok.status = 'vybyl';
-                    dobavitUnikalnoPoNomeru(ubity_t, strelok);
-                    itog_t += '\uD83D\uDCA5 Подрывник мафии забрал Стрелка/Охотника с собой\n';
-                }
-            }
-        }
-        itog_t = tekstPublichnogoItogaNochi(igra, kod, ubity_t, doctorSpasNoch, bessmertnyyPopali);
+        const v_igre_t = igra.igroki.filter(i => i.status === 'v_igre');
+        itog_t += '\n\uD83D\uDC65 *За столом: ' + v_igre_t.length + '*\n';
+        v_igre_t.forEach(i => { itog_t += '\u2705 \u2116' + i.nomer + ' ' + i.name + '\n'; });
         ubity_t.forEach(i => { bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); });
+        zapisatIstoriyuDoktora(igra, doc_t);
         igra.noch_deystviya = {};
         const kandidatLuchshegoHoda = (igra.den || 1) === 1 ? ubity_t.find(mozhetBytLuchshiyHod) : null;
         if (kandidatLuchshegoHoda) {
@@ -5501,7 +5691,10 @@ bot.on('callback_query', async function(query) {
         t += '\uD83C\uDFC6 Спортивный режим: ' + (sport ? '\u2705 Включён' : '\u274C Выключен') + '\n';
         t += '\uD83D\uDC4B Знакомство: ' + (n.znakomstvo_sek || 10) + ' сек\n';
         t += '\u26A0\uFE0F Оправдание: ' + (n.opravdanie_sek || 30) + ' сек\n';
-        t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 4) + '\n\n';
+        t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 4) + '\n';
+        const tipPrav = n.tip_kluba || 'paskal';
+        t += '\uD83D\uDCDC Правила: *' + (tipPrav === 'vip' ? 'VIP' : tipPrav === 'sportivniy' ? 'Спортивный' : 'Pascal') + '*\n';
+        t += '\uD83D\uDC89 Доктор: ' + tekstPravilDoktora({ tip_kluba: tipPrav, _nastroyki: n }) + '\n\n';
         t += '*Баллы:*\n';
         const b = n.bally || BALLY_DEFAULT;
         t += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
@@ -5511,8 +5704,38 @@ bot.on('callback_query', async function(query) {
 
         bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: sport ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_nk.id }],
+            [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
             [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
             [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }],
+            [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
+        ]}});
+    }
+
+    // ===== TOGGLE ТИП ПРАВИЛ КЛУБА (Pascal / VIP) =====
+    else if (data.startsWith('toggle_tip_kluba_')) {
+        const klub_id_tt = data.replace('toggle_tip_kluba_', '');
+        const { data: k_tt } = await supabase.from('kluby').select('nastroyki, nazvaniye, sportivniy_rezhim').eq('id', klub_id_tt).single();
+        const nastroyki_tt = k_tt?.nastroyki || {};
+        const new_tip = (nastroyki_tt.tip_kluba || 'paskal') === 'vip' ? 'paskal' : 'vip';
+        await supabase.from('kluby').update({ nastroyki: { ...nastroyki_tt, tip_kluba: new_tip } }).eq('id', klub_id_tt);
+        bot.answerCallbackQuery(query.id, { text: new_tip === 'vip' ? 'Правила VIP' : 'Правила Pascal', show_alert: true });
+        const sport_tt = k_tt?.sportivniy_rezhim;
+        const b = nastroyki_tt.bally || BALLY_DEFAULT;
+        let t_tt = '\u2699\uFE0F *Настройки клуба — ' + k_tt.nazvaniye + '*\n\n';
+        t_tt += '\uD83C\uDFC6 Спортивный режим: ' + (sport_tt ? '\u2705 Включён' : '\u274C Выключен') + '\n';
+        t_tt += '\uD83D\uDC4B Знакомство: ' + (nastroyki_tt.znakomstvo_sek || 10) + ' сек\n';
+        t_tt += '\u26A0\uFE0F Оправдание: ' + (nastroyki_tt.opravdanie_sek || 30) + ' сек\n';
+        t_tt += '\uD83D\uDD34 Макс. фолов: ' + (nastroyki_tt.max_foly || 4) + '\n';
+        t_tt += '\uD83D\uDCDC Правила: *' + (new_tip === 'vip' ? 'VIP' : 'Pascal') + '*\n';
+        t_tt += '\uD83D\uDC89 Доктор: ' + tekstPravilDoktora({ tip_kluba: new_tip, _nastroyki: nastroyki_tt }) + '\n\n';
+        t_tt += '*Баллы:*\n';
+        t_tt += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
+        t_tt += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
+        bot.editMessageText(t_tt, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+            [{ text: sport_tt ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_id_tt }],
+            [{ text: new_tip === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_id_tt }],
+            [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_id_tt }],
+            [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_id_tt }],
             [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
         ]}});
     }
