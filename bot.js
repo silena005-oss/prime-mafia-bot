@@ -87,8 +87,6 @@ if (ADMIN_TG_ID) {
 }
 
 const ROL_VEDUSHCHIY = 'vedushchiy';
-const TEST_STOP_IGRA = true; // временно для тестов — убрать после стабилизации
-
 function isVedushchiy(rol) {
     return rol === ROL_VEDUSHCHIY || rol === 'vedushchii';
 }
@@ -585,7 +583,8 @@ async function sohranit_igru(kod) {
             ...(igra._nastroyki || {}),
             rezhim_rolei: igra.rezhim_rolei || null,
             klub_nazvaniye: nazvanieKlubaIgry(igra) || null,
-            luchshie_hody: igra.luchshie_hody || []
+            luchshie_hody: igra.luchshie_hody || [],
+            ostanovlena: !!igra.ostanovlena
         };
         const data = {
             kod,
@@ -650,6 +649,7 @@ async function zagruzit_aktivnye_igry() {
                     den: row.den || 1,
                     rezhim_rolei: nastroyki.rezhim_rolei || null,
                     luchshie_hody: nastroyki.luchshie_hody || [],
+                    ostanovlena: !!nastroyki.ostanovlena,
                     _nastroyki: nastroyki,
                     noch_deystviya: typeof row.noch_deystviya === 'string' ? JSON.parse(row.noch_deystviya) : (row.noch_deystviya || {}),
                     naznacheny_golos: typeof row.naznacheny_golos === 'string' ? JSON.parse(row.naznacheny_golos) : (row.naznacheny_golos || []),
@@ -1906,39 +1906,88 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
     }, 1000);
 }
 
-async function ostanovitIgruTest(kod, telegram_id) {
+function estDostupKIgre(igra, telegram_id) {
+    return !!igra && (!igra.vedushchii_id || igra.vedushchii_id === telegram_id);
+}
+
+async function ostanovitIgru(kod, telegram_id) {
     const igra = igry[kod];
     if (!igra) return { ok: false, error: 'not_found' };
-    if (igra.vedushchii_id && igra.vedushchii_id !== telegram_id) {
-        return { ok: false, error: 'access' };
-    }
+    if (!estDostupKIgre(igra, telegram_id)) return { ok: false, error: 'access' };
 
     stopTimer(kod);
     const v = igra.vedushchii_id;
     if (v && sostoyanie[v] && String(sostoyanie[v]).includes(kod)) delete sostoyanie[v];
+    igra.ostanovlena = true;
+    await sohranit_igru(kod);
 
     for (const igrok of igra.igroki || []) {
         if (igrok.telegram_id) {
             bot.sendMessage(igrok.telegram_id,
-                '⏹ *Игра №' + kod + ' остановлена ведущим.*\n\n_Тестовый режим — рейтинг не записан._',
+                '⏸ *Игра №' + kod + ' остановлена ведущим.*\n\n_Ведущий сможет возобновить её позже._',
                 { parse_mode: 'Markdown' }
             ).catch(() => {});
         }
     }
+    return { ok: true };
+}
 
+async function vozobnovitIgru(kod, telegram_id) {
+    const igra = igry[kod];
+    if (!igra) return { ok: false, error: 'not_found' };
+    if (!estDostupKIgre(igra, telegram_id)) return { ok: false, error: 'access' };
+    igra.ostanovlena = false;
+    await sohranit_igru(kod);
+    return { ok: true };
+}
+
+async function udalitAktivnuyuIgru(kod, telegram_id) {
+    const igra = igry[kod];
+    if (!igra) return { ok: false, error: 'not_found' };
+    if (!estDostupKIgre(igra, telegram_id)) return { ok: false, error: 'access' };
+    stopTimer(kod);
+    const v = igra.vedushchii_id;
+    if (v && sostoyanie[v] && String(sostoyanie[v]).includes(kod)) delete sostoyanie[v];
+    for (const igrok of igra.igroki || []) {
+        if (igrok.telegram_id) bot.sendMessage(igrok.telegram_id, '🗑 Игра №' + kod + ' удалена ведущим.').catch(() => {});
+    }
     delete igry[kod];
     try {
-        await supabase.from('aktivnye_igry')
-            .update({ zavershena: true, obnovlena_v: new Date().toISOString() })
-            .eq('kod', kod);
+        await supabase.from('aktivnye_igry').delete().eq('kod', kod);
     } catch (e) {
-        console.error('[stop_igra] db:', e?.message);
+        console.error('[delete_igra] db:', e?.message);
+        return { ok: false, error: 'db' };
     }
     return { ok: true };
 }
 
-function knopkiStopIgraTest(kod) {
-    return TEST_STOP_IGRA ? [[{ text: '⏹ Стоп игра (тест)', callback_data: 'stop_igra_' + kod }]] : [];
+function knopkiUpravleniyaIgroi(kod) {
+    const igra = igry[kod];
+    const knopki = [];
+    if (igra?.ostanovlena) {
+        knopki.push([{ text: '▶️ Возобновить игру', callback_data: 'resume_igra_' + kod }]);
+    } else {
+        knopki.push([{ text: '⏸ Остановить игру', callback_data: 'stop_igra_' + kod }]);
+    }
+    knopki.push([{ text: '🗑 Удалить игру', callback_data: 'delete_igra_' + kod }]);
+    return knopki;
+}
+
+async function udalitIgruIzIstorii(kod, telegram_id) {
+    const { data: row } = await supabase
+        .from('aktivnye_igry')
+        .select('kod, klub_id, vedushchii_tg_id')
+        .eq('kod', kod)
+        .eq('zavershena', true)
+        .single();
+    if (!row) return { ok: false, error: 'not_found' };
+    if (row.vedushchii_tg_id !== telegram_id) {
+        const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+        if (!row.klub_id || !kluby.some(k => k.id === row.klub_id)) return { ok: false, error: 'access' };
+    }
+    const { error } = await supabase.from('aktivnye_igry').delete().eq('kod', kod).eq('zavershena', true);
+    if (error) return { ok: false, error: 'db' };
+    return { ok: true };
 }
 
 function vseRoliDostupnye() {
@@ -2733,9 +2782,13 @@ async function pokazatIgryKluba(chatId, messageId, klub) {
         aktivnye.forEach(({ kod, igra }) => {
             const vIgre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
             const rezhim = igra.rezhim_rolei === 'karty' ? 'физ. карты' : (igra.rezhim_rolei === 'bot' ? 'бот' : 'режим не выбран');
-            const status = igra.roli_razdany ? 'идёт' : 'лобби';
+            const status = igra.ostanovlena ? 'остановлена' : (igra.roli_razdany ? 'идёт' : 'лобби');
             t += '🎴 №' + kod + ' — ' + status + ', ' + rezhim + ', ' + vIgre + '/' + (igra.kolichestvo || 0) + '\n';
             knopki.push([{ text: '🎮 Открыть игру №' + kod, callback_data: 'open_igra_' + kod }]);
+            knopki.push([
+                { text: igra.ostanovlena ? '▶️ Возобновить' : '⏸ Остановить', callback_data: (igra.ostanovlena ? 'resume_igra_' : 'stop_igra_') + kod },
+                { text: '🗑 Удалить', callback_data: 'delete_igra_' + kod }
+            ]);
         });
     }
 
@@ -2755,6 +2808,18 @@ async function otkrytIgruVedushchego(chatId, messageId, kod) {
         await bot.editMessageText('❌ Игра не найдена. Возможно, она уже завершена.', {
             chat_id: chatId, message_id: messageId,
             reply_markup: { inline_keyboard: [[{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]] }
+        });
+        return;
+    }
+
+    if (igra.ostanovlena) {
+        await bot.editMessageText('⏸ *Игра №' + kod + ' остановлена.*\n\nМожно возобновить её с того же места или удалить полностью.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '▶️ Возобновить игру', callback_data: 'resume_igra_' + kod }],
+                [{ text: '🗑 Удалить игру', callback_data: 'delete_igra_' + kod }],
+                [{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]
+            ]}
         });
         return;
     }
@@ -4048,15 +4113,13 @@ bot.on('callback_query', async function(query) {
         const knopki = aktivnye.map(({ kod, igra }) => {
             const vIgre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
             const rezhim = igra.rezhim_rolei === 'karty' ? 'физ. карты' : (igra.rezhim_rolei === 'bot' ? 'бот' : 'режим не выбран');
-            const status = igra.roli_razdany ? 'идёт' : 'лобби';
+            const status = igra.ostanovlena ? 'остановлена' : (igra.roli_razdany ? 'идёт' : 'лобби');
             t += '🎴 №' + kod + ' — ' + status + ', ' + rezhim + ', ' + vIgre + '/' + (igra.kolichestvo || 0) + '\n';
-            if (TEST_STOP_IGRA) {
-                return [
-                    { text: '🎮 №' + kod, callback_data: 'open_igra_' + kod },
-                    { text: '⏹ Стоп', callback_data: 'stop_igra_' + kod }
-                ];
-            }
-            return [{ text: '🎮 Открыть игру №' + kod, callback_data: 'open_igra_' + kod }];
+            return [
+                { text: '🎮 №' + kod, callback_data: 'open_igra_' + kod },
+                { text: igra.ostanovlena ? '▶️ Возобновить' : '⏸ Стоп', callback_data: (igra.ostanovlena ? 'resume_igra_' : 'stop_igra_') + kod },
+                { text: '🗑', callback_data: 'delete_igra_' + kod }
+            ];
         });
         knopki.push([{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]);
         knopki.push([{ text: '📚 История игр', callback_data: 'istoriya_igr' }]);
@@ -4250,10 +4313,39 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText(t, {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
+                [{ text: '🗑 Удалить из истории', callback_data: 'hist_delete_' + kod }],
                 [{ text: '⬅️ История игр', callback_data: 'istoriya_igr' }],
                 row.klub_id ? [{ text: '🏛 Игры клуба', callback_data: 'igry_klub_' + row.klub_id }] : [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
                 [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
             ]}
+        });
+    }
+
+    else if (data.startsWith('hist_delete_ok_')) {
+        const kod = data.replace('hist_delete_ok_', '');
+        const rez = await udalitIgruIzIstorii(kod, telegram_id);
+        if (!rez.ok) {
+            bot.answerCallbackQuery(query.id, { text: rez.error === 'access' ? '❌ Нет доступа' : 'Не удалось удалить', show_alert: true });
+            return;
+        }
+        delete igry['archive_' + kod];
+        bot.editMessageText('🗑 *Игра №' + kod + ' удалена из истории.*', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
+                [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+            ] }
+        });
+    }
+
+    else if (data.startsWith('hist_delete_')) {
+        const kod = data.replace('hist_delete_', '');
+        bot.editMessageText('🗑 *Удалить игру №' + kod + ' из истории?*\n\nЗапись будет удалена из базы истории игр.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🗑 Да, удалить из истории', callback_data: 'hist_delete_ok_' + kod }],
+                [{ text: '⬅️ Назад', callback_data: 'hist_igra_' + kod }]
+            ] }
         });
     }
 
@@ -5487,6 +5579,18 @@ bot.on('callback_query', async function(query) {
         }
         await zagruzitNazvanieKlubaVIgru(igra);
 
+        if (igra.ostanovlena) {
+            bot.editMessageText('⏸ *Игра №' + kod + ' остановлена.*\n\nТаймеры не идут. Можно возобновить игру или удалить её.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '▶️ Возобновить игру', callback_data: 'resume_igra_' + kod }],
+                    [{ text: '🗑 Удалить игру', callback_data: 'delete_igra_' + kod }],
+                    [{ text: '⬅️ К моим играм', callback_data: 'moi_igry' }]
+                ]}
+            });
+            return;
+        }
+
         const v_igre = igra.igroki.filter(i => i.status === 'v_igre').length;
         let tekst = '\uD83C\uDFAE *Игра \u2116' + kod + '* | День ' + (igra.den || 1) + '\n';
         if (nazvanieKlubaIgry(igra)) tekst += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
@@ -5520,7 +5624,7 @@ bot.on('callback_query', async function(query) {
         }
         knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
         knopki.push([{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]);
-        knopki.push(...knopkiStopIgraTest(kod));
+        knopki.push(...knopkiUpravleniyaIgroi(kod));
         knopki.push([{ text: '\uD83D\uDD04 Обновить', callback_data: 'panel_' + kod }]);
         knopki.push([{ text: '\u2B05\uFE0F В меню', callback_data: 'menu_vedushchego' }]);
 
@@ -7291,10 +7395,10 @@ bot.on('callback_query', async function(query) {
         });
     }
 
-    // ===== ТЕСТ: остановить игру без рейтинга =====
+    // ===== УПРАВЛЕНИЕ АКТИВНОЙ ИГРОЙ =====
     else if (data.startsWith('stop_igra_ok_')) {
         const kod = data.replace('stop_igra_ok_', '');
-        const rez = await ostanovitIgruTest(kod, telegram_id);
+        const rez = await ostanovitIgru(kod, telegram_id);
         if (!rez.ok) {
             bot.answerCallbackQuery(query.id, {
                 text: rez.error === 'access' ? '❌ Нет доступа' : 'Игра не найдена',
@@ -7302,9 +7406,13 @@ bot.on('callback_query', async function(query) {
             });
             return;
         }
-        bot.editMessageText('⏹ *Игра №' + kod + ' остановлена.*\n\n_Рейтинг не записан (тест)._', {
+        bot.editMessageText('⏸ *Игра №' + kod + ' остановлена.*\n\nМожно возобновить её позже из «Мои игры».', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]] }
+            reply_markup: { inline_keyboard: [
+                [{ text: '▶️ Возобновить', callback_data: 'resume_igra_' + kod }],
+                [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+                [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+            ] }
         });
     }
 
@@ -7314,12 +7422,54 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
             return;
         }
-        bot.editMessageText('⏹ *Остановить игру №' + kod + '?*\n\n_Без записи в рейтинг. Только для теста._', {
+        bot.editMessageText('⏸ *Остановить игру №' + kod + '?*\n\nТаймер остановится, игра останется в «Мои игры», её можно будет возобновить.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '✅ Да, остановить', callback_data: 'stop_igra_ok_' + kod }],
                 [{ text: '⬅️ Назад', callback_data: 'panel_' + kod }]
             ]}
+        });
+    }
+
+    else if (data.startsWith('resume_igra_')) {
+        const kod = data.replace('resume_igra_', '');
+        const rez = await vozobnovitIgru(kod, telegram_id);
+        if (!rez.ok) {
+            bot.answerCallbackQuery(query.id, { text: rez.error === 'access' ? '❌ Нет доступа' : 'Игра не найдена', show_alert: true });
+            return;
+        }
+        bot.answerCallbackQuery(query.id, { text: 'Игра возобновлена' });
+        await otkrytIgruVedushchego(chatId, messageId, kod);
+    }
+
+    else if (data.startsWith('delete_igra_ok_')) {
+        const kod = data.replace('delete_igra_ok_', '');
+        const rez = await udalitAktivnuyuIgru(kod, telegram_id);
+        if (!rez.ok) {
+            bot.answerCallbackQuery(query.id, { text: rez.error === 'access' ? '❌ Нет доступа' : 'Не удалось удалить', show_alert: true });
+            return;
+        }
+        bot.editMessageText('🗑 *Игра №' + kod + ' удалена.*\n\nОна удалена из активных игр и базы.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
+                [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+            ] }
+        });
+    }
+
+    else if (data.startsWith('delete_igra_')) {
+        const kod = data.replace('delete_igra_', '');
+        if (!igry[kod]) {
+            bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
+            return;
+        }
+        bot.editMessageText('🗑 *Удалить игру №' + kod + '?*\n\nЭто удалит игру полностью. Рейтинг не будет записан.', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🗑 Да, удалить игру', callback_data: 'delete_igra_ok_' + kod }],
+                [{ text: '⬅️ Назад', callback_data: 'panel_' + kod }]
+            ] }
         });
     }
 
@@ -7333,6 +7483,7 @@ bot.on('callback_query', async function(query) {
                 if (igrok.telegram_id) bot.sendMessage(igrok.telegram_id, '❌ Ведущий отменил игру №' + kod).catch(() => {});
             }
             delete igry[kod];
+            await supabase.from('aktivnye_igry').delete().eq('kod', kod);
         }
 
         bot.editMessageText('❌ *Игра отменена.*', {
