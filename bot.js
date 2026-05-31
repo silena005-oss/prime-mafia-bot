@@ -776,6 +776,29 @@ const menu_kolichestva = {
     }
 };
 
+const bystrayaKlaviaturaVedushchego = {
+    reply_markup: {
+        keyboard: [
+            ['🏠 Меню', '🎮 Мои игры'],
+            ['🎲 Создать игру', '⏸ Пауза/стоп'],
+            ['▶️ Возобновить', '🗑 Удалить игру']
+        ],
+        resize_keyboard: true,
+        is_persistent: true
+    }
+};
+
+bot.setMyCommands([
+    { command: 'start', description: 'Открыть меню' },
+    { command: 'games', description: 'Мои игры' },
+    { command: 'pause', description: 'Остановить активную игру' },
+    { command: 'resume', description: 'Возобновить игру' }
+]).catch(e => console.error('[commands]', e?.message || e));
+
+async function pokazatBystryeKnopkiVedushchego(chatId) {
+    await bot.sendMessage(chatId, '⚡ Быстрые кнопки ведущего включены.', bystrayaKlaviaturaVedushchego).catch(() => {});
+}
+
 // ============================================
 // КОМАНДА /start
 // ============================================
@@ -840,10 +863,12 @@ async function obrabotatStart(msg, match) {
             bot.sendMessage(chatId, `🏛 *Привет, ${igrok.imya}!*\n\nМеню собственника`, {
                 parse_mode: 'Markdown', ...menu_vladeltsa
             });
+            await pokazatBystryeKnopkiVedushchego(chatId);
         } else if (isVedushchiy(rol)) {
             bot.sendMessage(chatId, `🎭 *Привет, ${igrok.imya}!*\n\nМеню ведущего`, {
                 parse_mode: 'Markdown', ...menu_vedushchego
             });
+            await pokazatBystryeKnopkiVedushchego(chatId);
         } else {
             bot.sendMessage(chatId, `🎴 *Привет, ${igrok.imya}!*\n\nМеню игрока`, {
                 parse_mode: 'Markdown', ...menu_igroka
@@ -1047,6 +1072,34 @@ bot.on('message', async function(msg) {
     const chatId = msg.chat.id;
     const tg_id = msg.from.id;
     const text = (msg.text || '').trim();
+
+    if (text === '🏠 Меню') {
+        await obrabotatStart(msg, []);
+        return;
+    }
+    if (text === '🎮 Мои игры' || text === '/games') {
+        await pokazatMoiIgryBystraya(chatId, tg_id);
+        return;
+    }
+    if (text === '🎲 Создать игру') {
+        await bot.sendMessage(chatId, '🎲 *Создать игру*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]] }
+        });
+        return;
+    }
+    if (text === '⏸ Пауза/стоп' || text === '/pause') {
+        await pokazatBystryyVyborIgry(chatId, tg_id, 'pause');
+        return;
+    }
+    if (text === '▶️ Возобновить' || text === '/resume') {
+        await pokazatBystryyVyborIgry(chatId, tg_id, 'resume');
+        return;
+    }
+    if (text === '🗑 Удалить игру') {
+        await pokazatBystryyVyborIgry(chatId, tg_id, 'delete');
+        return;
+    }
 
     // Игнорируем команды
     if (text.startsWith('/')) return;
@@ -2745,6 +2798,63 @@ function aktivnyeIgryVedushchego(telegram_id) {
         .filter(([kod, igra]) => !String(kod).startsWith('archive_') && igra?.vedushchii_id === telegram_id && !igra._ne_sohranyat)
         .map(([kod, igra]) => ({ kod, igra }))
         .sort((a, b) => String(a.kod).localeCompare(String(b.kod)));
+}
+
+async function pokazatMoiIgryBystraya(chatId, telegram_id) {
+    const aktivnye = aktivnyeIgryVedushchego(telegram_id);
+    if (aktivnye.length === 0) {
+        await bot.sendMessage(chatId, '🎮 *Мои игры*\n\nАктивных игр пока нет.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+                [{ text: '📚 История игр', callback_data: 'istoriya_igr' }]
+            ] }
+        });
+        return;
+    }
+
+    let t = '🎮 *Мои активные игры*\n\n';
+    const knopki = [];
+    aktivnye.forEach(({ kod, igra }) => {
+        const vIgre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
+        const status = igra.ostanovlena ? 'остановлена' : (igra.roli_razdany ? 'идёт' : 'лобби');
+        t += '🎴 №' + kod + ' — ' + status + ', ' + vIgre + '/' + (igra.kolichestvo || 0) + '\n';
+        knopki.push([
+            { text: '🎮 №' + kod, callback_data: 'open_igra_' + kod },
+            { text: igra.ostanovlena ? '▶️ Возобновить' : '⏸ Стоп', callback_data: (igra.ostanovlena ? 'resume_igra_' : 'stop_igra_') + kod },
+            { text: '🗑', callback_data: 'delete_igra_' + kod }
+        ]);
+    });
+    knopki.push([{ text: '📚 История игр', callback_data: 'istoriya_igr' }]);
+    await bot.sendMessage(chatId, t, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+}
+
+async function pokazatBystryyVyborIgry(chatId, telegram_id, tip) {
+    const aktivnye = aktivnyeIgryVedushchego(telegram_id);
+    const onlyStopped = tip === 'resume';
+    const igryDlyaKnopok = aktivnye.filter(({ igra }) => onlyStopped ? igra.ostanovlena : true);
+    if (igryDlyaKnopok.length === 0) {
+        const text = onlyStopped
+            ? '▶️ Нет остановленных игр для возобновления.'
+            : '🎮 Активных игр пока нет.';
+        await bot.sendMessage(chatId, text, bystrayaKlaviaturaVedushchego);
+        return;
+    }
+
+    const zagolovok = tip === 'pause'
+        ? '⏸ *Какую игру остановить?*'
+        : tip === 'resume'
+            ? '▶️ *Какую игру возобновить?*'
+            : '🗑 *Какую игру удалить?*';
+    const prefix = tip === 'pause' ? 'stop_igra_' : tip === 'resume' ? 'resume_igra_' : 'delete_igra_';
+    const knopki = igryDlyaKnopok.map(({ kod, igra }) => [{
+        text: '№' + kod + (igra.ostanovlena ? ' — остановлена' : ''),
+        callback_data: prefix + kod
+    }]);
+    await bot.sendMessage(chatId, zagolovok, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
 }
 
 function aktivnyeIgryKluba(klub_id) {
