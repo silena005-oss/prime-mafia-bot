@@ -30,6 +30,66 @@ http.createServer((req, res) => {
 
 const bot = new TelegramBot(token, { polling: false });
 
+function md(text) {
+    return String(text ?? '').replace(/([_*`\[])/g, '\\$1');
+}
+
+function etoOshibkaMarkdown(err) {
+    const msg = String(err?.message || err?.response?.body?.description || '');
+    return /parse entities|can't parse|entity/i.test(msg);
+}
+
+function optsBezMarkdown(opts) {
+    if (!opts || typeof opts !== 'object') return opts;
+    const copy = { ...opts };
+    delete copy.parse_mode;
+    return copy;
+}
+
+function vklyuchitMarkdownFallback() {
+    const sendMessage = bot.sendMessage.bind(bot);
+    const editMessageText = bot.editMessageText.bind(bot);
+    const sendPhoto = bot.sendPhoto.bind(bot);
+
+    bot.sendMessage = async (chatId, text, opts) => {
+        try {
+            return await sendMessage(chatId, text, opts);
+        } catch (e) {
+            if (opts?.parse_mode === 'Markdown' && etoOshibkaMarkdown(e)) {
+                console.warn('[markdown fallback] sendMessage:', e.message || e);
+                return sendMessage(chatId, text, optsBezMarkdown(opts));
+            }
+            throw e;
+        }
+    };
+
+    bot.editMessageText = async (text, opts) => {
+        try {
+            return await editMessageText(text, opts);
+        } catch (e) {
+            if (opts?.parse_mode === 'Markdown' && etoOshibkaMarkdown(e)) {
+                console.warn('[markdown fallback] editMessageText:', e.message || e);
+                return editMessageText(text, optsBezMarkdown(opts));
+            }
+            throw e;
+        }
+    };
+
+    bot.sendPhoto = async (chatId, photo, opts) => {
+        try {
+            return await sendPhoto(chatId, photo, opts);
+        } catch (e) {
+            if (opts?.parse_mode === 'Markdown' && etoOshibkaMarkdown(e)) {
+                console.warn('[markdown fallback] sendPhoto:', e.message || e);
+                return sendPhoto(chatId, photo, optsBezMarkdown(opts));
+            }
+            throw e;
+        }
+    };
+}
+
+vklyuchitMarkdownFallback();
+
 let pollingZapuschen = false;
 let konflikt409Popytki = 0;
 const MAX_409_POVTOROV = 8;
@@ -140,7 +200,7 @@ async function uvedomitONaznacheniiVedushchego(igrok_id, klub_id) {
     const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
     if (igrok?.tg_id) {
         bot.sendMessage(igrok.tg_id,
-            '🎤 *Вас назначили ведущим!*\n\n🎴 Клуб: *' + (klub?.nazvaniye || '') + '*\n\nНапиши /start чтобы открыть меню ведущего.',
+            '🎤 *Вас назначили ведущим!*\n\n🎴 Клуб: *' + md(klub?.nazvaniye || '') + '*\n\nНапиши /start чтобы открыть меню ведущего.',
             { parse_mode: 'Markdown' }
         ).catch(() => {});
     }
@@ -223,8 +283,8 @@ async function zavershitNaznachenieVedushchego(chatId, messageId, owner_tg_id, k
     sostoyanie[owner_tg_id] = 'naznach_poisk_' + klub_id;
     const { igrok } = await uvedomitONaznacheniiVedushchego(igrok_id, klub_id);
     const tekst = rez.already
-        ? 'ℹ️ *' + (igrok?.imya || 'Игрок') + '* уже ведущий этого клуба.'
-        : '✅ *' + (igrok?.imya || 'Игрок') + '* назначен ведущим!';
+        ? 'ℹ️ *' + md(igrok?.imya || 'Игрок') + '* уже ведущий этого клуба.'
+        : '✅ *' + md(igrok?.imya || 'Игрок') + '* назначен ведущим!';
 
     await bot.editMessageText(tekst, {
         chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -904,7 +964,7 @@ function raschetStatusaTarifa(nastroyki) {
 
 function tekstTestovoyNedeli(nazvanieKluba) {
     return '🎁 *Тестовая неделя для клуба*\n\n' +
-        'Клуб: *' + nazvanieKluba + '*\n\n' +
+        'Клуб: *' + md(nazvanieKluba) + '*\n\n' +
         'Подарок перед основным подключением:\n' +
         '— *2 игры* с полным функционалом ведущего;\n' +
         '— *7 календарных дней* с момента создания клуба;\n' +
@@ -988,7 +1048,7 @@ async function pokazatBlokStartaIgry(chatId, messageId, query, rez) {
 
 function tekstStilizatsiiKluba(nazvanieKluba = 'клуб') {
     return '🎨 *Стилизация приложения под клуб*\n\n' +
-        'Клуб: *' + nazvanieKluba + '*\n\n' +
+        'Клуб: *' + md(nazvanieKluba) + '*\n\n' +
         'Можно оформить интерфейс Prime Mafia в стиле вашего клуба:\n' +
         '— цвета и визуальный стиль клуба;\n' +
         '— клубная подача экранов и кнопок;\n' +
