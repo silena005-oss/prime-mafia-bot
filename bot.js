@@ -802,6 +802,201 @@ async function pokazatBystryeKnopkiVedushchego(chatId) {
     await bot.sendMessage(chatId, '⚡ Быстрые кнопки ведущего включены.', bystrayaKlaviaturaVedushchego).catch(() => {});
 }
 
+const TEST_LIMIT_IGRY = 2;
+const TEST_LIMIT_DNEY = 7;
+// true — блокировать старт игры после исчерпания теста; false — только считать и показывать статус
+const ENFORCE_TRIAL_LIMITS = process.env.ENFORCE_TRIAL_LIMITS === 'true';
+
+function formatDatyRu(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '';
+    const [y, m, d] = iso.split('-');
+    return d + '.' + m + '.' + y;
+}
+
+function dataOkonchaniyaTesta(nachaloIso, dney) {
+    const [y, m, d] = String(nachaloIso).split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + (dney ?? TEST_LIMIT_DNEY)));
+    return dt.toISOString().slice(0, 10);
+}
+
+async function poluchitNastroykiKlubaBilling(klub_id) {
+    const { data } = await supabase.from('kluby').select('nastroyki').eq('id', klub_id).single();
+    return { ...(data?.nastroyki || {}) };
+}
+
+async function sohranitNastroykiKlubaBilling(klub_id, nastroyki) {
+    await supabase.from('kluby').update({ nastroyki }).eq('id', klub_id);
+}
+
+async function nachatTestovuyuNedelyuKluba(klub_id) {
+    const n = await poluchitNastroykiKlubaBilling(klub_id);
+    if (n.test?.nachalo) return n;
+    n.test = {
+        nachalo: dataIgrovoegoVechera(),
+        igry_ispolzovano: 0,
+        limit_igry: TEST_LIMIT_IGRY,
+        dney: TEST_LIMIT_DNEY
+    };
+    if (!n.tarif_status) n.tarif_status = 'test';
+    await sohranitNastroykiKlubaBilling(klub_id, n);
+    return n;
+}
+
+function raschetStatusaTarifa(nastroyki) {
+    const seg = dataIgrovoegoVechera();
+    const test = nastroyki.test || {};
+    const balans = parseInt(nastroyki.igry_balans, 10) || 0;
+
+    if (nastroyki.tarif_status === 'oplachen' || balans > 0) {
+        return {
+            mozhno: balans > 0 || nastroyki.tarif_status === 'oplachen',
+            tip: 'oplachen',
+            balans,
+            tekst: balans > 0
+                ? ('Оплаченный пакет: осталось *' + balans + '* игр')
+                : 'Подписка клуба активна'
+        };
+    }
+
+    if (!test.nachalo) {
+        return { mozhno: true, tip: 'net_testa', tekst: 'Тестовая неделя ещё не активирована' };
+    }
+
+    const konets = dataOkonchaniyaTesta(test.nachalo, test.dney ?? TEST_LIMIT_DNEY);
+    const limit = test.limit_igry ?? TEST_LIMIT_IGRY;
+    const ispolz = test.igry_ispolzovano || 0;
+    const ostatok = Math.max(0, limit - ispolz);
+    const vremya_ok = seg < konets;
+
+    if (!vremya_ok) {
+        return {
+            mozhno: false,
+            tip: 'test_istek',
+            tekst: 'Тестовая неделя закончилась (' + formatDatyRu(konets) + ')',
+            konets,
+            ostatok: 0,
+            ispolz,
+            limit
+        };
+    }
+    if (ostatok <= 0) {
+        return {
+            mozhno: false,
+            tip: 'test_igry_konchilis',
+            tekst: 'Тестовые игры использованы (*' + limit + ' из ' + limit + '*)',
+            konets,
+            ostatok: 0,
+            ispolz,
+            limit
+        };
+    }
+    return {
+        mozhno: true,
+        tip: 'test',
+        tekst: 'Тестовая неделя: *' + ostatok + '* из *' + limit + '* игр до *' + formatDatyRu(konets) + '*',
+        konets,
+        ostatok,
+        ispolz,
+        limit,
+        nachalo: test.nachalo
+    };
+}
+
+function tekstTestovoyNedeli(nazvanieKluba) {
+    return '🎁 *Тестовая неделя для клуба*\n\n' +
+        'Клуб: *' + nazvanieKluba + '*\n\n' +
+        'Подарок перед основным подключением:\n' +
+        '— *2 игры* с полным функционалом ведущего;\n' +
+        '— *7 календарных дней* с момента создания клуба;\n' +
+        '— лимит списывается только при *реальном старте* игры:\n' +
+        '  раздача ролей в боте, «Начать игру» с физическими картами или ночь знакомства;\n' +
+        '— создание игры и лобби тест не тратят.\n\n' +
+        'После теста:\n' +
+        '— разовая игра *500₽*;\n' +
+        '— пакет *12 игр от 3000₽* (3 игры в неделю × 4 недели).\n\n' +
+        '_Онлайн-оплату подключим отдельно; пока — заявка администратору._';
+}
+
+function tekstPaywallPosleTesta() {
+    return '⏳ *Тестовая неделя завершена*\n\n' +
+        'Бесплатный период клуба закончился: использованы 2 тестовые игры или прошло 7 дней.\n\n' +
+        'Чтобы продолжить:\n' +
+        '— разовая игра *500₽*;\n' +
+        '— пакет *12 игр от 3000₽*.\n\n' +
+        'Нажми «Подключить тариф» — оформим оплату или пакет вручную.';
+}
+
+async function proveritStartPlatnoyIgry(igra, kod) {
+    if (!igra?.klub_id || igra._druzya_rezhim || igra._slot_oplaty) {
+        return { ok: true };
+    }
+
+    const nastroyki = await poluchitNastroykiKlubaBilling(igra.klub_id);
+    const st = raschetStatusaTarifa(nastroyki);
+
+    if (st.tip === 'oplachen' && st.balans > 0) {
+        nastroyki.igry_balans = st.balans - 1;
+        igra._slot_oplaty = true;
+        await sohranitNastroykiKlubaBilling(igra.klub_id, nastroyki);
+        return { ok: true, tip: 'balans', info: 'Списана 1 игра с пакета. Осталось: ' + nastroyki.igry_balans, klub_id: igra.klub_id };
+    }
+    if (st.tip === 'oplachen' && nastroyki.tarif_status === 'oplachen') {
+        igra._slot_oplaty = true;
+        return { ok: true, tip: 'oplachen', klub_id: igra.klub_id };
+    }
+
+    if (st.mozhno && st.tip === 'test') {
+        nastroyki.test.igry_ispolzovano = (nastroyki.test.igry_ispolzovano || 0) + 1;
+        igra._slot_oplaty = true;
+        await sohranitNastroykiKlubaBilling(igra.klub_id, nastroyki);
+        const posle = raschetStatusaTarifa(nastroyki);
+        return { ok: true, tip: 'test', info: posle.tekst, klub_id: igra.klub_id };
+    }
+
+    if (!ENFORCE_TRIAL_LIMITS) {
+        return { ok: true, tip: 'soft', preduprezhdenie: st.tekst, klub_id: igra.klub_id };
+    }
+
+    return { ok: false, paywall: tekstPaywallPosleTesta(), klub_id: igra.klub_id };
+}
+
+async function pokazatBlokStartaIgry(chatId, messageId, query, rez) {
+    const alertText = (rez.paywall || rez.preduprezhdenie || 'Нет доступных игр')
+        .replace(/\*/g, '')
+        .slice(0, 200);
+    if (query?.id) {
+        await bot.answerCallbackQuery(query.id, { text: alertText, show_alert: true }).catch(() => {});
+    }
+    const body = rez.paywall || ('⚠️ ' + rez.preduprezhdenie);
+    const klub_id = rez.klub_id || '';
+    const knopki = [
+        [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + klub_id }],
+        [{ text: '🎁 О тестовой неделе', callback_data: 'tarif_klub_' + klub_id }],
+        [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+    ];
+    if (messageId) {
+        await bot.editMessageText(body, {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        }).catch(() => bot.sendMessage(chatId, body, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } }));
+    } else {
+        await bot.sendMessage(chatId, body, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+    }
+}
+
+function tekstStilizatsiiKluba(nazvanieKluba = 'клуб') {
+    return '🎨 *Стилизация приложения под клуб*\n\n' +
+        'Клуб: *' + nazvanieKluba + '*\n\n' +
+        'Можно оформить интерфейс Prime Mafia в стиле вашего клуба:\n' +
+        '— цвета и визуальный стиль клуба;\n' +
+        '— клубная подача экранов и кнопок;\n' +
+        '— ощущение собственного приложения для игроков и ведущих.\n\n' +
+        'Стоимость: *5000₽ один раз, навсегда*.\n\n' +
+        '_После подключения игроки и ведущие видят интерфейс, стилизованный под ваш клуб._';
+}
+
 // ============================================
 // КОМАНДА /start
 // ============================================
@@ -1359,6 +1554,12 @@ bot.on('message', async function(msg) {
             foly: 0,
             igrok_id: null
         }));
+        const rezStart = await proveritStartPlatnoyIgry(igra, kod);
+        if (!rezStart.ok) {
+            await pokazatBlokStartaIgry(chatId, null, null, rezStart);
+            return;
+        }
+
         igra.rezhim_rolei = 'karty';
         igra.roli_razdany = true;
         igra.den = 1;
@@ -1367,6 +1568,7 @@ bot.on('message', async function(msg) {
         await sohranit_igru(kod);
 
         let svodka = '\u2705 *Роли внесены вручную!*\n\n';
+        if (rezStart.info) svodka += '\n_' + rezStart.info.replace(/\*/g, '') + '_\n';
         svodka += '\uD83C\uDFB4 Игра \u2116' + kod + '\n';
         svodka += '\uD83D\uDC65 Игроков: ' + igra.kolichestvo + '\n\n';
         svodka += tekstSpiskaPosleRoley(igra);
@@ -1499,10 +1701,23 @@ bot.on('message', async function(msg) {
                 .insert({ klub_id: novyi_klub.id, igrok_id: igrok.id, rol: 'vladyelets' });
         }
 
+        await nachatTestovuyuNedelyuKluba(novyi_klub.id);
+        const konetsTesta = formatDatyRu(dataOkonchaniyaTesta(dataIgrovoegoVechera(), TEST_LIMIT_DNEY));
+
         delete ozhidanie_registracii[tg_id];
         bot.sendMessage(chatId,
-            `✅ *Клуб создан!*\n\n🎴 ${nazvaniye}\n\nТеперь ты собственник этого клуба.`,
-            { parse_mode: 'Markdown', ...menu_vladeltsa }
+            `✅ *Клуб создан!*\n\n🎴 ${nazvaniye}\n\nТеперь ты собственник этого клуба.\n\n` +
+            '🎁 *Тестовая неделя в подарок:* 2 игры за 7 дней (до ' + konetsTesta + ').\n' +
+            'Игра списывается только при старте (раздача ролей / начало игры), не при создании лобби.\n\n' +
+            '🎨 Можно сразу подключить стилизацию интерфейса под клуб — *5000₽ навсегда*.',
+            {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🎁 Тестовая неделя: 2 игры', callback_data: 'tarif_klub_' + novyi_klub.id }],
+                    [{ text: '🎨 Стилизация за 5000₽ навсегда', callback_data: 'stil_klub_' + novyi_klub.id }],
+                    ...menu_vladeltsa.reply_markup.inline_keyboard
+                ] }
+            }
         );
         return;
     }
@@ -2226,6 +2441,13 @@ async function privyazatIgrokaIzBazy(igra, igrok) {
 async function zavershitNochZnakomstva(chatId, kod) {
     const igra = igry[kod];
     if (!igra) return;
+    if (!igra._slot_oplaty) {
+        const rezStart = await proveritStartPlatnoyIgry(igra, kod);
+        if (!rezStart.ok) {
+            await pokazatBlokStartaIgry(chatId, null, null, rezStart);
+            return;
+        }
+    }
     igra.rezhim_rolei = 'karty';
     igra.roli_razdany = true;
     igra.den = 1;
@@ -3793,7 +4015,7 @@ function buildTimerKnopki(kod, faza) {
     const knopki = [
         [{ text: '\u23ED\uFE0F Пас', callback_data: 'pas_' + kod }, { text: '\u23F9 Стоп', callback_data: 'stop_taymer_' + kod }],
     ];
-    if (faza === 'den' || faza === 'znakomstvo') {
+    if (faza === 'den') {
         const igra_t = igry[kod];
         if (kandidatyNaVystavlenie(igra_t, igra_t?.tekushchiy_nomer).length > 0) {
             knopki.push([{ text: '\uD83D\uDCA5 Выставить (ник)', callback_data: 'vystav_nick_' + kod }]);
@@ -3813,8 +4035,12 @@ function buildTimerKnopki(kod, faza) {
         knopki.push([{ text: knopkaKtoNachinaet('den', igra_z?.den), callback_data: 'faza_den_' + kod }]);
     }
     if (faza === 'opravdanie') {
+        knopki.push([{ text: '\u270F\uFE0F Корректировать список', callback_data: 'vybrat_na_golos_' + kod }]);
         knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
         knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
+    }
+    if (faza === 'golosovanie') {
+        knopki.push([{ text: '\u270F\uFE0F Корректировать список', callback_data: 'vybrat_na_golos_' + kod }]);
     }
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
     return knopki;
@@ -3882,13 +4108,38 @@ function nominirovannyePoPoryadku(igra) {
         .filter(i => i && i.status === 'v_igre');
 }
 
+function sinhronizirovatSpisokGolosovaniya(igra) {
+    if (!igra) return;
+    const seen = new Set();
+    igra.naznacheny_golos = (igra.naznacheny_golos || []).filter(nomer => {
+        if (seen.has(nomer)) return false;
+        const igrok = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
+        if (!igrok) return false;
+        seen.add(nomer);
+        return true;
+    });
+    if (igra.faza === 'opravdanie') {
+        igra.poryadok_hoda = [...igra.naznacheny_golos];
+        if (!igra.poryadok_hoda.includes(igra.tekushchiy_nomer)) {
+            igra.tekushchiy_nomer = igra.poryadok_hoda[0] || null;
+        }
+    }
+    if (igra.golosa_dnya) {
+        const allowed = new Set(igra.naznacheny_golos);
+        Object.keys(igra.golosa_dnya).forEach(n => {
+            if (!allowed.has(parseInt(n, 10))) delete igra.golosa_dnya[n];
+        });
+    }
+}
+
 function kandidatyDobavitNaGolos(igra) {
     return kandidatyNaVystavlenie(igra, null);
 }
 
 function tekstSpiskaNominacii(igra) {
     const nom = nominirovannyePoPoryadku(igra);
-    let t = '\uD83D\uDCA5 *Список на голосование*\n\n';
+    let t = '\uD83D\uDCA5 *Зафиксированный список на голосование*\n\n';
+    t += '_Можно корректировать: добавить пропущенного, убрать лишнего и поменять порядок оправданий._\n\n';
     if (nom.length === 0) {
         t += '_Пока никто не выставлен._\n';
         t += '_Номинируй во время речи или нажми «Добавить игрока»._';
@@ -3903,17 +4154,26 @@ function tekstSpiskaNominacii(igra) {
 
 function knopkiSpiskaNominacii(igra, kod) {
     const nom = nominirovannyePoPoryadku(igra);
-    const knopki = nom.map((i, idx) => [{
-        text: '\u274C ' + (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name,
-        callback_data: 'golos_toggle_' + kod + '_' + i.nomer
-    }]);
+    const knopki = [];
+    nom.forEach((i, idx) => {
+        const row = [];
+        row.push({
+            text: '\u274C ' + (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'golos_toggle_' + kod + '_' + i.nomer
+        });
+        if (idx > 0) row.push({ text: '\u2B06\uFE0F', callback_data: 'golos_up_' + kod + '_' + i.nomer });
+        if (idx < nom.length - 1) row.push({ text: '\u2B07\uFE0F', callback_data: 'golos_down_' + kod + '_' + i.nomer });
+        knopki.push(row);
+    });
     if (kandidatyDobavitNaGolos(igra).length > 0) {
-        knopki.push([{ text: '\u2795 Добавить игрока', callback_data: 'golos_dobavit_' + kod }]);
+        knopki.push([{ text: '\u2795 Добавить пропущенного игрока', callback_data: 'golos_dobavit_' + kod }]);
     }
     if (nom.length > 0) {
-        knopki.push([{ text: '\u2705 Начать оправдание (' + nom.length + ')', callback_data: 'faza_opravdanie_' + kod }]);
+        const text = igra.faza === 'opravdanie' ? '\u2705 Применить порядок оправданий' : '\u2705 Начать оправдание (' + nom.length + ')';
+        knopki.push([{ text, callback_data: 'faza_opravdanie_' + kod }]);
     }
-    knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
+    const back = (igra.faza === 'opravdanie' || igra.faza === 'golosovanie') ? 'timer_back_' + kod : 'panel_' + kod;
+    knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: back }]);
     return knopki;
 }
 
@@ -6449,6 +6709,32 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: 'Игрок не в списке', show_alert: true });
             return;
         }
+        sinhronizirovatSpisokGolosovaniya(igra);
+        await sohranit_igru(kod);
+        bot.editMessageText(tekstSpiskaNominacii(igra), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiSpiskaNominacii(igra, kod) }
+        });
+    }
+
+    else if (data.startsWith('golos_up_') || data.startsWith('golos_down_')) {
+        const up = data.startsWith('golos_up_');
+        const rest = data.replace(up ? 'golos_up_' : 'golos_down_', '');
+        const parts_mv = rest.split('_');
+        const kod = parts_mv[0];
+        const nomer_mv = parseInt(parts_mv[1], 10);
+        const igra = igry[kod];
+        if (!igra || !Number.isFinite(nomer_mv)) return;
+        igra.naznacheny_golos = igra.naznacheny_golos || [];
+        const idx_mv = igra.naznacheny_golos.indexOf(nomer_mv);
+        const nextIdx = up ? idx_mv - 1 : idx_mv + 1;
+        if (idx_mv < 0 || nextIdx < 0 || nextIdx >= igra.naznacheny_golos.length) {
+            bot.answerCallbackQuery(query.id, { text: 'Порядок не изменён' });
+            return;
+        }
+        [igra.naznacheny_golos[idx_mv], igra.naznacheny_golos[nextIdx]] = [igra.naznacheny_golos[nextIdx], igra.naznacheny_golos[idx_mv]];
+        sinhronizirovatSpisokGolosovaniya(igra);
+        bot.answerCallbackQuery(query.id, { text: 'Порядок обновлён' });
         await sohranit_igru(kod);
         bot.editMessageText(tekstSpiskaNominacii(igra), {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -6475,6 +6761,7 @@ bot.on('callback_query', async function(query) {
         if (!igra.naznacheny_golos.includes(nomer_a)) {
             igra.naznacheny_golos.push(nomer_a);
         }
+        sinhronizirovatSpisokGolosovaniya(igra);
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDCA5 Добавлен' });
         await sohranit_igru(kod);
         bot.editMessageText(tekstSpiskaNominacii(igra), {
@@ -6492,6 +6779,7 @@ bot.on('callback_query', async function(query) {
         if (!igra.naznacheny_golos || igra.naznacheny_golos.length === 0) {
             bot.answerCallbackQuery(query.id, { text: '\u274C Никто не выставлен', show_alert: true }); return;
         }
+        sinhronizirovatSpisokGolosovaniya(igra);
         igra.faza = 'opravdanie';
         igra.poryadok_hoda = [...igra.naznacheny_golos];
         igra.tekushchiy_nomer = igra.poryadok_hoda[0];
@@ -7438,10 +7726,62 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: sport ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_nk.id }],
             [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
+            [{ text: '\uD83C\uDFA8 Стилизация клуба — 5000₽ навсегда', callback_data: 'stil_klub_' + klub_nk.id }],
             [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
             [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }],
             [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
         ]}});
+    }
+
+    else if (data.startsWith('stil_klub_')) {
+        const klub_id_st = data.replace('stil_klub_', '');
+        const { data: klub_st } = await supabase
+            .from('kluby')
+            .select('id, nazvaniye')
+            .eq('id', klub_id_st)
+            .single();
+        bot.editMessageText(tekstStilizatsiiKluba(klub_st?.nazvaniye || 'клуб'), {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '\uD83D\uDCAC Хочу подключить', callback_data: 'stil_zayavka_' + klub_id_st }],
+                [{ text: '\u2B05\uFE0F В настройки клуба', callback_data: 'nastroyki_kluba_v' }]
+            ] }
+        });
+    }
+
+    else if (data.startsWith('stil_zayavka_')) {
+        const klub_id_sz = data.replace('stil_zayavka_', '');
+        const { data: klub_sz } = await supabase
+            .from('kluby')
+            .select('nazvaniye')
+            .eq('id', klub_id_sz)
+            .single();
+        bot.answerCallbackQuery(query.id, { text: 'Заявка отправлена', show_alert: true });
+        if (ADMIN_TG_ID) {
+            bot.sendMessage(ADMIN_TG_ID,
+                '🎨 *Заявка на стилизацию клуба*\n\n' +
+                'Клуб: *' + (klub_sz?.nazvaniye || klub_id_sz) + '*\n' +
+                'TG ведущего/собственника: `' + telegram_id + '`\n' +
+                'Стоимость: 5000₽ навсегда',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
+        }
+        bot.editMessageText(
+            '✅ *Заявка принята!*\n\n' +
+            'Мы свяжемся с тобой и согласуем цвета, стиль и детали интерфейса клуба.\n\n' +
+            'Стоимость стилизации: *5000₽ один раз, навсегда*.',
+            {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '\uD83D\uDCAC Написать в поддержку', callback_data: 'podderzhka' }],
+                    [{ text: '\u2699\uFE0F Настройки клуба', callback_data: 'nastroyki_kluba_v' }]
+                ] }
+            }
+        );
     }
 
     // ===== TOGGLE ТИП ПРАВИЛ КЛУБА (Pascal / VIP) =====
