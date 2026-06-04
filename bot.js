@@ -547,6 +547,7 @@ const BALLY_DEFAULT = {
     bonus_don_nashel_sherifa_n1: 0.5,
     bonus_kamikadze_mafiya: 0.5,
     bonus_den1_vygolosovan: 0.25,
+    shtraf_teh_trup: -2,
     mafiya_pobedila_vybyl: 3,
     mafiya_pobedila_vyzhil: 4,
     bonus_don_pobedil: 0,
@@ -1475,6 +1476,72 @@ bot.on('message', async function(msg) {
                 return;
             }
             draft.igra.igroki.forEach(i => { i.status = nums.has(i.nomer) ? 'v_igre' : 'vybyl'; });
+        }
+        ozhidanie_registracii[tg_id].shag = 'manual_result_tech';
+        bot.sendMessage(chatId,
+            '⚙️ Кто ушёл *тех. трупом*?\n\n' +
+            'По умолчанию это штраф *-2* балла, но для каждого клуба значение можно менять в настройках баллов.\n\n' +
+            'Отправь номера/ники через запятую или напиши `нет`.',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    if (ozhidanie_registracii[tg_id]?.shag === 'manual_result_tech') {
+        const draft = ruchnyeRezultaty[tg_id];
+        if (!draft?.igra) {
+            delete ozhidanie_registracii[tg_id];
+            bot.sendMessage(chatId, '❌ Черновик результата не найден. Начни заново.');
+            return;
+        }
+        const vvod = text.toLowerCase();
+        if (!['нет', '0', '-', 'no'].includes(vvod)) {
+            const items = razobratSpisokNikov(text);
+            let foundCount = 0;
+            items.forEach(item => {
+                const found = naytiIgrokaPoVvodu(draft.igra, item);
+                if (found) {
+                    found.teh_trup = true;
+                    found.status = 'vybyl';
+                    foundCount += 1;
+                }
+            });
+            if (foundCount === 0) {
+                bot.sendMessage(chatId, '❌ Не нашёл игроков. Отправь номера/ники через запятую или `нет`.', { parse_mode: 'Markdown' });
+                return;
+            }
+        }
+        ozhidanie_registracii[tg_id].shag = 'manual_result_first_vote';
+        bot.sendMessage(chatId,
+            '🗳 Кого *первым выголосовали*?\n\n' +
+            'По умолчанию такому игроку добавляется *+0.25* — как в клубной таблице.\n' +
+            'Если в этом клубе правило другое, оно берётся из настроек баллов.\n\n' +
+            'Отправь номер/ник или напиши `нет`.',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    if (ozhidanie_registracii[tg_id]?.shag === 'manual_result_first_vote') {
+        const draft = ruchnyeRezultaty[tg_id];
+        if (!draft?.igra) {
+            delete ozhidanie_registracii[tg_id];
+            bot.sendMessage(chatId, '❌ Черновик результата не найден. Начни заново.');
+            return;
+        }
+        const vvod = text.toLowerCase();
+        if (!['нет', '0', '-', 'no'].includes(vvod)) {
+            const items = razobratSpisokNikov(text);
+            const nums = [];
+            items.forEach(item => {
+                const found = naytiIgrokaPoVvodu(draft.igra, item);
+                if (found && !nums.includes(found.nomer)) nums.push(found.nomer);
+            });
+            if (nums.length === 0) {
+                bot.sendMessage(chatId, '❌ Не нашёл игрока. Отправь номер/ник или `нет`.', { parse_mode: 'Markdown' });
+                return;
+            }
+            draft.igra.den1_vygolosovany = nums;
         }
         delete ozhidanie_registracii[tg_id];
         bot.sendMessage(chatId, '🏆 Кто победил?', {
@@ -2739,9 +2806,20 @@ function tekstItogaRuchnoyIgry(igra, kod) {
     t += 'Победитель: *' + (pobediteli[igra.pobeditel] || igra.pobeditel || '-') + '*\n\n';
     t += '*Состав:*\n';
     (igra.igroki || []).forEach(i => {
-        const em = i.status === 'v_igre' ? '✅' : '💀';
-        t += em + ' №' + i.nomer + ' ' + i.name + ' — ' + i.rol + '\n';
+        const em = i.teh_trup ? '⚙️' : (i.status === 'v_igre' ? '✅' : '💀');
+        const tech = i.teh_trup ? ' (тех. труп)' : '';
+        t += em + ' №' + i.nomer + ' ' + i.name + ' — ' + i.rol + tech + '\n';
     });
+    const techPlayers = (igra.igroki || []).filter(i => i.teh_trup);
+    if (techPlayers.length) {
+        t += '\n⚙️ *Тех. трупы:* ' + techPlayers.map(i => '№' + i.nomer + ' ' + i.name).join(', ') + '\n';
+    }
+    const firstVoted = (igra.den1_vygolosovany || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(Boolean);
+    if (firstVoted.length) {
+        t += '🗳 *Первым выголосовали:* ' + firstVoted.map(i => '№' + i.nomer + ' ' + i.name).join(', ') + '\n';
+    }
     if ((igra.avto_bonusy || []).length) {
         t += '\n*Бонусы:*\n';
         igra.avto_bonusy.forEach(b => {
@@ -4699,6 +4777,11 @@ async function zapisat_bally(igra, kod) {
 
         const bonus_info = {};
         if (igrok.bonus_pts) bonus_info.ruchnoy = { pts: igrok.bonus_pts, text: igrok.bonus_text };
+        if (igrok.teh_trup) {
+            const ptsTeh = ballyConfig.shtraf_teh_trup ?? -2;
+            bl += ptsTeh;
+            bonus_info.teh_trup = { pts: ptsTeh, text: 'Тех. труп' };
+        }
         const avtoBonusy = (igra.avto_bonusy || []).filter(b => b.nomer === igrok.nomer);
         if (avtoBonusy.length > 0) {
             let avtoPts = 0;
@@ -8125,6 +8208,7 @@ bot.on('callback_query', async function(query) {
         t += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
         t += '\uD83D\uDD34 Дон победил: +' + (b.bonus_don_pobedil ?? 2) + '\n';
         t += '\uD83C\uDFAF Маньяк победил: +' + (b.bonus_manyak_pobedil ?? 5) + '\n';
+        t += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
 
         bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: sport ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_nk.id }],
@@ -8259,6 +8343,7 @@ bot.on('callback_query', async function(query) {
         t_tt += '*Баллы:*\n';
         t_tt += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
         t_tt += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
+        t_tt += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
         bot.editMessageText(t_tt, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: sport_tt ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_id_tt }],
             [{ text: new_tip === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_id_tt }],
@@ -8303,7 +8388,7 @@ bot.on('callback_query', async function(query) {
         const klub_id_eb = data.replace('edit_bally_', '');
         sostoyanie[telegram_id] = 'edit_bally_json_' + klub_id_eb;
         bot.editMessageText(
-            '\uD83C\uDFC6 *Настройка баллов*\n\nОтправь JSON с настройками, например:\n\n`{"pobeda_komanda":3,"vyzhil":1,"bonus_don_pobedil":2,"bonus_manyak_pobedil":4}`\n\n_Можно указать только те поля что хочешь изменить._',
+            '\uD83C\uDFC6 *Настройка баллов*\n\nОтправь JSON с настройками, например:\n\n`{"pobeda_komanda":3,"vyzhil":1,"bonus_den1_vygolosovan":0.25,"shtraf_teh_trup":-2}`\n\n_Можно указать только те поля что хочешь изменить._',
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
               reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Отмена', callback_data: 'nastroyki_kluba_v' }]] } }
         );
