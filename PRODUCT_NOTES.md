@@ -12,6 +12,12 @@
 - Standard monthly game limit for Start/Club: 12 games, 2 hosts included.
 - Longer prepaid terms should be sold as 1/3/6/12 month subscriptions, not as a cheap annual plan.
 - Annual price must not anchor at 36,000 RUB; that undervalues custom club rules, roles, scoring, ratings, and support.
+- External installment payments should be available for 6-month and 12-month packages through a bank/payment partner such as T-Bank, Sber, YooKassa, CloudPayments, or Prodamus.
+- Do not offer internal installment plans: the credit/payment risk must stay with the external provider.
+- Club access is activated after the payment partner confirms the payment/installment approval.
+- International payments are required for clubs outside Russia/CIS: card acquiring, payment links, invoices, and multi-currency support.
+- Target international launch regions: Georgia, Armenia, UAE, Bali/Indonesia, and other cities with Russian-speaking or international Mafia communities.
+- The bot and Mini App must support language switching in the user profile / club settings. Start with Russian and English; add Georgian, Armenian, and other local languages later based on demand.
 - Club personalization: one-time 5000 RUB setup fee for a branded club table and role cards using the club's own uploaded card designs, matching their physical deck / brand book.
 - Charge should happen when the game really starts: role deal in bot mode or "start game" in physical-card mode, not on the first "create game" click.
 
@@ -26,6 +32,8 @@
 
 - Telegram payments for simple in-app purchases: one game, game packages, gifts, player frames, and announcement boosts.
 - Bank card / SBP payment link for Russian clubs, issued from the host billing screen.
+- External bank installment link for larger 6/12 month checks.
+- International acquiring/payment links for non-Russian clubs: cards, invoices, and provider-specific links depending on country.
 - Manual invoice for clubs and franchises that need payment by legal entity or bank transfer.
 - Promo codes for ambassadors, partner clubs, trial extensions, and compensation after support cases.
 - Internal balance in the host menu: paid games are deducted only when the host actually starts the game, not when a draft game is created.
