@@ -2,10 +2,16 @@
 
 ## Monetization
 
-- Trial: first 7 days free for a new host/club.
-- One-off game: 500 RUB.
-- Main package: 12 games from 3000 RUB.
-- Package positioning: 12 games covers 4 weeks at 3 games per week.
+- Product name for clubs: Maf Assist by Prime Mafia.
+- Trial: first 7 days free for a new club, limited to 2 games.
+- One-off game: minimum 1,000 RUB. It can remain as a support/manual option, not the main offer.
+- Start package: 7,900 RUB/month for a beginning club.
+- Club package: 12,900 RUB/month for an active club with individual rules and roles.
+- Pro package: 19,900 RUB/month for a high-volume club.
+- Network package: from 35,000 RUB/month for several clubs/cities.
+- Standard monthly game limit for Start/Club: 12 games, 2 hosts included.
+- Longer prepaid terms should be sold as 1/3/6/12 month subscriptions, not as a cheap annual plan.
+- Annual price must not anchor at 36,000 RUB; that undervalues custom club rules, roles, scoring, ratings, and support.
 - Club personalization: one-time 5000 RUB setup fee for a branded club table and role cards using the club's own uploaded card designs, matching their physical deck / brand book.
 - Charge should happen when the game really starts: role deal in bot mode or "start game" in physical-card mode, not on the first "create game" click.
 
@@ -26,9 +32,11 @@
 
 ## Paid Packages To Build
 
-- Starter: 1 paid game for a new host who wants to test after trial.
-- Club Month: 12 games for regular clubs, positioned as 3 games per week for 4 weeks.
-- Club Pro: larger bundle with announcements, extra resident slots, and priority support.
+- Start: 7,900 RUB/month, 12 games, 2 hosts, one club, base setup, manual result entry, rating, and history.
+- Club: 12,900 RUB/month, 12 games, 2 hosts, individual club rules, custom roles, club scoring system, announcements, player registration, evening reports, and setup support.
+- Pro: 19,900 RUB/month, up to 30 games, up to 5 hosts, several rule presets, extended statistics, priority support, and Mini App preparation.
+- Network: from 35,000 RUB/month, several clubs/cities, separate ratings, shared player base, admin access, and individual implementation.
+- Prepaid terms: offer 1, 3, 6, and 12 months. Discounts may grow with term, but annual plans should still reflect the value of custom automation.
 - Personalization: one-time branded table and role cards for 5000 RUB.
 - Player cosmetics: paid profile frame, table badge, gift to another player, seasonal visual items.
 - City announcement: paid game announcement in the app, filtered by city, starting from 300 RUB.
