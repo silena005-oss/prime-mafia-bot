@@ -899,6 +899,19 @@ const menu_vedushchego = {
         inline_keyboard: [
             ...knopkiMiniApp(),
             [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
+            [
+                { text: '🎲 Создать игру', callback_data: 'sozdat_igru' },
+                { text: '🎮 Мои игры', callback_data: 'moi_igry' }
+            ],
+            [{ text: '✨ Ещё', callback_data: 'menu_more_vedushchego' }]
+        ]
+    }
+};
+
+const menu_vedushchego_full = {
+    reply_markup: {
+        inline_keyboard: [
+            [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
             [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
             [{ text: '🏛 Игры клуба', callback_data: 'igry_kluba' }],
@@ -906,7 +919,8 @@ const menu_vedushchego = {
             [{ text: '📋 Внести результаты', callback_data: 'vnesti_rezultaty' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
-            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
+            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
+            [{ text: '⬅️ Короткое меню', callback_data: 'menu_vedushchego' }]
         ]
     }
 };
@@ -915,13 +929,27 @@ const menu_igroka = {
     reply_markup: {
         inline_keyboard: [
             ...knopkiMiniApp(),
+            [
+                { text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' },
+                { text: '🏆 Рейтинг', callback_data: 'moy_reyting' }
+            ],
+            [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
+            [{ text: '✨ Ещё', callback_data: 'menu_more_igroka' }]
+        ]
+    }
+};
+
+const menu_igroka_full = {
+    reply_markup: {
+        inline_keyboard: [
             [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
             [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
             [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
             [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
             [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
             [{ text: '📄 Оферта и конфиденциальность', callback_data: 'legal_menu' }],
-            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
+            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
+            [{ text: '⬅️ Короткое меню', callback_data: 'menu_igroka' }]
         ]
     }
 };
@@ -930,6 +958,19 @@ const menu_vladeltsa = {
     reply_markup: {
         inline_keyboard: [
             ...knopkiMiniApp(),
+            [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
+            [
+                { text: '🎮 Мои игры', callback_data: 'moi_igry' },
+                { text: '📊 Аналитика', callback_data: 'analitika' }
+            ],
+            [{ text: '✨ Ещё', callback_data: 'menu_more_vladeltsa' }]
+        ]
+    }
+};
+
+const menu_vladeltsa_full = {
+    reply_markup: {
+        inline_keyboard: [
             [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
             [{ text: '📊 Аналитика', callback_data: 'analitika' }],
             [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
@@ -943,7 +984,8 @@ const menu_vladeltsa = {
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' }],
             [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
-            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }]
+            [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
+            [{ text: '⬅️ Короткое меню', callback_data: 'menu_vladeltsa' }]
         ]
     }
 };
@@ -1000,7 +1042,9 @@ bot.setMyCommands([
 ]).catch(e => console.error('[commands]', e?.message || e));
 
 async function pokazatBystryeKnopkiVedushchego(chatId) {
-    await bot.sendMessage(chatId, '⚡ Быстрые кнопки ведущего включены.', bystrayaKlaviaturaVedushchego).catch(() => {});
+    await bot.sendMessage(chatId, '✨ Основное меню теперь в сообщении выше.', {
+        reply_markup: { remove_keyboard: true }
+    }).catch(() => {});
 }
 
 const TEST_LIMIT_IGRY = 2;
@@ -5328,6 +5372,27 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
             chat_id: chatId, message_id: messageId,
             parse_mode: 'Markdown', ...menu_vladeltsa
+        });
+    }
+
+    else if (data === 'menu_more_vedushchego') {
+        bot.editMessageText('🎙 *Все функции ведущего*', {
+            chat_id: chatId, message_id: messageId,
+            parse_mode: 'Markdown', ...menu_vedushchego_full
+        });
+    }
+
+    else if (data === 'menu_more_igroka') {
+        bot.editMessageText('🎴 *Все функции игрока*', {
+            chat_id: chatId, message_id: messageId,
+            parse_mode: 'Markdown', ...menu_igroka_full
+        });
+    }
+
+    else if (data === 'menu_more_vladeltsa') {
+        bot.editMessageText('🏛 *Все функции собственника*', {
+            chat_id: chatId, message_id: messageId,
+            parse_mode: 'Markdown', ...menu_vladeltsa_full
         });
     }
 
