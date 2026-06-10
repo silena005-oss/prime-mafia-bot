@@ -95,6 +95,9 @@
 
 ## Club Scoring Mechanics
 
+- Every club must have its own scoring preset in `kluby.nastroyki.bally`.
+- Pascal, sport, city, and custom club branches should be treated as separate scoring systems, not as one global formula.
+- Manual result entry must ask for club-specific events such as technical deaths, first voted player, role bonuses, Oscars, penalties, and other local rules.
 - Best move ("Лучший ход"): used in many clubs when a peaceful player is voted out on Day 1 or killed on Night 1 and correctly names mafia players.
 - This should be a structured post-game field, not just a free-text bonus:
   - eligible player;
