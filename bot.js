@@ -36,7 +36,7 @@ function poluchitMiniAppUrl() {
 
 function knopkiMiniApp() {
     const url = poluchitMiniAppUrl();
-    if (!url) return [];
+    if (!url) return [[{ text: '🃏 Приложение', callback_data: 'miniapp_nastroika' }]];
     return [[{ text: '🃏 Открыть приложение', web_app: { url } }]];
 }
 
@@ -5459,6 +5459,20 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId,
             parse_mode: 'Markdown', ...menu_vladeltsa_full
         });
+    }
+
+    else if (data === 'miniapp_nastroika') {
+        bot.editMessageText(
+            '🃏 *Mini app почти готов*\n\n' +
+            'Кнопка появится как приложение, когда в Railway будет задан публичный HTTPS-адрес.\n\n' +
+            'Добавь в *Railway → Variables*:\n' +
+            '`MINI_APP_URL=https://твой-домен.up.railway.app/miniapp`\n\n' +
+            'После перезапуска нажми /start — эта кнопка превратится в «Открыть приложение».',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]] }
+            }
+        );
     }
 
     else if (data === 'igrovoy_vecher') {
