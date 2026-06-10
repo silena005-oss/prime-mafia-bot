@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Prime Mafia</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/miniapp/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="brand">
+        <div class="mark">PM</div>
+        <div>
+          <p class="eyebrow">Prime Mafia</p>
+          <h1>Панель ведущего</h1>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button class="button primary" data-action="igrovoy_vecher">Игровой вечер</button>
+        <button class="button" data-action="create_game">Создать игру</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <aside class="panel sidebar">
+        <div class="section-title">
+          <span>Профиль</span>
+          <span class="status-dot"></span>
+        </div>
+        <div class="profile">
+          <div class="avatar" id="avatar">PM</div>
+          <div>
+            <h2 id="profileName">Загрузка...</h2>
+            <p id="profileMeta">Проверяем Telegram</p>
+          </div>
+        </div>
+
+        <div class="quick-grid">
+          <button class="tile" data-action="my_games">
+            <span>🎮</span>
+            <strong>Мои игры</strong>
+          </button>
+          <button class="tile" data-action="open_menu">
+            <span>🏠</span>
+            <strong>Меню бота</strong>
+          </button>
+          <button class="tile" data-action="support">
+            <span>💬</span>
+            <strong>Поддержка</strong>
+          </button>
+          <button class="tile" data-action="roles">
+            <span>🎭</span>
+            <strong>Роли</strong>
+          </button>
+        </div>
+
+        <div>
+          <div class="section-title">Клубы</div>
+          <div class="list" id="clubsList"></div>
+        </div>
+      </aside>
+
+      <section class="panel table-panel">
+        <div class="table-head">
+          <div>
+            <p class="eyebrow">Активная игра</p>
+            <h2 id="gameTitle">Стол пока пуст</h2>
+          </div>
+          <span class="badge" id="gameStatus">ожидание</span>
+        </div>
+
+        <div class="mafia-table" id="table">
+          <div class="table-center">
+            <span>Prime</span>
+            <strong>Mafia</strong>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div class="section-title">Состояние вечера</div>
+        <div class="stats">
+          <div>
+            <span id="gamesCount">0</span>
+            <p>активных игр</p>
+          </div>
+          <div>
+            <span id="playersCount">0</span>
+            <p>игроков за столом</p>
+          </div>
+          <div>
+            <span id="aliveCount">0</span>
+            <p>в игре</p>
+          </div>
+        </div>
+
+        <div class="section-title">Игры</div>
+        <div class="list games" id="gamesList"></div>
+
+        <div class="notice">
+          <strong>iPad/Mac режим</strong>
+          <p>Большой стол, быстрые действия и живое состояние. Управление пока открывается через бота, чтобы не рисковать базой.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <script src="/miniapp/app.js"></script>
+</body>
+</html>

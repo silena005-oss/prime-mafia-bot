@@ -6,6 +6,9 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 const token = process.env.TELEGRAM_TOKEN;
@@ -22,6 +25,7 @@ if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
 const http = require('http');
 const PORT = process.env.PORT || 8080;
 const MINI_APP_PATH = '/miniapp';
+const MINI_APP_DIR = path.join(__dirname, 'miniapp');
 
 function poluchitMiniAppUrl() {
     if (process.env.MINI_APP_URL) return process.env.MINI_APP_URL.replace(/\/$/, '');
@@ -36,122 +40,154 @@ function knopkiMiniApp() {
     return [[{ text: '🃏 Открыть приложение', web_app: { url } }]];
 }
 
-function htmlMiniApp() {
-    return `<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prime Mafia</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    :root {
-      --bg: #070507;
-      --panel: #161116;
-      --panel2: #211820;
-      --text: #f7efe8;
-      --muted: #b9aca6;
-      --gold: #d9b46a;
-      --red: #8e1832;
-      --line: rgba(247, 239, 232, 0.14);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at 18% 10%, rgba(142, 24, 50, 0.42), transparent 34%),
-        radial-gradient(circle at 86% 4%, rgba(217, 180, 106, 0.18), transparent 30%),
-        linear-gradient(180deg, #070507, #120c10 58%, #070507);
-      color: var(--text);
-      padding: 18px;
-    }
-    .app { max-width: 520px; margin: 0 auto; display: grid; gap: 16px; }
-    .hero, .card {
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      background: rgba(22, 17, 22, 0.88);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
-    }
-    .hero { padding: 26px; min-height: 210px; display: grid; align-content: space-between; }
-    .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    .logo {
-      width: 56px; height: 56px; border-radius: 20px; display: grid; place-items: center;
-      background: var(--red); color: var(--gold); border: 1px solid rgba(217, 180, 106, 0.38);
-      font-size: 28px; font-weight: 900;
-    }
-    .pill { color: var(--gold); border: 1px solid rgba(217, 180, 106, 0.35); border-radius: 999px; padding: 8px 12px; font-size: 13px; }
-    h1 { margin: 28px 0 10px; font-size: 34px; line-height: 0.98; letter-spacing: -0.04em; }
-    p { margin: 0; color: var(--muted); line-height: 1.5; }
-    .card { padding: 18px; display: grid; gap: 12px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    button {
-      width: 100%; border: 0; border-radius: 18px; padding: 15px 14px; color: var(--text);
-      background: var(--panel2); font-weight: 800; font-size: 15px;
-    }
-    button.primary { background: linear-gradient(135deg, var(--red), #c52a4b); }
-    button.gold { color: #1a1214; background: linear-gradient(135deg, var(--gold), #f1d28b); }
-    .hint { font-size: 13px; color: var(--muted); text-align: center; }
-  </style>
-</head>
-<body>
-  <main class="app">
-    <section class="hero">
-      <div class="brand">
-        <div class="logo">♠</div>
-        <div class="pill">Telegram mini app</div>
-      </div>
-      <div>
-        <h1>Prime Mafia</h1>
-        <p>Быстрый вход в игру, мои игры и клубный интерфейс внутри Telegram.</p>
-      </div>
-    </section>
+function miniAppMime(filePath) {
+    if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
+    if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
+    if (filePath.endsWith('.js')) return 'application/javascript; charset=utf-8';
+    if (filePath.endsWith('.svg')) return 'image/svg+xml';
+    return 'application/octet-stream';
+}
 
-    <section class="card">
-      <button class="primary" data-action="open_menu">Открыть меню бота</button>
-      <div class="grid">
-        <button data-action="my_games">Мои игры</button>
-        <button data-action="join_game">Войти в игру</button>
-      </div>
-      <button class="gold" data-action="support">Поддержка</button>
-      <div class="hint" id="hint">Если кнопка не отвечает, открой приложение из Telegram.</div>
-    </section>
-  </main>
+function otpravitJson(res, status, data) {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(data));
+}
 
-  <script>
-    const tg = window.Telegram && window.Telegram.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand();
-      tg.MainButton.setText('Открыть меню бота');
-      tg.MainButton.onClick(() => send('open_menu'));
-      tg.MainButton.show();
+function proveritTelegramInitData(initData) {
+    if (!initData) return null;
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    if (!hash) return null;
+    params.delete('hash');
+    const checkString = [...params.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}=${value}`)
+        .join('\n');
+    const secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
+    const digest = crypto.createHmac('sha256', secret).update(checkString).digest('hex');
+    if (!/^[a-f0-9]{64}$/i.test(hash)) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(hash, 'hex'))) return null;
+
+    const authDate = Number(params.get('auth_date') || 0);
+    if (authDate && Date.now() / 1000 - authDate > 86400) return null;
+    const userRaw = params.get('user');
+    if (!userRaw) return null;
+    try {
+        return JSON.parse(userRaw);
+    } catch (_) {
+        return null;
     }
+}
 
-    function send(action) {
-      const payload = JSON.stringify({ source: 'prime_mafia_miniapp', action });
-      if (!tg) {
-        document.getElementById('hint').textContent = 'Это демо mini app. Полная связка работает внутри Telegram.';
+async function poluchitMiniAppUser(req) {
+    const initData = req.headers['x-telegram-init-data'];
+    const user = proveritTelegramInitData(initData);
+    if (user?.id) return user;
+
+    if (process.env.MINIAPP_DEV_TG_ID) {
+        return { id: Number(process.env.MINIAPP_DEV_TG_ID), first_name: 'Dev' };
+    }
+    return null;
+}
+
+function kratkoIgruDlyaMiniApp(kod, igra) {
+    const igroki = Array.isArray(igra.igroki) ? igra.igroki : [];
+    const zhivye = igroki.filter(i => i.status === 'v_igre').length;
+    return {
+        kod,
+        klub_id: igra.klub_id || null,
+        klub: nazvanieKlubaIgry(igra) || '',
+        kolichestvo: igra.kolichestvo || igroki.length,
+        zhivye,
+        faza: igra.faza || 'ozhidanie',
+        den: igra.den || 1,
+        status: igra.ostanovlena ? 'paused' : (igra.roli_razdany ? 'live' : 'lobby'),
+        rezhim_rolei: igra.rezhim_rolei || null,
+        players: igroki.map(i => ({
+            nomer: i.nomer,
+            name: i.name,
+            status: i.status || 'v_igre',
+            foly: i.foly || 0,
+            rol_vidna: !!i.rol,
+            role: i.rol || null
+        }))
+    };
+}
+
+async function sostoyanieMiniApp(user) {
+    const telegram_id = Number(user.id);
+    const { data: igrok } = await supabase
+        .from('igroki')
+        .select('id, imya, igrovoy_nik')
+        .eq('tg_id', telegram_id)
+        .maybeSingle();
+
+    const kluby = await poluchitKlubyDlyaIgr(telegram_id).catch(() => []);
+    const games = aktivnyeIgryVedushchego(telegram_id).map(({ kod, igra }) => kratkoIgruDlyaMiniApp(kod, igra));
+    const klubIds = new Set(kluby.map(k => k.id));
+    Object.entries(igry)
+        .filter(([kod, igra]) => !String(kod).startsWith('archive_') && klubIds.has(igra?.klub_id) && igra?.vedushchii_id !== telegram_id)
+        .forEach(([kod, igra]) => games.push(kratkoIgruDlyaMiniApp(kod, igra)));
+
+    return {
+        user: {
+            telegram_id,
+            name: igrok?.igrovoy_nik || igrok?.imya || user.first_name || 'Игрок',
+            registered: !!igrok
+        },
+        clubs: kluby,
+        games
+    };
+}
+
+async function obrabotatMiniAppApi(req, res, url) {
+    const user = await poluchitMiniAppUser(req);
+    if (!user) {
+        otpravitJson(res, 401, { ok: false, error: 'telegram_auth_required' });
         return;
-      }
-      tg.sendData(payload);
-      tg.close();
     }
+    if (req.method === 'GET' && url.pathname === '/api/miniapp/state') {
+        otpravitJson(res, 200, { ok: true, data: await sostoyanieMiniApp(user) });
+        return;
+    }
+    otpravitJson(res, 404, { ok: false, error: 'not_found' });
+}
 
-    document.querySelectorAll('[data-action]').forEach((button) => {
-      button.addEventListener('click', () => send(button.dataset.action));
+function otpravitMiniAppFile(res, url) {
+    const relPath = url.pathname === MINI_APP_PATH || url.pathname === MINI_APP_PATH + '/'
+        ? 'index.html'
+        : decodeURIComponent(url.pathname.replace(MINI_APP_PATH + '/', ''));
+    const filePath = path.normalize(path.join(MINI_APP_DIR, relPath));
+    if (!filePath.startsWith(MINI_APP_DIR)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+    }
+    fs.readFile(filePath, (err, body) => {
+        if (err) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Mini app file not found');
+            return;
+        }
+        res.writeHead(200, {
+            'Content-Type': miniAppMime(filePath),
+            'Cache-Control': filePath.endsWith('.html') ? 'no-store' : 'public, max-age=300'
+        });
+        res.end(body);
     });
-  </script>
-</body>
-</html>`;
 }
 
 http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
-    if (url.pathname === MINI_APP_PATH) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(htmlMiniApp());
+    if (url.pathname.startsWith('/api/miniapp/')) {
+        obrabotatMiniAppApi(req, res, url).catch(e => {
+            console.error('[miniapp api]', e.message || e);
+            otpravitJson(res, 500, { ok: false, error: 'server_error' });
+        });
+        return;
+    }
+    if (url.pathname === MINI_APP_PATH || url.pathname.startsWith(MINI_APP_PATH + '/')) {
+        otpravitMiniAppFile(res, url);
         return;
     }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -1541,6 +1577,35 @@ async function obrabotatMiniAppData(msg) {
     }
     if (action === 'my_games') {
         await pokazatMoiIgryBystraya(chatId, tg_id);
+        return;
+    }
+    if (action === 'igrovoy_vecher') {
+        const kluby = await poluchitKlubyDlyaIgr(tg_id);
+        if (kluby.length === 0) {
+            await bot.sendMessage(chatId, '🌙 У тебя пока нет клуба для игрового вечера.');
+        } else if (kluby.length === 1) {
+            const soobsh = await bot.sendMessage(chatId, '🌙 Открываю игровой вечер...');
+            await pokazatIgrovoyVecher(chatId, soobsh.message_id, kluby[0], tg_id);
+        } else {
+            await bot.sendMessage(chatId, '🌙 *Игровой вечер*\n\nВыбери клуб:', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: kluby.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]) }
+            });
+        }
+        return;
+    }
+    if (action === 'create_game') {
+        await bot.sendMessage(chatId, '🎲 *Создание игры*\n\nНажми кнопку ниже, чтобы выбрать клуб и формат игры.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]] }
+        });
+        return;
+    }
+    if (action === 'roles') {
+        await bot.sendMessage(chatId, '🎭 *Управление ролями*\n\nОткрой настройки ролей для нужного клуба.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }]] }
+        });
         return;
     }
     if (action === 'join_game') {
