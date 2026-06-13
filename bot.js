@@ -26,11 +26,12 @@ const http = require('http');
 const PORT = process.env.PORT || 8080;
 const MINI_APP_PATH = '/miniapp';
 const MINI_APP_DIR = path.join(__dirname, 'miniapp');
+const DEFAULT_MINI_APP_URL = 'https://prime-mafia-bot-production.up.railway.app/miniapp';
 
 function poluchitMiniAppUrl() {
     if (process.env.MINI_APP_URL) return process.env.MINI_APP_URL.replace(/\/$/, '');
     const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || '';
-    if (!domain) return '';
+    if (!domain) return DEFAULT_MINI_APP_URL;
     return 'https://' + domain.replace(/^https?:\/\//, '').replace(/\/$/, '') + MINI_APP_PATH;
 }
 
