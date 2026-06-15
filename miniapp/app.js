@@ -55,14 +55,29 @@ function showToast(message) {
   showToast.timer = setTimeout(() => el.toast.classList.remove('show'), 2400);
 }
 
-function sendAction(action, extra = {}) {
-  const payload = JSON.stringify({ source: 'prime_mafia_miniapp', action, ...extra });
-  if (!tg) {
+async function sendAction(action, extra = {}) {
+  if (!tg || !tg.initData) {
     showToast('Открой mini app внутри Telegram, чтобы выполнить действие.');
     return;
   }
-  tg.sendData(payload);
-  tg.close();
+
+  showToast('Отправляю действие в бот...');
+  try {
+    const response = await fetch('/api/miniapp/action', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-telegram-init-data': tg.initData,
+      },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json.ok) throw new Error(json.error || 'action_failed');
+    showToast(json.message || 'Готово, смотри бот');
+    setTimeout(() => tg.close(), 650);
+  } catch (error) {
+    showToast('Не удалось отправить действие. Попробуй ещё раз.');
+  }
 }
 
 async function loadState() {

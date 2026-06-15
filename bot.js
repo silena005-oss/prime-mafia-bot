@@ -54,6 +54,28 @@ function otpravitJson(res, status, data) {
     res.end(JSON.stringify(data));
 }
 
+function prochitatJsonBody(req) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk;
+            if (body.length > 100000) {
+                req.destroy();
+                reject(new Error('request_too_large'));
+            }
+        });
+        req.on('end', () => {
+            if (!body) return resolve({});
+            try {
+                resolve(JSON.parse(body));
+            } catch (_) {
+                reject(new Error('invalid_json'));
+            }
+        });
+        req.on('error', reject);
+    });
+}
+
 function proveritTelegramInitData(initData) {
     if (!initData) return null;
     const params = new URLSearchParams(initData);
@@ -141,6 +163,60 @@ async function sostoyanieMiniApp(user) {
     };
 }
 
+async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}) {
+    if (action === 'open_menu') {
+        await obrabotatStart({
+            chat: { id: chatId },
+            from: { id: tg_id, first_name: user.first_name || '', username: user.username || '' }
+        }, []);
+        return 'Меню отправлено в бот';
+    }
+    if (action === 'my_games') {
+        await pokazatMoiIgryBystraya(chatId, tg_id);
+        return 'Мои игры отправлены в бот';
+    }
+    if (action === 'igrovoy_vecher') {
+        const kluby = await poluchitKlubyDlyaIgr(tg_id);
+        if (kluby.length === 0) {
+            await bot.sendMessage(chatId, '🌙 У тебя пока нет клуба для игрового вечера.');
+        } else if (kluby.length === 1) {
+            const soobsh = await bot.sendMessage(chatId, '🌙 Открываю игровой вечер...');
+            await pokazatIgrovoyVecher(chatId, soobsh.message_id, kluby[0], tg_id);
+        } else {
+            await bot.sendMessage(chatId, '🌙 *Игровой вечер*\n\nВыбери клуб:', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: kluby.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]) }
+            });
+        }
+        return 'Игровой вечер открыт в боте';
+    }
+    if (action === 'create_game') {
+        await bot.sendMessage(chatId, '🎲 *Создание игры*\n\nНажми кнопку ниже, чтобы выбрать клуб и формат игры.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]] }
+        });
+        return 'Создание игры отправлено в бот';
+    }
+    if (action === 'roles') {
+        await bot.sendMessage(chatId, '🎭 *Управление ролями*\n\nОткрой настройки ролей для нужного клуба.', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }]] }
+        });
+        return 'Управление ролями отправлено в бот';
+    }
+    if (action === 'join_game') {
+        await bot.sendMessage(chatId, '🎮 Чтобы войти в игру, нажми «Войти в игру» в меню или отправь код игры ведущему.');
+        return 'Инструкция отправлена в бот';
+    }
+    if (action === 'support') {
+        await bot.sendMessage(chatId, '💬 Поддержка Prime Mafia: напиши сюда, что случилось, и мы поможем.');
+        return 'Поддержка открыта в боте';
+    }
+
+    await bot.sendMessage(chatId, '✅ Данные из приложения получены.');
+    return 'Действие получено';
+}
+
 async function obrabotatMiniAppApi(req, res, url) {
     const user = await poluchitMiniAppUser(req);
     if (!user) {
@@ -149,6 +225,17 @@ async function obrabotatMiniAppApi(req, res, url) {
     }
     if (req.method === 'GET' && url.pathname === '/api/miniapp/state') {
         otpravitJson(res, 200, { ok: true, data: await sostoyanieMiniApp(user) });
+        return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/miniapp/action') {
+        const body = await prochitatJsonBody(req);
+        const action = body.action || body.type;
+        if (!action) {
+            otpravitJson(res, 400, { ok: false, error: 'action_required' });
+            return;
+        }
+        const message = await obrabotatMiniAppAction(Number(user.id), Number(user.id), action, user);
+        otpravitJson(res, 200, { ok: true, message });
         return;
     }
     otpravitJson(res, 404, { ok: false, error: 'not_found' });
