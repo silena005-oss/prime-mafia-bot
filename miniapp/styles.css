@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="default"] {
   --bg: #070507;
   --panel: rgba(22, 17, 22, 0.86);
   --panel-strong: rgba(31, 23, 30, 0.94);
@@ -11,6 +12,72 @@
   --green: #60c58c;
   --line: rgba(248, 239, 232, 0.14);
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --bg-glow-1: rgba(142, 24, 50, 0.44);
+  --bg-glow-2: rgba(217, 180, 106, 0.18);
+  --bg-mid: #130d11;
+  --hero-a: rgba(142, 24, 50, 0.82);
+  --hero-b: rgba(31, 23, 30, 0.84);
+  --table-glow: rgba(142, 24, 50, 0.30);
+}
+
+[data-theme="red"] {
+  --bg: #140608;
+  --panel: rgba(36, 10, 14, 0.88);
+  --gold: #ff7a6a;
+  --red: #b81828;
+  --red-bright: #ff3d4d;
+  --line: rgba(255, 120, 100, 0.16);
+  --bg-glow-1: rgba(200, 30, 45, 0.55);
+  --bg-glow-2: rgba(255, 90, 70, 0.22);
+  --bg-mid: #1f080c;
+  --hero-a: rgba(180, 20, 35, 0.88);
+  --hero-b: rgba(40, 8, 12, 0.86);
+  --table-glow: rgba(200, 40, 50, 0.36);
+}
+
+[data-theme="black_gold"] {
+  --bg: #050505;
+  --panel: rgba(18, 16, 12, 0.92);
+  --gold: #e8c872;
+  --red: #3a2810;
+  --red-bright: #c9a038;
+  --line: rgba(232, 200, 114, 0.18);
+  --bg-glow-1: rgba(201, 160, 56, 0.20);
+  --bg-glow-2: rgba(232, 200, 114, 0.12);
+  --bg-mid: #0c0a08;
+  --hero-a: rgba(24, 20, 12, 0.95);
+  --hero-b: rgba(8, 7, 5, 0.92);
+  --table-glow: rgba(201, 160, 56, 0.18);
+}
+
+[data-theme="blue"] {
+  --bg: #060a12;
+  --panel: rgba(12, 20, 36, 0.90);
+  --gold: #6eb5ff;
+  --red: #1a4a8a;
+  --red-bright: #3d8fd9;
+  --line: rgba(110, 181, 255, 0.16);
+  --bg-glow-1: rgba(30, 80, 160, 0.45);
+  --bg-glow-2: rgba(110, 181, 255, 0.16);
+  --bg-mid: #0a1220;
+  --hero-a: rgba(20, 50, 100, 0.88);
+  --hero-b: rgba(10, 18, 32, 0.90);
+  --table-glow: rgba(40, 100, 180, 0.28);
+}
+
+[data-theme="sochi"] {
+  --bg: #1a0f0a;
+  --panel: rgba(40, 22, 12, 0.88);
+  --gold: #f0b429;
+  --red: #c45a1a;
+  --red-bright: #e87830;
+  --line: rgba(240, 180, 41, 0.18);
+  --bg-glow-1: rgba(196, 90, 26, 0.42);
+  --bg-glow-2: rgba(240, 180, 41, 0.20);
+  --bg-mid: #241610;
+  --hero-a: rgba(180, 70, 20, 0.85);
+  --hero-b: rgba(36, 20, 10, 0.88);
+  --table-glow: rgba(196, 90, 26, 0.32);
 }
 
 * {
@@ -22,9 +89,9 @@ body {
   min-height: 100vh;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at 12% 8%, rgba(142, 24, 50, 0.44), transparent 32%),
-    radial-gradient(circle at 86% 10%, rgba(217, 180, 106, 0.18), transparent 28%),
-    linear-gradient(180deg, #070507 0%, #130d11 54%, #070507 100%);
+    radial-gradient(circle at 12% 8%, var(--bg-glow-1), transparent 32%),
+    radial-gradient(circle at 86% 10%, var(--bg-glow-2), transparent 28%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-mid) 54%, var(--bg) 100%);
   color: var(--text);
 }
 
@@ -44,8 +111,8 @@ button {
   border-radius: 34px;
   padding: 24px;
   background:
-    linear-gradient(135deg, rgba(142, 24, 50, 0.82), rgba(31, 23, 30, 0.84)),
-    radial-gradient(circle at 82% 18%, rgba(217, 180, 106, 0.26), transparent 32%);
+    linear-gradient(135deg, var(--hero-a), var(--hero-b)),
+    radial-gradient(circle at 82% 18%, var(--bg-glow-2), transparent 32%);
   box-shadow: var(--shadow);
   display: flex;
   align-items: flex-end;
@@ -215,6 +282,139 @@ p {
   text-align: left;
 }
 
+.club-card.active,
+.game-card.active {
+  border-color: rgba(217, 180, 106, 0.55);
+  background: rgba(217, 180, 106, 0.10);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.theme-chip.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px rgba(217, 180, 106, 0.25);
+}
+
+.theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.rating-card,
+.best-game-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rating-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rating-stats span {
+  display: block;
+  color: var(--gold);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.rating-stats p {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.recent-games {
+  display: grid;
+  gap: 6px;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.best-game-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.best-points {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--gold);
+  min-width: 64px;
+}
+
+.best-move {
+  color: var(--gold) !important;
+  font-size: 12px !important;
+  margin-top: 4px !important;
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.rank-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.rank-pts {
+  color: var(--gold);
+}
+
+.muted,
+.list .muted {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ranking {
+  max-height: 220px;
+  overflow: auto;
+}
+
 .club-card strong,
 .game-card strong {
   display: block;
@@ -250,7 +450,7 @@ p {
   border-radius: 38px;
   border: 1px solid rgba(217, 180, 106, 0.22);
   background:
-    radial-gradient(ellipse at center, rgba(142, 24, 50, 0.30), rgba(7, 5, 7, 0.06) 58%),
+    radial-gradient(ellipse at center, var(--table-glow), rgba(7, 5, 7, 0.06) 58%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
   overflow: hidden;
 }

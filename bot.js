@@ -26,7 +26,21 @@ const http = require('http');
 const PORT = process.env.PORT || 8080;
 const MINI_APP_PATH = '/miniapp';
 const MINI_APP_DIR = path.join(__dirname, 'miniapp');
+const MINI_APP_ROOT = path.resolve(MINI_APP_DIR);
 const DEFAULT_MINI_APP_URL = 'https://prime-mafia-bot-production.up.railway.app/miniapp';
+
+if (process.env.NODE_ENV === 'production' && process.env.MINIAPP_DEV_TG_ID) {
+    console.error('⚠️ MINIAPP_DEV_TG_ID задан в production — dev-обход mini app отключён');
+}
+
+function razreshenMiniAppDevBypass() {
+    return process.env.NODE_ENV !== 'production' && !!process.env.MINIAPP_DEV_TG_ID;
+}
+
+function putVnutriMiniAppDir(filePath) {
+    const resolved = path.resolve(filePath);
+    return resolved === MINI_APP_ROOT || resolved.startsWith(MINI_APP_ROOT + path.sep);
+}
 
 function poluchitMiniAppUrl() {
     if (process.env.MINI_APP_URL) return process.env.MINI_APP_URL.replace(/\/$/, '');
@@ -107,7 +121,7 @@ async function poluchitMiniAppUser(req) {
     const user = proveritTelegramInitData(initData);
     if (user?.id) return user;
 
-    if (process.env.MINIAPP_DEV_TG_ID) {
+    if (razreshenMiniAppDevBypass()) {
         return { id: Number(process.env.MINIAPP_DEV_TG_ID), first_name: 'Dev' };
     }
     return null;
@@ -137,28 +151,165 @@ function kratkoIgruDlyaMiniApp(kod, igra) {
     };
 }
 
+const MINIAPP_TEMY = {
+    default: { id: 'default', label: 'Prime Mafia', accent: '#d9b46a' },
+    red: { id: 'red', label: 'Красная', accent: '#ff5c5c' },
+    black_gold: { id: 'black_gold', label: 'Чёрно-золотая', accent: '#e8c872' },
+    blue: { id: 'blue', label: 'Синяя', accent: '#6eb5ff' },
+    sochi: { id: 'sochi', label: 'Sochi Warm', accent: '#f0b429' }
+};
+
+function temaKlubaIzNastroek(nastroyki = {}) {
+    const raw = nastroyki.miniapp_tema || nastroyki.tema || null;
+    if (raw && MINIAPP_TEMY[raw]) return raw;
+    if (nastroyki.stilizatsiya_kluba) return 'sochi';
+    return null;
+}
+
+async function poluchitKlubyMiniApp(telegram_id) {
+    const kluby = await poluchitKlubyDlyaIgr(telegram_id).catch(() => []);
+    if (!kluby.length) return [];
+    const ids = kluby.map(k => k.id);
+    const { data: rows } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, nastroyki')
+        .in('id', ids);
+    const map = Object.fromEntries((rows || []).map(r => [r.id, r]));
+    return kluby.map(k => {
+        const full = map[k.id] || k;
+        const clubTheme = temaKlubaIzNastroek(full.nastroyki || {});
+        return {
+            id: full.id,
+            nazvaniye: full.nazvaniye || k.nazvaniye,
+            branded: !!(full.nastroyki?.stilizatsiya_kluba),
+            club_theme: clubTheme
+        };
+    });
+}
+
+function topReytingaIzStrok(rows) {
+    const totals = {};
+    (rows || []).forEach(row => {
+        const id = row.igrok_id;
+        if (!id) return;
+        if (!totals[id]) {
+            totals[id] = {
+                name: row.igroki?.igrovoy_nik || row.igroki?.imya || '?',
+                pts: 0,
+                games: 0
+            };
+        }
+        totals[id].pts += row.bally_vsego || 0;
+        totals[id].games++;
+    });
+    return Object.values(totals)
+        .sort((a, b) => b.pts - a.pts)
+        .slice(0, 10)
+        .map((p, i) => ({ place: i + 1, ...p }));
+}
+
+async function poluchitTopReytingaKluba(klub_id, sportivniy = false) {
+    if (!klub_id) return [];
+    const { data: rows } = await supabase
+        .from('bally')
+        .select('igrok_id, bally_vsego, igroki(imya, igrovoy_nik)')
+        .eq('klub_id', klub_id)
+        .eq('sportivniy', sportivniy || false);
+    return topReytingaIzStrok(rows);
+}
+
+function luchshayaIgraIzStrok(rows) {
+    if (!rows?.length) return null;
+    const best = [...rows].sort((a, b) => (b.bally_vsego || 0) - (a.bally_vsego || 0))[0];
+    if (!best) return null;
+    const bonus = best.bonus_info && typeof best.bonus_info === 'object' ? best.bonus_info : {};
+    return {
+        points: best.bally_vsego || 0,
+        role: best.rol || '?',
+        won: !!best.pobedila_komanda,
+        date: best.data_igry || null,
+        club: best.kluby?.nazvaniye || '',
+        best_move: !!bonus.luchshiy_hod,
+        best_move_detail: bonus.luchshiy_hod?.prichina || null
+    };
+}
+
+async function poluchitReytingMiniApp(telegram_id, klub_id) {
+    const roles = await poluchitRoliPolzovatelya(telegram_id);
+    const igrok_id = roles.igrok?.id;
+    const result = {
+        klub_id: klub_id || null,
+        my: null,
+        top: [],
+        best_game: null
+    };
+
+    if (klub_id) {
+        result.top = await poluchitTopReytingaKluba(klub_id, false);
+    }
+
+    if (!igrok_id) return result;
+
+    let query = supabase
+        .from('bally')
+        .select('bally_vsego, rol, pobedila_komanda, data_igry, klub_id, bonus_info, kluby(nazvaniye)')
+        .eq('igrok_id', igrok_id)
+        .order('data_igry', { ascending: false })
+        .limit(50);
+    if (klub_id) query = query.eq('klub_id', klub_id);
+
+    const { data: rows } = await query;
+    const list = rows || [];
+    if (!list.length) return result;
+
+    const wins = list.filter(r => r.pobedila_komanda).length;
+    result.my = {
+        games: list.length,
+        points: list.reduce((s, r) => s + (r.bally_vsego || 0), 0),
+        wins,
+        recent: list.slice(0, 5).map(r => ({
+            role: r.rol || '?',
+            points: r.bally_vsego || 0,
+            won: !!r.pobedila_komanda,
+            club: r.kluby?.nazvaniye || ''
+        }))
+    };
+    result.best_game = luchshayaIgraIzStrok(list);
+    return result;
+}
+
 async function sostoyanieMiniApp(user) {
     const telegram_id = Number(user.id);
-    const { data: igrok } = await supabase
-        .from('igroki')
-        .select('id, imya, igrovoy_nik')
-        .eq('tg_id', telegram_id)
-        .maybeSingle();
+    const roles = await poluchitRoliPolzovatelya(telegram_id);
+    const igrok = roles.igrok;
 
-    const kluby = await poluchitKlubyDlyaIgr(telegram_id).catch(() => []);
+    const clubs = await poluchitKlubyMiniApp(telegram_id);
+    const selectedKlubId = clubs[0]?.id || null;
     const games = aktivnyeIgryVedushchego(telegram_id).map(({ kod, igra }) => kratkoIgruDlyaMiniApp(kod, igra));
-    const klubIds = new Set(kluby.map(k => k.id));
+    const klubIds = new Set(clubs.map(k => k.id));
     Object.entries(igry)
         .filter(([kod, igra]) => !String(kod).startsWith('archive_') && klubIds.has(igra?.klub_id) && igra?.vedushchii_id !== telegram_id)
         .forEach(([kod, igra]) => games.push(kratkoIgruDlyaMiniApp(kod, igra)));
+
+    const rating = await poluchitReytingMiniApp(telegram_id, selectedKlubId).catch(() => ({
+        klub_id: selectedKlubId,
+        my: null,
+        top: [],
+        best_game: null
+    }));
 
     return {
         user: {
             telegram_id,
             name: igrok?.igrovoy_nik || igrok?.imya || user.first_name || 'Игрок',
-            registered: !!igrok
+            registered: roles.registered,
+            is_owner: roles.isOwner,
+            is_host: roles.isHost || roles.isOwner
         },
-        clubs: kluby,
+        themes: Object.values(MINIAPP_TEMY),
+        clubs,
+        selected_klub_id: selectedKlubId,
+        rating,
         games
     };
 }
@@ -212,6 +363,16 @@ async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}) {
         await bot.sendMessage(chatId, '💬 Поддержка Prime Mafia: напиши сюда, что случилось, и мы поможем.');
         return 'Поддержка открыта в боте';
     }
+    if (action === 'rating') {
+        await bot.sendMessage(chatId, '🏆 *Рейтинг*\n\nОткрой полный рейтинг в боте:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
+                [{ text: '🏛 Рейтинг клуба', callback_data: 'reyting_vybor_kluba' }]
+            ] }
+        });
+        return 'Рейтинг открыт в боте';
+    }
 
     await bot.sendMessage(chatId, '✅ Данные из приложения получены.');
     return 'Действие получено';
@@ -224,7 +385,13 @@ async function obrabotatMiniAppApi(req, res, url) {
         return;
     }
     if (req.method === 'GET' && url.pathname === '/api/miniapp/state') {
-        otpravitJson(res, 200, { ok: true, data: await sostoyanieMiniApp(user) });
+        const klub_id = url.searchParams.get('klub_id');
+        const data = await sostoyanieMiniApp(user);
+        if (klub_id && data.clubs?.some(c => c.id === klub_id)) {
+            data.selected_klub_id = klub_id;
+            data.rating = await poluchitReytingMiniApp(Number(user.id), klub_id).catch(() => data.rating);
+        }
+        otpravitJson(res, 200, { ok: true, data });
         return;
     }
     if (req.method === 'POST' && url.pathname === '/api/miniapp/action') {
@@ -245,8 +412,13 @@ function otpravitMiniAppFile(res, url) {
     const relPath = url.pathname === MINI_APP_PATH || url.pathname === MINI_APP_PATH + '/'
         ? 'index.html'
         : decodeURIComponent(url.pathname.replace(MINI_APP_PATH + '/', ''));
-    const filePath = path.normalize(path.join(MINI_APP_DIR, relPath));
-    if (!filePath.startsWith(MINI_APP_DIR)) {
+    if (relPath.includes('..') || path.isAbsolute(relPath)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+    }
+    const filePath = path.resolve(MINI_APP_DIR, relPath);
+    if (!putVnutriMiniAppDir(filePath)) {
         res.writeHead(403);
         res.end('Forbidden');
         return;
@@ -407,6 +579,55 @@ function isVedushchiy(rol) {
     return rol === ROL_VEDUSHCHIY || rol === 'vedushchii';
 }
 
+async function poluchitRoliPolzovatelya(telegram_id) {
+    const { data: igrok } = await supabase
+        .from('igroki')
+        .select('id, imya, igrovoy_nik')
+        .eq('tg_id', telegram_id)
+        .maybeSingle();
+
+    if (!igrok?.id) {
+        return {
+            registered: false,
+            igrok: null,
+            isOwner: false,
+            isHost: false,
+            menuCallback: 'menu_igroka'
+        };
+    }
+
+    const { data: memberships } = await supabase
+        .from('chleny_klubov')
+        .select('rol')
+        .eq('igrok_id', igrok.id);
+
+    let isOwner = (memberships || []).some(m => m.rol === 'vladyelets');
+    const isHost = (memberships || []).some(m => isVedushchiy(m.rol));
+
+    if (!isOwner) {
+        const { data: ownedKluby } = await supabase
+            .from('kluby')
+            .select('id')
+            .eq('owner_tg_id', telegram_id)
+            .limit(1);
+        if (ownedKluby?.length) isOwner = true;
+    }
+
+    const menuCallback = isOwner ? 'menu_vladeltsa' : isHost ? 'menu_vedushchego' : 'menu_igroka';
+
+    return {
+        registered: true,
+        igrok,
+        isOwner,
+        isHost,
+        menuCallback
+    };
+}
+
+function knopkaGlavnogoMenu(roles, text = '⬅️ В меню') {
+    return { text, callback_data: roles?.menuCallback || 'menu_igroka' };
+}
+
 function klubIdIzSostoyaniyaNaznacha(tg_id) {
     const st = sostoyanie[tg_id];
     if (!st) return null;
@@ -527,11 +748,16 @@ async function zavershitNaznachenieVedushchego(chatId, messageId, owner_tg_id, k
 
     if (!rez.ok) {
         const msg = rez.error === 'owner'
-            ? '❌ Собственника нельзя назначить ведущим'
+            ? '🎤 *Ты уже собственник этого клуба*\n\nОтдельно назначать себя ведущим не нужно — можешь вести игры сам через «Игровой вечер» или «Создать игру».\n\nЧтобы добавить другого ведущего, найди его по имени или @username.'
             : '❌ Ошибка: ' + (rez.error || 'не удалось сохранить');
         await bot.editMessageText(msg, {
-            chat_id: chatId, message_id: messageId,
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]] }
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '🌙 Игровой вечер', callback_data: 'igrovoy_vecher' }],
+                [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+                [{ text: '🎤 Назначить другого', callback_data: 'naznachit_vedushchego' }],
+                [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
+            ] }
         });
         return;
     }
@@ -1070,6 +1296,7 @@ const menu_igroka_full = {
             [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
             [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
             [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
+            [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
             [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
             [{ text: '📄 Оферта и конфиденциальность', callback_data: 'legal_menu' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
@@ -1084,10 +1311,13 @@ const menu_vladeltsa = {
             ...knopkiMiniApp(),
             [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
             [
-                { text: '🎮 Мои игры', callback_data: 'moi_igry' },
-                { text: '📊 Аналитика', callback_data: 'analitika' }
+                { text: '🎲 Создать игру', callback_data: 'sozdat_igru' },
+                { text: '🎮 Мои игры', callback_data: 'moi_igry' }
             ],
-            [{ text: '✨ Ещё', callback_data: 'menu_more_vladeltsa' }]
+            [
+                { text: '📊 Аналитика', callback_data: 'analitika' },
+                { text: '✨ Ещё', callback_data: 'menu_more_vladeltsa' }
+            ]
         ]
     }
 };
@@ -1425,23 +1655,17 @@ async function obrabotatStart(msg, match) {
         .single();
 
     if (igrok) {
-        // Игрок уже зарегистрирован — определяем роль
-        const { data: memberships } = await supabase
-            .from('chleny_klubov')
-            .select('rol')
-            .eq('igrok_id', igrok.id);
+        const roles = await poluchitRoliPolzovatelya(tg_id);
 
-        const roli = (memberships || []).map(m => m.rol);
-        const rol = roli.includes('vladyelets') ? 'vladyelets'
-            : roli.some(r => isVedushchiy(r)) ? ROL_VEDUSHCHIY
-            : 'igrok';
-
-        if (rol === 'vladyelets') {
-            bot.sendMessage(chatId, `🏛 *Привет, ${igrok.imya}!*\n\nМеню собственника`, {
+        if (roles.isOwner) {
+            const dop = roles.isHost
+                ? '\n\n_Ты собственник и ведущий — доступны и управление клубом, и ведение игр._'
+                : '\n\n_Как собственник, ты можешь вести игры сам или назначить отдельного ведущего._';
+            bot.sendMessage(chatId, `🏛 *Привет, ${igrok.imya}!*\n\nМеню собственника${dop}`, {
                 parse_mode: 'Markdown', ...menu_vladeltsa
             });
             await pokazatBystryeKnopkiVedushchego(chatId);
-        } else if (isVedushchiy(rol)) {
+        } else if (roles.isHost) {
             bot.sendMessage(chatId, `🎭 *Привет, ${igrok.imya}!*\n\nМеню ведущего`, {
                 parse_mode: 'Markdown', ...menu_vedushchego
             });
@@ -1469,17 +1693,36 @@ async function obrabotatStart(msg, match) {
 
 // Маппинг file_id ролей (заполняется через /upload_role)
 const roli_foto = {};
+const roli_foto_klub = {};
 
 const ALL_ROLE_NAMES = ['Дон', 'Мафия', 'Путана', 'Эскортница', 'Подрывник мафии', 'Консильери',
                       'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
                       'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
                       'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
-                      'Мстительный родственник', 'Маньяк', 'Мирный'];
+                      'Мстительный родственник', 'Маньяк', 'Мирный',
+                      'Мирный житель', 'Дон мафии', 'Якудза', 'Глава якудзы',
+                      'Джокер', 'Мститель', 'Чужая', 'Журналист', 'Оборотень'];
 
 function normalizovatNazvanieRoli(input) {
     const text = String(input || '').trim().toLowerCase();
     if (text === 'путана') return 'Эскортница';
+    if (text === 'мирный') return 'Мирный';
+    if (text === 'мирный житель') return 'Мирный житель';
+    if (text === 'дон мафии') return 'Дон мафии';
+    if (text === 'глава якудзы') return 'Глава якудзы';
+    if (text === 'мстительный родственник') return 'Мстительный родственник';
     return ALL_ROLE_NAMES.find(r => r.toLowerCase() === text) || null;
+}
+
+function klyuchFotoRoliKluba(klub_id, rol) {
+    return 'rol_foto_klub_' + klub_id + '_' + rol;
+}
+
+function fotoRoliDlyaIgry(igra, rol) {
+    if (igra?.klub_id && roli_foto_klub[igra.klub_id]?.[rol]) {
+        return roli_foto_klub[igra.klub_id][rol];
+    }
+    return roli_foto[rol];
 }
 
 async function sohranitFotoRoli(msg, file_id) {
@@ -1500,12 +1743,22 @@ async function sohranitFotoRoli(msg, file_id) {
         return;
     }
 
-    roli_foto[caption] = file_id;
+    const klubUploadId = typeof sostoyanie[tg_id] === 'string' && sostoyanie[tg_id].startsWith('admin_cards_')
+        ? sostoyanie[tg_id].replace('admin_cards_', '')
+        : null;
+
+    if (klubUploadId) {
+        roli_foto_klub[klubUploadId] = roli_foto_klub[klubUploadId] || {};
+        roli_foto_klub[klubUploadId][caption] = file_id;
+    } else {
+        roli_foto[caption] = file_id;
+    }
 
     // Сохраняем в Supabase для постоянства
     try {
+        const klyuch = klubUploadId ? klyuchFotoRoliKluba(klubUploadId, caption) : 'rol_foto_' + caption;
         const { error } = await supabase.from('nastroyki_app').upsert({
-            klyuch: 'rol_foto_' + caption,
+            klyuch,
             znachenie: file_id
         }, { onConflict: 'klyuch' });
         if (error) {
@@ -1520,7 +1773,7 @@ async function sohranitFotoRoli(msg, file_id) {
     }
 
     bot.sendMessage(msg.chat.id,
-        '✅ ' + caption + ' — картинка сохранена.'
+        '✅ ' + caption + ' — картинка сохранена' + (klubUploadId ? ' для клуба.' : '.')
     );
 }
 
@@ -1549,14 +1802,44 @@ bot.onText(/\/admin/, async (msg) => {
         );
         return;
     }
+    if (typeof sostoyanie[tg_id] === 'string' && sostoyanie[tg_id].startsWith('admin_cards_')) {
+        delete sostoyanie[tg_id];
+    }
     bot.sendMessage(msg.chat.id,
         '🔐 *Режим администратора*\n\n' +
-        '📸 *Загрузка картинок ролей:*\n' +
+        '📸 *Глобальные картинки ролей:*\n' +
         'Отправь фото или PNG/JPG-файл с *подписью* = название роли\n' +
         '_Пример подписи: Дон или ведьма_\n\n' +
-        '📋 /roles\\_status — какие роли уже загружены',
+        '🏛 *Клубные картинки ролей:*\n' +
+        '/club\\_cards — выбрать клуб и загрузить карты именно для него\n\n' +
+        '📋 /roles\\_status — глобальные роли\n' +
+        '📋 /club\\_roles\\_status — роли выбранного клуба',
         { parse_mode: 'Markdown' }
     );
+});
+
+bot.onText(/\/club_cards/, async (msg) => {
+    const tg_id = msg.from.id;
+    if (!isAdmin(tg_id)) return;
+    const { data: kluby, error } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye')
+        .order('nazvaniye', { ascending: true })
+        .limit(50);
+    if (error) {
+        bot.sendMessage(msg.chat.id, '❌ Не получилось загрузить клубы.\n\nОшибка: ' + error.message);
+        return;
+    }
+    if (!kluby?.length) {
+        bot.sendMessage(msg.chat.id, 'Пока нет клубов для привязки карт.');
+        return;
+    }
+    bot.sendMessage(msg.chat.id, '🏛 *Выбери клуб для загрузки карт ролей:*', {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: kluby.map(k => [{ text: k.nazvaniye || 'Клуб', callback_data: 'admin_cards_' + k.id }])
+        }
+    });
 });
 
 bot.onText(/\/roles_status/, async (msg) => {
@@ -1573,13 +1856,42 @@ bot.onText(/\/roles_status/, async (msg) => {
         return;
     }
 
-    const loaded = (rows || []).map(r => r.klyuch.replace('rol_foto_', ''));
+    const loaded = (rows || [])
+        .filter(r => !r.klyuch.startsWith('rol_foto_klub_'))
+        .map(r => r.klyuch.replace('rol_foto_', ''));
     let t = '📸 Статус загрузки картинок:\n\n';
     ALL_ROLE_NAMES.forEach(r => {
         t += (loaded.includes(r) ? '✅' : '❌') + ' ' + r + '\n';
     });
     t += '\nЗагружено: ' + loaded.length + '/' + ALL_ROLE_NAMES.length;
 
+    bot.sendMessage(msg.chat.id, t);
+});
+
+bot.onText(/\/club_roles_status/, async (msg) => {
+    const tg_id = msg.from.id;
+    if (!isAdmin(tg_id)) return;
+    const klub_id = typeof sostoyanie[tg_id] === 'string' && sostoyanie[tg_id].startsWith('admin_cards_')
+        ? sostoyanie[tg_id].replace('admin_cards_', '')
+        : null;
+    if (!klub_id) {
+        bot.sendMessage(msg.chat.id, '🏛 Сначала выбери клуб командой /club_cards.');
+        return;
+    }
+    const prefix = 'rol_foto_klub_' + klub_id + '_';
+    const { data: rows, error } = await supabase.from('nastroyki_app')
+        .select('klyuch, znachenie')
+        .like('klyuch', prefix + '%');
+    if (error) {
+        bot.sendMessage(msg.chat.id, '❌ Не получилось загрузить статус клубных карт.\n\nОшибка: ' + error.message);
+        return;
+    }
+    const loaded = (rows || []).map(r => r.klyuch.replace(prefix, ''));
+    let t = '🏛📸 Статус клубных карт ролей:\n\n';
+    ALL_ROLE_NAMES.forEach(r => {
+        t += (loaded.includes(r) ? '✅' : '❌') + ' ' + r + '\n';
+    });
+    t += '\nЗагружено: ' + loaded.length + '/' + ALL_ROLE_NAMES.length;
     bot.sendMessage(msg.chat.id, t);
 });
 
@@ -1590,8 +1902,19 @@ async function zagruzit_foto_roley() {
             .select('klyuch, znachenie')
             .like('klyuch', 'rol_foto_%');
         (rows || []).forEach(r => {
-            const rol = r.klyuch.replace('rol_foto_', '');
-            roli_foto[rol] = r.znachenie;
+            if (r.klyuch.startsWith('rol_foto_klub_')) {
+                const rest = r.klyuch.replace('rol_foto_klub_', '');
+                const idx = rest.indexOf('_');
+                if (idx > 0) {
+                    const klub_id = rest.slice(0, idx);
+                    const rol = rest.slice(idx + 1);
+                    roli_foto_klub[klub_id] = roli_foto_klub[klub_id] || {};
+                    roli_foto_klub[klub_id][rol] = r.znachenie;
+                }
+            } else {
+                const rol = r.klyuch.replace('rol_foto_', '');
+                roli_foto[rol] = r.znachenie;
+            }
         });
         if (rows?.length > 0) console.log('✅ Загружено фото ролей:', rows.length);
     } catch(e) {
@@ -2051,9 +2374,13 @@ bot.on('message', async function(msg) {
             return;
         }
         const faza_ph = igra_ph._zhdat_fazu || 'den';
+        if (['авто', 'auto', 'случайно', 'рандом', 'random'].includes(text.toLowerCase())) {
+            await ustanovitPervogoHodaAvto(chatId, null, kod_ph, faza_ph, tg_id);
+            return;
+        }
         const igrok_ph = naytiIgrokaPoVvodu(igra_ph, text);
         if (!igrok_ph || igrok_ph.status !== 'v_igre') {
-            bot.sendMessage(chatId, '❌ Не нашёл такого игрока. Отправь *номер* или *ник* из списка.', { parse_mode: 'Markdown' });
+            bot.sendMessage(chatId, '❌ Не нашёл такого игрока. Отправь *номер*, *ник* или `авто`.', { parse_mode: 'Markdown' });
             return;
         }
         await ustanovitPervogoHoda(chatId, null, kod_ph, igrok_ph.nomer, faza_ph, tg_id);
@@ -4150,7 +4477,8 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
     } else {
         knopki.push([{ text: '↩️ Открыть вечер заново', callback_data: 'vecher_reopen_' + klubInfo.id }]);
     }
-    knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
+    const roles = await poluchitRoliPolzovatelya(telegram_id);
+    knopki.push([knopkaGlavnogoMenu(roles)]);
 
     await bot.editMessageText(t, {
         chat_id: chatId,
@@ -4776,6 +5104,7 @@ function tekstVyboraPervogoHoda(igra, kod, faza) {
     t += faza === 'znakomstvo'
         ? 'Круг представления пойдёт *по часовой* с этого места.\n\n'
         : 'Дневные речи пойдут *против часовой* с этого места.\n\n';
+    t += 'Можно выбрать вручную или нажать *«Назначить автоматически»*.\n\n';
     igra.igroki.filter(i => i.status === 'v_igre').forEach(i => {
         t += i.nomer + '. ' + i.name + '\n';
     });
@@ -4788,12 +5117,13 @@ function knopkaKtoNachinaet(faza, den) {
 }
 
 function knopkiVyboraPervogoHoda(igra, kod, faza) {
-    const knopki = igra.igroki
+    const knopki = [[{ text: '🎲 Назначить автоматически', callback_data: 'perviy_hod_auto_' + kod + '_' + faza }]];
+    knopki.push(...igra.igroki
         .filter(i => i.status === 'v_igre')
         .map(i => [{
             text: '\u25B6\uFE0F \u2116' + i.nomer + ' ' + i.name,
             callback_data: 'perviy_hod_' + kod + '_' + i.nomer + '_' + faza
-        }]);
+        }]));
     knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'panel_' + kod }]);
     return { inline_keyboard: knopki };
 }
@@ -4886,6 +5216,15 @@ async function ustanovitPervogoHoda(chatId, messageId, kod, nomer, faza, telegra
     if (faza === 'znakomstvo') await nachatFazuZnakomstva(chatId, messageId, kod);
     else await nachatFazuDen(chatId, messageId, kod);
     return true;
+}
+
+async function ustanovitPervogoHodaAvto(chatId, messageId, kod, faza, telegram_id) {
+    const igra = igry[kod];
+    if (!igra) return false;
+    const kandidaty = (igra.igroki || []).filter(i => i.status === 'v_igre');
+    if (kandidaty.length === 0) return false;
+    const vybrannyy = kandidaty[Math.floor(Math.random() * kandidaty.length)];
+    return ustanovitPervogoHoda(chatId, messageId, kod, vybrannyy.nomer, faza, telegram_id);
 }
 
 async function sleduyushchiy(chatId, messageId, kod) {
@@ -5508,6 +5847,14 @@ bot.on('callback_query', async function(query) {
 
     // ===== ВОЗВРАТ В МЕНЮ =====
     if (data === 'menu_vedushchego') {
+        const roles = await poluchitRoliPolzovatelya(telegram_id);
+        if (roles.isOwner) {
+            bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
+                chat_id: chatId, message_id: messageId,
+                parse_mode: 'Markdown', ...menu_vladeltsa
+            });
+            return;
+        }
         bot.editMessageText('🎙 *Меню ведущего*\n\nЧто хочешь сделать?', {
             chat_id: chatId, message_id: messageId,
             parse_mode: 'Markdown', ...menu_vedushchego
@@ -5561,6 +5908,36 @@ bot.on('callback_query', async function(query) {
                 reply_markup: { inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]] }
             }
         );
+    }
+
+    else if (data.startsWith('admin_cards_')) {
+        if (!isAdmin(telegram_id)) {
+            bot.answerCallbackQuery(query.id, { text: 'Только администратор', show_alert: true });
+            return;
+        }
+        const klub_id = data.replace('admin_cards_', '');
+        const { data: klub } = await supabase.from('kluby').select('id, nazvaniye').eq('id', klub_id).single();
+        sostoyanie[telegram_id] = 'admin_cards_' + klub_id;
+        bot.editMessageText(
+            '🏛📸 *Карты ролей клуба*\n\n' +
+            'Клуб: *' + md(klub?.nazvaniye || klub_id) + '*\n\n' +
+            'Теперь отправляй фото или PNG/JPG-файл с подписью = название роли.\n\n' +
+            'Пример подписи: `Дон`\n\n' +
+            'Статус загрузки: /club_roles_status\n' +
+            'Выйти из режима клубных карт: /admin',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Админ-меню', callback_data: 'baza_noop' }]] }
+            }
+        );
+    }
+
+    else if (data.startsWith('perviy_hod_auto_')) {
+        const parts = data.replace('perviy_hod_auto_', '').split('_');
+        const kod = parts[0];
+        const faza = parts[1] || 'den';
+        const ok = await ustanovitPervogoHodaAvto(chatId, messageId, kod, faza, telegram_id);
+        if (!ok) bot.answerCallbackQuery(query.id, { text: 'Не получилось назначить автоматически', show_alert: true });
     }
 
     else if (data === 'igrovoy_vecher') {
@@ -6149,9 +6526,20 @@ bot.on('callback_query', async function(query) {
         );
 
         setTimeout(() => {
-            bot.sendMessage(chatId, '🎴 *Меню игрока*\n\nЧто хочешь сделать?', {
-                parse_mode: 'Markdown', ...menu_igroka
-            });
+            bot.sendMessage(chatId,
+                '🎴 *Что дальше?*\n\n' +
+                '• *Игрок* — войти в игру по коду или смотреть анонсы\n' +
+                '• *Собственник клуба* — создать клуб и управлять им\n' +
+                '• *Ведущий* — собственник назначит тебя после регистрации',
+                {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
+                        [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+                        [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
+                    ] }
+                }
+            );
         }, 500);
     }
 
@@ -6363,6 +6751,8 @@ bot.on('callback_query', async function(query) {
 
     // ===== ВЕДУЩИЙ: создать игру =====
     else if (data === 'sozdat_igru') {
+        const roles = await poluchitRoliPolzovatelya(telegram_id);
+        const nazad = knopkaGlavnogoMenu(roles, '⬅️ Назад');
         // Сначала выбираем клуб
         const { data: igrok, error: err1 } = await supabase
             .from('igroki').select('id').eq('tg_id', telegram_id).single();
@@ -6378,9 +6768,12 @@ bot.on('callback_query', async function(query) {
         const kluby = (chleny || []).filter(c => c.kluby).map(c => c.kluby);
 
         if (!kluby || kluby.length === 0) {
-            bot.editMessageText('❌ У вас нет клубов.', {
+            bot.editMessageText('❌ У вас нет клубов.\n\nСоздай клуб или попроси собственника назначить тебя ведущим.', {
                 chat_id: chatId, message_id: messageId,
-                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]] }
+                reply_markup: { inline_keyboard: [
+                    [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+                    [nazad]
+                ] }
             });
             return;
         }
@@ -6392,14 +6785,14 @@ bot.on('callback_query', async function(query) {
                 reply_markup: { inline_keyboard: [
                     [{ text: '📢 По анонсу', callback_data: 'igra_anons_' + kluby[0].id }],
                     [{ text: '🎲 Без анонса', callback_data: 'igra_bez_anons_' + kluby[0].id }],
-                    [{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]
+                    [nazad]
                 ]}
             });
             return;
         }
 
         const knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'igra_klub_' + k.id }]);
-        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vedushchego' }]);
+        knopki.push([nazad]);
         bot.editMessageText('🎲 *Создание игры*\n\nВыбери клуб:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki }
@@ -7224,7 +7617,7 @@ bot.on('callback_query', async function(query) {
             const reply_markup_role = is_maf_player
                 ? { inline_keyboard: [[{ text: '\uD83D\uDC40 Посмотреть свою команду', callback_data: 'moya_komanda_' + kod }]] }
                 : undefined;
-            const foto_id = roli_foto[igrok.rol];
+            const foto_id = fotoRoliDlyaIgry(igra, igrok.rol);
             const tekst_roli = opisanie + '\n\n' +
                 '\uD83C\uDFB4 Игра \u2116' + kod + '\n' +
                 (nazvanieKlubaIgry(igra) ? '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n' : '') +
@@ -9485,7 +9878,7 @@ bot.on('callback_query', async function(query) {
         ozhidanie_registracii[telegram_id] = { shag: 'sozdat_klub_nazvanie', gorod_id: gorod_id };
         bot.editMessageText('➕ *Создание клуба*\n\nГород выбран ✅\n\nТеперь введи название клуба:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_igroka' }]] }
         });
     }
 
@@ -9656,10 +10049,18 @@ bot.on('callback_query', async function(query) {
         if (kluby.length === 1) {
             sostoyanie[telegram_id] = 'naznach_poisk_' + kluby[0].id;
             bot.editMessageText(
-                '🎤 *Назначить ведущего*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\nВведи имя, @username или номер телефона игрока\n_или перешли его контакт из телефонной книги:_', {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
-            });
+                '🎤 *Назначить ведущего*\n\nКлуб: *' + kluby[0].nazvaniye + '*\n\n' +
+                '• *Я веду сам* — если хочешь вести игры сам\n' +
+                '• *Другой человек* — введи имя, @username или номер телефона\n' +
+                '_или перешли его контакт из телефонной книги_',
+                {
+                    chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: '🎤 Я веду сам', callback_data: 'naznach_ya_vedu_' + kluby[0].id }],
+                        [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
+                    ] }
+                }
+            );
             return;
         }
 
@@ -9671,15 +10072,41 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    else if (data.startsWith('naznach_ya_vedu_')) {
+        const klub_id = data.replace('naznach_ya_vedu_', '');
+        delete sostoyanie[telegram_id];
+        bot.editMessageText(
+            '🎤 *Ты ведёшь игры сам*\n\n' +
+            'Как собственник, ты уже можешь открывать игровой вечер и создавать игры без отдельного назначения.\n\n' +
+            'Если позже понадобится другой ведущий — вернись в «Назначить ведущего» и найди его по имени или @username.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🌙 Игровой вечер', callback_data: 'igrovoy_vecher' }],
+                    [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
+                    [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
+                ] }
+            }
+        );
+    }
+
     else if (data.startsWith('naznachit_v_klube_')) {
         const klub_id = data.replace('naznachit_v_klube_', '');
         const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
         sostoyanie[telegram_id] = 'naznach_poisk_' + klub_id;
         bot.editMessageText(
-            '🎤 *Назначить ведущего*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\nВведи имя, @username или номер телефона игрока\n_или перешли его контакт из телефонной книги:_', {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
-        });
+            '🎤 *Назначить ведущего*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\n\n' +
+            '• *Я веду сам* — если хочешь вести игры сам\n' +
+            '• *Другой человек* — введи имя, @username или номер телефона\n' +
+            '_или перешли его контакт из телефонной книги_',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🎤 Я веду сам', callback_data: 'naznach_ya_vedu_' + klub_id }],
+                    [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
+                ] }
+            }
+        );
     }
 
     else if (data.startsWith('ncfm_')) {

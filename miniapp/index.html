@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="default">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -7,19 +7,21 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/miniapp/styles.css" />
 </head>
-<body>
+<body class="device-unknown">
   <main class="shell">
     <section class="hero">
       <div class="brand">
         <div class="mark">PM</div>
         <div>
-          <p class="eyebrow">Prime Mafia</p>
-          <h1>Панель ведущего</h1>
+          <p class="eyebrow" id="brandEyebrow">Prime Mafia</p>
+          <h1 id="heroTitle">Панель ведущего</h1>
+          <p class="device-hint" id="deviceHint"></p>
         </div>
       </div>
       <div class="hero-actions">
         <button class="button primary" data-action="igrovoy_vecher">Игровой вечер</button>
         <button class="button" data-action="create_game">Создать игру</button>
+        <button class="button button-expand hidden" type="button" id="expandBtn">⛶ На весь экран</button>
       </div>
     </section>
 
@@ -37,18 +39,23 @@
           </div>
         </div>
 
+        <div>
+          <div class="section-title">Тема интерфейса</div>
+          <div class="theme-grid" id="themeGrid"></div>
+        </div>
+
         <div class="quick-grid">
           <button class="tile" data-action="my_games">
             <span>🎮</span>
             <strong>Мои игры</strong>
           </button>
+          <button class="tile" data-action="rating">
+            <span>🏆</span>
+            <strong>Рейтинг</strong>
+          </button>
           <button class="tile" data-action="open_menu">
             <span>🏠</span>
             <strong>Меню бота</strong>
-          </button>
-          <button class="tile" data-action="support">
-            <span>💬</span>
-            <strong>Поддержка</strong>
           </button>
           <button class="tile" data-action="roles">
             <span>🎭</span>
@@ -73,35 +80,49 @@
 
         <div class="mafia-table" id="table">
           <div class="table-center">
-            <span>Prime</span>
-            <strong>Mafia</strong>
+            <span id="tableBrandTop">Prime</span>
+            <strong id="tableBrandMain">Mafia</strong>
           </div>
         </div>
       </section>
 
       <aside class="panel inspector">
-        <div class="section-title">Состояние вечера</div>
-        <div class="stats">
-          <div>
-            <span id="gamesCount">0</span>
-            <p>активных игр</p>
-          </div>
-          <div>
-            <span id="playersCount">0</span>
-            <p>игроков за столом</p>
-          </div>
-          <div>
-            <span id="aliveCount">0</span>
-            <p>в игре</p>
+        <div class="inspector-stats">
+          <div class="section-title">Состояние вечера</div>
+          <div class="stats">
+            <div>
+              <span id="gamesCount">0</span>
+              <p>активных игр</p>
+            </div>
+            <div>
+              <span id="playersCount">0</span>
+              <p>игроков за столом</p>
+            </div>
+            <div>
+              <span id="aliveCount">0</span>
+              <p>в игре</p>
+            </div>
           </div>
         </div>
 
-        <div class="section-title">Игры</div>
-        <div class="list games" id="gamesList"></div>
+        <div class="inspector-rating">
+          <div class="section-title">Мой рейтинг</div>
+          <div class="rating-card" id="myRating"></div>
+        </div>
 
-        <div class="notice">
-          <strong>iPad/Mac режим</strong>
-          <p>Большой стол, быстрые действия и живое состояние. Управление пока открывается через бота, чтобы не рисковать базой.</p>
+        <div class="inspector-best">
+          <div class="section-title">Лучшая игра</div>
+          <div class="best-game-card" id="bestGame"></div>
+        </div>
+
+        <div class="inspector-top">
+          <div class="section-title">Топ клуба</div>
+          <div class="list ranking" id="clubTop"></div>
+        </div>
+
+        <div class="inspector-games">
+          <div class="section-title">Игры</div>
+          <div class="list games" id="gamesList"></div>
         </div>
       </aside>
     </section>
