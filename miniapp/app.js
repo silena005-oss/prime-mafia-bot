@@ -1,6 +1,6 @@
 const tg = window.Telegram && window.Telegram.WebApp;
 const THEME_KEY = 'pm_miniapp_theme';
-const USER_THEMES = ['default', 'red', 'black_gold', 'blue'];
+const USER_THEMES = ['default', 'red', 'black_gold', 'blue', 'ellada'];
 
 const state = {
   data: null,
@@ -202,6 +202,36 @@ function renderClubTop(top) {
   `).join('');
 }
 
+function avatarHeaders() {
+  return tg?.initData ? { 'x-telegram-init-data': tg.initData } : {};
+}
+
+async function loadAvatarImage(url) {
+  if (!url || !tg?.initData) return null;
+  try {
+    const response = await fetch(url, { headers: avatarHeaders() });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderAvatar(container, name, avatarUrl) {
+  const label = initials(name);
+  container.textContent = label;
+  if (!avatarUrl) return;
+  loadAvatarImage(avatarUrl).then((objectUrl) => {
+    if (!objectUrl) return;
+    container.innerHTML = `<img src="${escapeAttr(objectUrl)}" alt="" /><span class="avatar-fallback">${escapeHtml(label)}</span>`;
+    const img = container.querySelector('img');
+    img.addEventListener('error', () => {
+      container.textContent = label;
+    });
+  });
+}
+
 function render() {
   const data = state.data;
   const user = data.user;
@@ -214,8 +244,10 @@ function render() {
   renderThemes(data.themes);
 
   el.profileName.textContent = user.name;
-  el.profileMeta.textContent = user.registered ? 'Telegram подтверждён' : 'Профиль ещё не зарегистрирован';
-  el.avatar.textContent = initials(user.name);
+  const metaParts = [user.registered ? 'Telegram подтверждён' : 'Профиль ещё не зарегистрирован'];
+  if (user.birthday) metaParts.push('🎂 ' + user.birthday);
+  el.profileMeta.textContent = metaParts.join(' · ');
+  renderAvatar(el.avatar, user.name, user.avatar_url);
 
   if (selectedClub?.branded) {
     el.brandEyebrow.textContent = selectedClub.nazvaniye || 'Prime Mafia';
@@ -306,6 +338,16 @@ function renderSeats(players) {
       <div class="seat-name">${escapeHtml(player.name || 'Игрок')}</div>
       <div class="seat-meta">${player.status === 'v_igre' ? 'в игре' : 'выбыл'} · фолы: ${escapeHtml(player.foly || 0)}</div>
     `;
+    if (player.avatar_url) {
+      loadAvatarImage(player.avatar_url).then((objectUrl) => {
+        if (!objectUrl) return;
+        const img = document.createElement('img');
+        img.className = 'seat-avatar';
+        img.src = objectUrl;
+        img.alt = '';
+        seat.prepend(img);
+      });
+    }
     el.table.appendChild(seat);
   });
 }

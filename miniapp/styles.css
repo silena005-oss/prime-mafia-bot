@@ -80,6 +80,21 @@
   --table-glow: rgba(196, 90, 26, 0.32);
 }
 
+[data-theme="ellada"] {
+  --bg: #1c1208;
+  --panel: rgba(42, 26, 14, 0.90);
+  --gold: #e8a045;
+  --red: #a84818;
+  --red-bright: #d86828;
+  --line: rgba(232, 160, 69, 0.20);
+  --bg-glow-1: rgba(168, 72, 24, 0.48);
+  --bg-glow-2: rgba(232, 160, 69, 0.22);
+  --bg-mid: #261a0e;
+  --hero-a: rgba(140, 58, 18, 0.88);
+  --hero-b: rgba(38, 24, 12, 0.90);
+  --table-glow: rgba(168, 72, 24, 0.34);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -150,6 +165,31 @@ button {
   width: 54px;
   height: 54px;
   border-radius: 19px;
+  overflow: hidden;
+  position: relative;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar .avatar-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.seat-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  object-fit: cover;
+  margin-bottom: 4px;
+  border: 1px solid rgba(217, 180, 106, 0.35);
 }
 
 .eyebrow {
