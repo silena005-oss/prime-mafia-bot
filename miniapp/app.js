@@ -1,6 +1,5 @@
 const tg = window.Telegram && window.Telegram.WebApp;
 const THEME_KEY = 'pm_miniapp_theme';
-const USER_THEMES = ['default', 'red', 'black_gold', 'blue', 'ellada'];
 
 const state = {
   data: null,
@@ -47,6 +46,13 @@ const el = {
   celebrationTitle: document.getElementById('celebrationTitle'),
   celebrationSub: document.getElementById('celebrationSub'),
   celebrationClose: document.getElementById('celebrationClose'),
+  lastGameResult: document.getElementById('lastGameResult'),
+  profileSettingsTrigger: document.getElementById('profileSettingsTrigger'),
+  profileSettingsDialog: document.getElementById('profileSettingsDialog'),
+  settingsAvatar: document.getElementById('settingsAvatar'),
+  syncAvatarBtn: document.getElementById('syncAvatarBtn'),
+  settingsThemeHint: document.getElementById('settingsThemeHint'),
+  openBotSettingsBtn: document.getElementById('openBotSettingsBtn'),
   posterDialog: document.getElementById('posterDialog'),
   posterCanvas: document.getElementById('posterCanvas'),
   posterClub: document.getElementById('posterClub'),
@@ -87,6 +93,72 @@ if (el.celebrationClose) {
 
 if (el.posterRender) el.posterRender.addEventListener('click', renderPosterCanvas);
 
+if (el.profileSettingsTrigger) {
+  el.profileSettingsTrigger.addEventListener('click', openProfileSettings);
+  el.profileSettingsTrigger.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openProfileSettings();
+    }
+  });
+}
+if (el.syncAvatarBtn) el.syncAvatarBtn.addEventListener('click', syncAvatarFromTelegram);
+if (el.openBotSettingsBtn) {
+  el.openBotSettingsBtn.addEventListener('click', () => {
+    el.profileSettingsDialog?.close();
+    sendAction('profile_settings');
+  });
+}
+
+function openProfileSettings() {
+  const user = state.data?.user;
+  if (user) {
+    renderAvatar(el.settingsAvatar, user.name, user.avatar_url);
+  }
+  updateSettingsThemeHint();
+  el.profileSettingsDialog?.showModal();
+}
+
+function updateSettingsThemeHint() {
+  if (!el.settingsThemeHint) return;
+  const club = (state.data?.clubs || []).find((c) => c.id === state.selectedKlubId);
+  if (club?.club_theme) {
+    el.settingsThemeHint.textContent = 'Клуб «' + (club.nazvaniye || '') + '» задаёт свою тему — цвет применяется автоматически.';
+  } else {
+    el.settingsThemeHint.textContent = 'Выбери цвет интерфейса для себя. Клубные темы (Ellada, Sochi) видны только участникам этих клубов.';
+  }
+}
+
+async function miniappAction(action, extra = {}) {
+  if (!tg || !tg.initData) {
+    showToast('Открой mini app внутри Telegram.');
+    return null;
+  }
+  const response = await fetch('/api/miniapp/action', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-telegram-init-data': tg.initData,
+    },
+    body: JSON.stringify({ action, ...extra }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.ok) throw new Error(json.error || 'action_failed');
+  return json;
+}
+
+async function syncAvatarFromTelegram() {
+  try {
+    showToast('Обновляю аватар...');
+    const json = await miniappAction('sync_avatar');
+    showToast(json?.message || 'Готово');
+    await loadState(state.selectedKlubId, true);
+    renderAvatar(el.settingsAvatar, state.data?.user?.name, state.data?.user?.avatar_url);
+  } catch {
+    showToast('Не удалось обновить аватар.');
+  }
+}
+
 function initials(name) {
   return String(name || 'PM')
     .split(/\s+/)
@@ -124,25 +196,31 @@ function applyTheme(themeId) {
 function effectiveTheme(data) {
   const club = (data?.clubs || []).find((c) => c.id === state.selectedKlubId);
   if (club?.club_theme) return club.club_theme;
-  return state.theme;
+  const saved = state.theme;
+  const allowed = (data?.themes || []).map((t) => t.id);
+  if (allowed.includes(saved)) return saved;
+  return 'default';
 }
 
 function renderThemes(themes) {
-  const list = (themes || []).filter((t) => USER_THEMES.includes(t.id));
+  const list = themes || [];
+  const forced = (state.data?.clubs || []).find((c) => c.id === state.selectedKlubId)?.club_theme;
   el.themeGrid.innerHTML = list.map((theme) => `
-    <button type="button" class="theme-chip" data-theme-id="${escapeAttr(theme.id)}" title="${escapeAttr(theme.label)}">
+    <button type="button" class="theme-chip${forced ? ' disabled' : ''}" data-theme-id="${escapeAttr(theme.id)}" title="${escapeAttr(theme.label)}"${forced ? ' disabled' : ''}>
       <span class="theme-swatch" style="background:${escapeAttr(theme.accent)}"></span>
       <span>${escapeHtml(theme.label)}</span>
     </button>
   `).join('');
 
-  el.themeGrid.querySelectorAll('[data-theme-id]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      applyTheme(btn.dataset.themeId);
-      showToast('Тема: ' + btn.textContent.trim());
+  if (!forced) {
+    el.themeGrid.querySelectorAll('[data-theme-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        applyTheme(btn.dataset.themeId);
+        showToast('Тема: ' + btn.textContent.trim());
+      });
     });
-  });
-  applyTheme(state.theme);
+  }
+  applyTheme(effectiveTheme(state.data));
 }
 
 async function sendAction(action, extra = {}) {
@@ -153,16 +231,7 @@ async function sendAction(action, extra = {}) {
 
   showToast('Отправляю действие в бот...');
   try {
-    const response = await fetch('/api/miniapp/action', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-telegram-init-data': tg.initData,
-      },
-      body: JSON.stringify({ action, ...extra }),
-    });
-    const json = await response.json();
-    if (!response.ok || !json.ok) throw new Error(json.error || 'action_failed');
+    const json = await miniappAction(action, extra);
     showToast(json.message || 'Готово, смотри бот');
     setTimeout(() => tg.close(), 650);
   } catch (error) {
@@ -287,17 +356,30 @@ const pobeditelLabels = { mirnye: '🟢 Мирные', mafiya: '🔴 Мафия'
 
 function showCelebration(ev) {
   if (!ev || !el.celebrationOverlay) return;
-  if (ev.won) {
-    el.celebrationEmoji.textContent = '🎉';
-    el.celebrationTitle.textContent = 'Победа!';
-    el.celebrationSub.textContent = 'Игра №' + (ev.kod || '') + ' · ' + (pobeditelLabels[ev.pobeditel] || ev.pobeditel || '');
-    triggerWinConfetti();
-  } else {
-    el.celebrationEmoji.textContent = '🏁';
-    el.celebrationTitle.textContent = 'Игра завершена';
-    el.celebrationSub.textContent = 'Победитель: ' + (pobeditelLabels[ev.pobeditel] || ev.pobeditel || '—');
+  renderGameResultCard(ev);
+  el.celebrationEmoji.textContent = ev.emoji || (ev.won ? '🎉' : '🏁');
+  el.celebrationTitle.textContent = ev.title || (ev.won ? 'Победа!' : ev.is_host ? 'Игра завершена' : 'Игра завершена');
+  let sub = ev.phrase || '';
+  if (ev.detail) sub += (sub ? '\n\n' : '') + ev.detail;
+  if (!sub && ev.pobeditel) {
+    sub = (pobeditelLabels[ev.pobeditel] || ev.pobeditel) + (ev.kod ? ' · игра №' + ev.kod : '');
   }
+  el.celebrationSub.textContent = sub;
   el.celebrationOverlay.classList.remove('hidden');
+  if (ev.won) triggerWinConfetti();
+}
+
+function renderGameResultCard(ev) {
+  if (!el.lastGameResult || !ev) return;
+  el.lastGameResult.classList.remove('hidden');
+  const roleLine = ev.role ? `<p class="muted">Твоя роль: ${escapeHtml(ev.role)}</p>` : '';
+  const hostLine = ev.is_host ? '<p class="muted">Итог для ведущего</p>' : '';
+  el.lastGameResult.innerHTML = `
+    <strong>${escapeHtml(ev.emoji || '🏁')} ${escapeHtml(ev.title || 'Итог игры')}</strong>
+    ${hostLine}${roleLine}
+    <p>${escapeHtml(ev.phrase || '')}</p>
+    ${ev.detail ? `<div class="result-detail">${escapeHtml(ev.detail)}</div>` : ''}
+  `;
 }
 
 function openPosterDialog() {
@@ -463,7 +545,12 @@ function render() {
   renderGifts(data.bonuses);
   renderClubTop(data.rating?.top);
 
-  if (data.celebration) showCelebration(data.celebration);
+  if (data.celebration) {
+    showCelebration(data.celebration);
+  } else if (el.lastGameResult) {
+    el.lastGameResult.classList.add('hidden');
+    el.lastGameResult.innerHTML = '';
+  }
 
   if (el.posterTile) {
     el.posterTile.style.display = (user.is_host || user.is_owner) ? '' : 'none';

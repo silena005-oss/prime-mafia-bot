@@ -31,18 +31,16 @@
           <span>Профиль</span>
           <span class="status-dot"></span>
         </div>
-        <div class="profile">
+        <div class="profile profile-settings-trigger" id="profileSettingsTrigger" role="button" tabindex="0" aria-label="Настройки профиля">
           <div class="avatar" id="avatar">PM</div>
-          <div>
+          <div class="profile-text">
             <h2 id="profileName">Загрузка...</h2>
             <p id="profileMeta">Проверяем Telegram</p>
           </div>
+          <span class="profile-settings-icon" aria-hidden="true">⚙️</span>
         </div>
 
-        <div>
-          <div class="section-title">Тема интерфейса</div>
-          <div class="theme-grid" id="themeGrid"></div>
-        </div>
+        <div class="profile-result hidden" id="lastGameResult"></div>
 
         <div class="quick-grid">
           <button class="tile" data-action="my_games">
@@ -163,6 +161,22 @@
         <button type="button" class="button" id="posterRender">Обновить</button>
         <a class="button primary" id="posterDownload" download="mafia-anons.png">Скачать PNG</a>
         <button type="submit" class="button">Закрыть</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="settings-dialog" id="profileSettingsDialog">
+    <form method="dialog" class="settings-form">
+      <h3>Настройки профиля</h3>
+      <div class="settings-avatar-block">
+        <div class="avatar avatar-lg" id="settingsAvatar">PM</div>
+        <button type="button" class="button" id="syncAvatarBtn">🖼 Обновить из Telegram</button>
+      </div>
+      <p class="muted settings-hint" id="settingsThemeHint"></p>
+      <div class="section-title">Тема интерфейса</div>
+      <div class="theme-grid" id="themeGrid"></div>
+      <div class="settings-actions">
+        <button type="button" class="button" id="openBotSettingsBtn">Имя, ник, город — в боте</button>
+        <button type="submit" class="button primary">Готово</button>
       </div>
     </form>
   </dialog>
