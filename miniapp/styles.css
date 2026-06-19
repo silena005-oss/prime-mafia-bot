@@ -157,8 +157,16 @@ button {
 .mark {
   width: 68px;
   height: 68px;
-  border-radius: 24px;
+  border-radius: 18px;
+  overflow: hidden;
   letter-spacing: -0.08em;
+}
+
+.mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .avatar {
@@ -406,6 +414,183 @@ p {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.best-game-card.win-celebrate {
+  animation: winPulse 1.2s ease-out;
+  border-color: rgba(255, 215, 120, 0.55);
+  box-shadow: 0 0 24px rgba(255, 200, 80, 0.25);
+}
+
+@keyframes winPulse {
+  0% { transform: scale(0.96); opacity: 0.7; }
+  40% { transform: scale(1.03); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.win-confetti {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 9999;
+}
+
+.win-confetti span {
+  position: absolute;
+  top: -8px;
+  left: var(--x);
+  width: 8px;
+  height: 12px;
+  background: hsl(calc(var(--i) * 15deg), 85%, 58%);
+  opacity: 0.9;
+  animation: confettiFall 2.6s ease-in forwards;
+  animation-delay: var(--delay);
+  transform: rotate(calc(var(--i) * 24deg));
+}
+
+@keyframes confettiFall {
+  to {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.role-stats-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 8px;
+}
+
+.role-stat-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  font-size: 13px;
+  align-items: center;
+}
+
+.role-stat-row .role-name {
+  font-weight: 700;
+}
+
+.role-stat-row .role-meta {
+  grid-column: 1;
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.role-stat-row strong {
+  grid-row: span 2;
+  color: var(--gold);
+}
+
+.tile-soon {
+  opacity: 0.92;
+}
+
+.gifts-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 10px;
+}
+
+.gift-row {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 13px;
+}
+
+.gift-row p {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.celebration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.celebration-overlay.hidden {
+  display: none;
+}
+
+.celebration-box {
+  text-align: center;
+  background: linear-gradient(145deg, #1a1520, #0f0f18);
+  border: 2px solid var(--gold);
+  border-radius: 24px;
+  padding: 32px 28px;
+  max-width: 320px;
+  animation: winPulse 0.8s ease-out;
+}
+
+.celebration-emoji {
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.poster-dialog {
+  border: none;
+  border-radius: 20px;
+  padding: 0;
+  max-width: min(96vw, 520px);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.poster-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.poster-form {
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.poster-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.poster-form input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+}
+
+#posterCanvas {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+.poster-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .best-points {

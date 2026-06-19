@@ -49,17 +49,21 @@
             <span>🎮</span>
             <strong>Мои игры</strong>
           </button>
-          <button class="tile" data-action="rating">
+          <button class="tile" data-action="scroll_rating">
             <span>🏆</span>
-            <strong>Рейтинг</strong>
+            <strong>Мой рейтинг</strong>
           </button>
           <button class="tile" data-action="open_menu">
             <span>🏠</span>
             <strong>Меню бота</strong>
           </button>
-          <button class="tile" data-action="roles">
-            <span>🎭</span>
-            <strong>Роли</strong>
+          <button class="tile" data-action="scroll_gifts">
+            <span>🎁</span>
+            <strong>Подарки</strong>
+          </button>
+          <button class="tile" data-action="poster" id="posterTile">
+            <span>🖼</span>
+            <strong>Анонс-картинка</strong>
           </button>
         </div>
 
@@ -105,14 +109,24 @@
           </div>
         </div>
 
-        <div class="inspector-rating">
-          <div class="section-title">Мой рейтинг</div>
+        <div class="inspector-rating" id="ratingSection">
+          <div class="section-title">Мой рейтинг · личные результаты</div>
           <div class="rating-card" id="myRating"></div>
         </div>
 
         <div class="inspector-best">
           <div class="section-title">Лучшая игра</div>
           <div class="best-game-card" id="bestGame"></div>
+        </div>
+
+        <div class="inspector-roles">
+          <div class="section-title">Статистика ролей</div>
+          <div class="role-stats-card" id="roleStats"></div>
+        </div>
+
+        <div class="inspector-gifts" id="giftsSection">
+          <div class="section-title">Мои подарки и бонусы</div>
+          <div class="gifts-card" id="giftsList"></div>
         </div>
 
         <div class="inspector-top">
@@ -129,6 +143,29 @@
   </main>
 
   <div class="toast" id="toast"></div>
+  <div class="celebration-overlay hidden" id="celebrationOverlay">
+    <div class="celebration-box">
+      <div class="celebration-emoji" id="celebrationEmoji">🎉</div>
+      <h2 id="celebrationTitle">Победа!</h2>
+      <p id="celebrationSub"></p>
+      <button type="button" class="button primary" id="celebrationClose">Ура!</button>
+    </div>
+  </div>
+  <dialog class="poster-dialog" id="posterDialog">
+    <form method="dialog" class="poster-form">
+      <h3>Картинка для анонса</h3>
+      <label>Клуб<input type="text" id="posterClub" /></label>
+      <label>Дата<input type="text" id="posterDate" placeholder="15.06.2026" /></label>
+      <label>Время<input type="text" id="posterTime" placeholder="19:00" /></label>
+      <label>Адрес<input type="text" id="posterPlace" placeholder="ул. Пример, 1" /></label>
+      <canvas id="posterCanvas" width="1080" height="1350"></canvas>
+      <div class="poster-actions">
+        <button type="button" class="button" id="posterRender">Обновить</button>
+        <a class="button primary" id="posterDownload" download="mafia-anons.png">Скачать PNG</a>
+        <button type="submit" class="button">Закрыть</button>
+      </div>
+    </form>
+  </dialog>
   <script src="/miniapp/app.js"></script>
 </body>
 </html>

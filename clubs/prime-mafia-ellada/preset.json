@@ -1,0 +1,14 @@
+{
+  "slug": "prime-mafia-ellada",
+  "match_names": ["prime mafia ellada", "эллада", "ellada", "prime mafia эллада"],
+  "opisanie": "Ellada — колода с мафией, якудзой, маньяком",
+  "nastroyki": {
+    "deck": "ellada",
+    "stilizatsiya_kluba": true,
+    "miniapp_tema": "ellada",
+    "otkrytaya_mafiya": true,
+    "znakomstvo_sek": 5,
+    "role_cards_scope": "club",
+    "tip_kluba": "paskal"
+  }
+}

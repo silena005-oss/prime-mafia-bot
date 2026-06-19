@@ -22,6 +22,7 @@ const el = {
   profileName: document.getElementById('profileName'),
   profileMeta: document.getElementById('profileMeta'),
   brandEyebrow: document.getElementById('brandEyebrow'),
+  brandMark: document.querySelector('.mark'),
   themeGrid: document.getElementById('themeGrid'),
   clubsList: document.getElementById('clubsList'),
   gamesList: document.getElementById('gamesList'),
@@ -35,13 +36,56 @@ const el = {
   aliveCount: document.getElementById('aliveCount'),
   myRating: document.getElementById('myRating'),
   bestGame: document.getElementById('bestGame'),
+  roleStats: document.getElementById('roleStats'),
+  ratingSection: document.getElementById('ratingSection'),
+  giftsSection: document.getElementById('giftsSection'),
+  giftsList: document.getElementById('giftsList'),
   clubTop: document.getElementById('clubTop'),
   toast: document.getElementById('toast'),
+  celebrationOverlay: document.getElementById('celebrationOverlay'),
+  celebrationEmoji: document.getElementById('celebrationEmoji'),
+  celebrationTitle: document.getElementById('celebrationTitle'),
+  celebrationSub: document.getElementById('celebrationSub'),
+  celebrationClose: document.getElementById('celebrationClose'),
+  posterDialog: document.getElementById('posterDialog'),
+  posterCanvas: document.getElementById('posterCanvas'),
+  posterClub: document.getElementById('posterClub'),
+  posterDate: document.getElementById('posterDate'),
+  posterTime: document.getElementById('posterTime'),
+  posterPlace: document.getElementById('posterPlace'),
+  posterRender: document.getElementById('posterRender'),
+  posterDownload: document.getElementById('posterDownload'),
+  posterTile: document.getElementById('posterTile'),
 };
 
 document.querySelectorAll('[data-action]').forEach((button) => {
-  button.addEventListener('click', () => sendAction(button.dataset.action));
+  button.addEventListener('click', () => {
+    const action = button.dataset.action;
+    if (action === 'scroll_rating') {
+      el.ratingSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      showToast('Личный рейтинг и лучшая игра — справа');
+      return;
+    }
+    if (action === 'scroll_gifts') {
+      el.giftsSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (action === 'poster') {
+      openPosterDialog();
+      return;
+    }
+    sendAction(action);
+  });
 });
+
+if (el.celebrationClose) {
+  el.celebrationClose.addEventListener('click', () => {
+    el.celebrationOverlay?.classList.add('hidden');
+    sendAction('ack_celebration');
+  });
+}
+
+if (el.posterRender) el.posterRender.addEventListener('click', renderPosterCanvas);
 
 function initials(name) {
   return String(name || 'PM')
@@ -126,7 +170,7 @@ async function sendAction(action, extra = {}) {
   }
 }
 
-async function loadState(klubId) {
+async function loadState(klubId, silent) {
   try {
     const query = klubId ? `?klub_id=${encodeURIComponent(klubId)}` : '';
     const response = await fetch('/api/miniapp/state' + query, {
@@ -138,10 +182,10 @@ async function loadState(klubId) {
     if (!response.ok || !json.ok) throw new Error(json.error || 'load_failed');
     state.data = json.data;
     state.selectedKlubId = json.data.selected_klub_id || json.data.clubs?.[0]?.id || null;
-    state.selectedGame = json.data.games?.[0] || null;
+    if (!state.selectedGame) state.selectedGame = json.data.games?.[0] || null;
     render();
   } catch (error) {
-    renderError(error);
+    if (!silent) renderError(error);
   }
 }
 
@@ -171,20 +215,153 @@ function renderMyRating(my) {
 }
 
 function renderBestGame(best) {
+  el.bestGame.classList.remove('win-celebrate');
   if (!best) {
     el.bestGame.innerHTML = '<p class="muted">Лучшая игра появится после первых результатов.</p>';
     return;
+  }
+  if (best.won) {
+    el.bestGame.classList.add('win-celebrate');
+    triggerWinConfetti();
   }
   el.bestGame.innerHTML = `
     <div class="best-game-inner">
       <div class="best-points">+${best.points}</div>
       <div>
         <strong>${escapeHtml(best.role)}</strong>
-        <p>${best.won ? 'Победа' : 'Поражение'}${best.club ? ' · ' + escapeHtml(best.club) : ''}</p>
+        <p>${best.won ? '🎉 Победа' : 'Поражение'}${best.club ? ' · ' + escapeHtml(best.club) : ''}</p>
         ${best.best_move ? '<p class="best-move">⭐ Лучший ход</p>' : ''}
       </div>
     </div>
   `;
+}
+
+function renderRoleStats(stats) {
+  if (!stats?.length) {
+    el.roleStats.innerHTML = '<p class="muted">Статистика по ролям появится после игр в рейтинге.</p>';
+    return;
+  }
+  el.roleStats.innerHTML = stats.slice(0, 8).map((row) => `
+    <div class="role-stat-row">
+      <span class="role-name">${escapeHtml(row.role)}</span>
+      <span class="role-meta">${row.games} игр · ${row.wins} побед</span>
+      <strong>+${row.points}</strong>
+    </div>
+  `).join('');
+}
+
+function triggerWinConfetti() {
+  if (document.querySelector('.win-confetti')) return;
+  const layer = document.createElement('div');
+  layer.className = 'win-confetti';
+  layer.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 24; i += 1) {
+    const piece = document.createElement('span');
+    piece.style.setProperty('--i', String(i));
+    piece.style.setProperty('--x', `${10 + Math.random() * 80}%`);
+    piece.style.setProperty('--delay', `${Math.random() * 0.4}s`);
+    layer.appendChild(piece);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 3200);
+}
+
+function renderGifts(bonuses) {
+  const list = bonuses?.active || [];
+  if (!list.length) {
+    el.giftsList.innerHTML = '<p class="muted">Активных бонусов нет. Ведущий может начислить подарок в панели игры.</p>';
+    return;
+  }
+  el.giftsList.innerHTML = list.map((b) => `
+    <div class="gift-row">
+      <span>${b.emoji || '🎁'}</span>
+      <div>
+        <strong>${escapeHtml(b.label)}</strong>
+        <p>${escapeHtml(b.opisaniye || b.club || '')}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+const pobeditelLabels = { mirnye: '🟢 Мирные', mafiya: '🔴 Мафия', manyak: '🎯 Маньяк' };
+
+function showCelebration(ev) {
+  if (!ev || !el.celebrationOverlay) return;
+  if (ev.won) {
+    el.celebrationEmoji.textContent = '🎉';
+    el.celebrationTitle.textContent = 'Победа!';
+    el.celebrationSub.textContent = 'Игра №' + (ev.kod || '') + ' · ' + (pobeditelLabels[ev.pobeditel] || ev.pobeditel || '');
+    triggerWinConfetti();
+  } else {
+    el.celebrationEmoji.textContent = '🏁';
+    el.celebrationTitle.textContent = 'Игра завершена';
+    el.celebrationSub.textContent = 'Победитель: ' + (pobeditelLabels[ev.pobeditel] || ev.pobeditel || '—');
+  }
+  el.celebrationOverlay.classList.remove('hidden');
+}
+
+function openPosterDialog() {
+  const club = (state.data?.clubs || []).find((c) => c.id === state.selectedKlubId);
+  el.posterClub.value = club?.nazvaniye || 'Prime Mafia';
+  if (!el.posterDate.value) {
+    const d = new Date();
+    el.posterDate.value = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  }
+  renderPosterCanvas();
+  el.posterDialog?.showModal();
+}
+
+function renderPosterCanvas() {
+  const canvas = el.posterCanvas;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--gold').trim() || '#d9b46a';
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0, 0, w, h);
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, '#12121f');
+  grad.addColorStop(1, '#1a1020');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 6;
+  ctx.strokeRect(48, 48, w - 96, h - 96);
+  ctx.fillStyle = accent;
+  ctx.font = 'bold 42px system-ui, sans-serif';
+  ctx.fillText('МАФИЯ', 80, 140);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 72px system-ui, sans-serif';
+  wrapText(ctx, el.posterClub.value || 'Клуб', 80, 280, w - 160, 78);
+  ctx.font = '48px system-ui, sans-serif';
+  ctx.fillStyle = '#e8e8f0';
+  ctx.fillText('📅 ' + (el.posterDate.value || ''), 80, 520);
+  ctx.fillText('🕐 ' + (el.posterTime.value || '19:00'), 80, 600);
+  ctx.fillText('📍 ' + (el.posterPlace.value || ''), 80, 680);
+  ctx.fillStyle = accent;
+  ctx.font = '36px system-ui, sans-serif';
+  ctx.fillText('Запись в Prime Mafia', 80, h - 120);
+  if (el.posterDownload) {
+    el.posterDownload.href = canvas.toDataURL('image/png');
+  }
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = String(text).split(' ');
+  let line = '';
+  let yy = y;
+  for (const word of words) {
+    const test = line + word + ' ';
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line.trim(), x, yy);
+      line = word + ' ';
+      yy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  ctx.fillText(line.trim(), x, yy);
 }
 
 function renderClubTop(top) {
@@ -249,6 +426,12 @@ function render() {
   el.profileMeta.textContent = metaParts.join(' · ');
   renderAvatar(el.avatar, user.name, user.avatar_url);
 
+  if (selectedClub?.logo_url && el.brandMark) {
+    el.brandMark.innerHTML = `<img src="${escapeAttr(selectedClub.logo_url)}" alt="" />`;
+  } else if (el.brandMark) {
+    el.brandMark.textContent = 'PM';
+  }
+
   if (selectedClub?.branded) {
     el.brandEyebrow.textContent = selectedClub.nazvaniye || 'Prime Mafia';
     el.tableBrandTop.textContent = (selectedClub.nazvaniye || 'Prime').split(' ')[0];
@@ -263,7 +446,7 @@ function render() {
     ? clubs.map((club) => `
       <button class="club-card ${club.id === state.selectedKlubId ? 'active' : ''}" type="button" data-klub="${escapeAttr(club.id)}">
         <strong>${escapeHtml(club.nazvaniye || 'Клуб')}</strong>
-        <p>${club.branded ? '🎨 стилизация клуба' : 'Доступ ведущего'}</p>
+        <p>${club.branded ? (club.logo_url ? '🎨 бренд клуба' : '🎨 стилизация клуба') : 'Доступ ведущего'}</p>
       </button>
     `).join('')
     : '<p class="muted">Клубы пока не найдены.</p>';
@@ -276,7 +459,15 @@ function render() {
 
   renderMyRating(data.rating?.my);
   renderBestGame(data.rating?.best_game);
+  renderRoleStats(data.rating?.role_stats);
+  renderGifts(data.bonuses);
   renderClubTop(data.rating?.top);
+
+  if (data.celebration) showCelebration(data.celebration);
+
+  if (el.posterTile) {
+    el.posterTile.style.display = (user.is_host || user.is_owner) ? '' : 'none';
+  }
 
   el.gamesList.innerHTML = games.length
     ? games.map((item) => `
@@ -375,3 +566,6 @@ function escapeAttr(value) {
 
 applyTheme(state.theme);
 loadState();
+setInterval(() => {
+  if (tg?.initData) loadState(state.selectedKlubId, true);
+}, 12000);

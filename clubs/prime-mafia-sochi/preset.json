@@ -1,0 +1,12 @@
+{
+  "slug": "prime-mafia-sochi",
+  "match_names": ["prime mafia sochi", "прайм мафия сочи", "prime mafia сочи"],
+  "opisanie": "Sochi — открытая мафия, 5 сек знакомство",
+  "nastroyki": {
+    "znakomstvo_sek": 5,
+    "otkrytaya_mafiya": true,
+    "stilizatsiya_kluba": true,
+    "miniapp_tema": "sochi",
+    "tip_kluba": "paskal"
+  }
+}
