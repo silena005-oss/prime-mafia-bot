@@ -1853,8 +1853,25 @@ async function prodolzhitRegistraciyu(chatId, tg_id, dannye) {
         );
         return;
     }
+    if (shag === 'gorod_poisk_reg' && dannye.strana) {
+        await bot.sendMessage(chatId,
+            '▶️ *Продолжаем регистрацию*\n\n' +
+            '✍️ Напиши часть названия города (' + dannye.strana + ') — например: *Моск* или *Соч*',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+    if ((shag === 'gorod_vybor' || shag === 'gorod_poisk_reg') && dannye.strana) {
+        await pokazatGorodaAlfavit(chatId, null, dannye.strana, 'reg', 'reg_nazad_strana');
+        ozhidanie_registracii[tg_id].shag = 'gorod_vybor';
+        return;
+    }
     if (shag === 'gorod' || shag === 'gorod_vybor' || shag === 'gorod_poisk_reg') {
-        await bot.sendMessage(chatId, '▶️ *Продолжаем регистрацию*\n\n📍 Выбери страну:', {
+        await bot.sendMessage(chatId,
+            '▶️ *Продолжаем регистрацию*\n\n' +
+            '📍 *Выбери страну*, затем город:\n' +
+            '_⭐ популярные · 🔤 по алфавиту · ✍️ поиск по названию_',
+            {
             parse_mode: 'Markdown',
             reply_markup: {
                 remove_keyboard: true,
@@ -1870,9 +1887,7 @@ async function prodolzhitRegistraciyu(chatId, tg_id, dannye) {
                 ]
             }
         });
-        if (shag === 'gorod_vybor' || shag === 'gorod_poisk_reg') {
-            ozhidanie_registracii[tg_id].shag = 'gorod';
-        }
+        ozhidanie_registracii[tg_id].shag = 'gorod';
         return;
     }
     if (shag === 'den_rozhdeniya') {
@@ -3475,7 +3490,7 @@ bot.on('message', async function(msg) {
         ozhidanie_registracii[tg_id].telefon = telefon;
         ozhidanie_registracii[tg_id].shag = 'gorod';
 
-        bot.sendMessage(chatId, '📍 *Последний шаг — выбери свою страну:*', {
+        bot.sendMessage(chatId, '📍 *Последний шаг — выбери страну и город:*\n\n_⭐ популярные · 🔤 алфавит · ✍️ напиши часть названия_', {
             parse_mode: 'Markdown',
             reply_markup: {
                 remove_keyboard: true,
@@ -4973,19 +4988,27 @@ async function zagruzitGorodaStrany(strana) {
 async function pokazatGorodaAlfavit(chatId, messageId, strana, mode, backCallback) {
     const goroda = await zagruzitGorodaStrany(strana);
     if (goroda.length === 0) {
-        await bot.editMessageText('❌ Нет городов для этой страны.', {
-            chat_id: chatId, message_id: messageId,
+        const opts = {
+            chat_id: chatId,
+            parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: backCallback }]] }
-        });
+        };
+        const text = '❌ Нет городов для этой страны.';
+        if (messageId) await bot.editMessageText(text, { message_id: messageId, ...opts });
+        else await bot.sendMessage(chatId, text, opts);
         return goroda;
     }
     const kod = gorodaUi.kodStrany(strana);
-    const knopki = gorodaUi.postroитьKlavAlfavit(goroda, mode, kod);
+    const knopki = gorodaUi.postroитьKlavAlfavit(goroda, mode, kod, strana);
     knopki.push([{ text: '⬅️ Назад', callback_data: backCallback }]);
-    await bot.editMessageText(gorodaUi.tekstVyboraGoroda(strana), {
-        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+    const text = gorodaUi.tekstVyboraGoroda(strana);
+    const opts = {
+        chat_id: chatId,
+        parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: knopki }
-    });
+    };
+    if (messageId) await bot.editMessageText(text, { message_id: messageId, ...opts });
+    else await bot.sendMessage(chatId, text, opts);
     return goroda;
 }
 
@@ -7651,7 +7674,7 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('reg_strana_')) {
         const strana = data.replace('reg_strana_', '');
         const dannye = ozhidanie_registracii[telegram_id];
-        if (!dannye || dannye.shag !== 'gorod') return;
+        if (!dannye || !['gorod', 'gorod_vybor', 'gorod_poisk_reg'].includes(dannye.shag)) return;
         dannye.strana = strana;
         dannye.shag = 'gorod_vybor';
         dannye.gorod_kod = gorodaUi.kodStrany(strana);
@@ -7806,7 +7829,8 @@ bot.on('callback_query', async function(query) {
     }
 
     else if (data === 'reg_nazad_strana') {
-        bot.editMessageText('📍 *Выбери свою страну:*', {
+        if (ozhidanie_registracii[telegram_id]) ozhidanie_registracii[telegram_id].shag = 'gorod';
+        bot.editMessageText('📍 *Выбери свою страну:*\n\n_Затем город: ⭐ популярные · 🔤 алфавит · ✍️ поиск_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
