@@ -747,6 +747,122 @@ p {
   line-height: 1.45;
 }
 
+.host-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 180, 106, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.host-summary {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.host-summary.hidden,
+.host-intro.hidden,
+.host-mirny.hidden {
+  display: none;
+}
+
+.host-panel.hidden,
+.host-roster.hidden,
+.host-night.hidden {
+  display: none;
+}
+
+.host-intro-step {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.seat-role {
+  font-size: 10px;
+  color: var(--gold);
+  margin-top: 2px;
+}
+
+.host-meta {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.host-actions,
+.host-night-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.host-actions .button,
+.host-night-actions .button {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.host-roster-label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.host-roster textarea,
+.create-game-form select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.create-game-dialog,
+.create-game-form {
+  border: none;
+  padding: 0;
+  color: inherit;
+  min-width: min(92vw, 360px);
+}
+
+.create-game-form {
+  display: grid;
+  gap: 12px;
+}
+
+.create-game-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.seat.speaking {
+  outline: 2px solid var(--gold);
+  box-shadow: 0 0 0 4px rgba(217, 180, 106, 0.18);
+}
+
+.seat.host-target:not(:disabled) {
+  cursor: pointer;
+}
+
+.seat.host-target:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+
 .ranking {
   max-height: 220px;
   overflow: auto;
@@ -761,7 +877,7 @@ p {
 .table-panel {
   min-height: 660px;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   gap: 14px;
   background:
     radial-gradient(circle at 50% 50%, rgba(217, 180, 106, 0.10), transparent 42%),

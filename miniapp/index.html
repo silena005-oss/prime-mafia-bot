@@ -80,6 +80,35 @@
           <span class="badge" id="gameStatus">ожидание</span>
         </div>
 
+        <div class="host-panel hidden" id="hostPanel">
+          <div class="section-title">Управление игрой</div>
+          <div class="host-meta" id="hostMeta"></div>
+          <div class="host-intro hidden" id="hostIntro">
+            <p class="host-intro-step" id="hostIntroStep"></p>
+            <p class="muted" id="hostIntroHint">Нажми на место игрока за столом</p>
+          </div>
+          <div class="host-actions" id="hostActions"></div>
+          <div class="host-roster hidden" id="hostRoster">
+            <label class="host-roster-label">Список игроков (каждый ник с новой строки)
+              <textarea id="rosterInput" rows="8" placeholder="Аня&#10;Боря&#10;..."></textarea>
+            </label>
+            <button type="button" class="button primary" id="submitRosterBtn">Сохранить состав</button>
+          </div>
+          <div class="host-mirny hidden" id="hostMirny">
+            <label class="host-roster-label">Мирные — списком или по одному кликом
+              <textarea id="mirnyInput" rows="5" placeholder="Оставшиеся мирные — каждый с новой строки"></textarea>
+            </label>
+            <button type="button" class="button primary" id="submitMirnyBtn">Внести мирных списком</button>
+          </div>
+          <div class="host-night hidden" id="hostNight">
+            <p class="muted" id="nightStepLabel"></p>
+            <div class="host-night-actions" id="nightPickActions"></div>
+          </div>
+          <div class="host-summary hidden" id="hostSummary">
+            <pre class="host-summary-text" id="hostSummaryText"></pre>
+          </div>
+        </div>
+
         <div class="mafia-table" id="table">
           <div class="table-center">
             <span id="tableBrandTop">Prime</span>
@@ -161,6 +190,35 @@
         <button type="button" class="button" id="posterRender">Обновить</button>
         <a class="button primary" id="posterDownload" download="mafia-anons.png">Скачать PNG</a>
         <button type="submit" class="button">Закрыть</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="create-game-dialog" id="createGameDialog">
+    <form method="dialog" class="create-game-form">
+      <h3>Создать игру</h3>
+      <label>Клуб
+        <select id="createGameClub"></select>
+      </label>
+      <label>Число игроков
+        <select id="createGameSize">
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10" selected>10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17">17</option>
+          <option value="18">18</option>
+          <option value="19">19</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="button" id="createGameCancel">Отмена</button>
+        <button type="button" class="button primary" id="createGameConfirm">Создать</button>
       </div>
     </form>
   </dialog>

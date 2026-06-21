@@ -11,9 +11,9 @@ const state = {
 if (tg) {
   tg.ready();
   tg.expand();
-  tg.MainButton.setText('Открыть меню бота');
+  tg.MainButton.setText('Меню бота');
   tg.MainButton.onClick(() => sendAction('open_menu'));
-  tg.MainButton.show();
+  tg.MainButton.hide();
 }
 
 const el = {
@@ -62,6 +62,27 @@ const el = {
   posterRender: document.getElementById('posterRender'),
   posterDownload: document.getElementById('posterDownload'),
   posterTile: document.getElementById('posterTile'),
+  hostIntro: document.getElementById('hostIntro'),
+  hostIntroStep: document.getElementById('hostIntroStep'),
+  hostIntroHint: document.getElementById('hostIntroHint'),
+  hostMirny: document.getElementById('hostMirny'),
+  mirnyInput: document.getElementById('mirnyInput'),
+  submitMirnyBtn: document.getElementById('submitMirnyBtn'),
+  hostSummary: document.getElementById('hostSummary'),
+  hostSummaryText: document.getElementById('hostSummaryText'),
+  hostMeta: document.getElementById('hostMeta'),
+  hostActions: document.getElementById('hostActions'),
+  hostRoster: document.getElementById('hostRoster'),
+  rosterInput: document.getElementById('rosterInput'),
+  submitRosterBtn: document.getElementById('submitRosterBtn'),
+  hostNight: document.getElementById('hostNight'),
+  nightStepLabel: document.getElementById('nightStepLabel'),
+  nightPickActions: document.getElementById('nightPickActions'),
+  createGameDialog: document.getElementById('createGameDialog'),
+  createGameClub: document.getElementById('createGameClub'),
+  createGameSize: document.getElementById('createGameSize'),
+  createGameConfirm: document.getElementById('createGameConfirm'),
+  createGameCancel: document.getElementById('createGameCancel'),
 };
 
 document.querySelectorAll('[data-action]').forEach((button) => {
@@ -80,6 +101,10 @@ document.querySelectorAll('[data-action]').forEach((button) => {
       openPosterDialog();
       return;
     }
+    if (action === 'create_game') {
+      openCreateGameDialog();
+      return;
+    }
     sendAction(action);
   });
 });
@@ -92,6 +117,10 @@ if (el.celebrationClose) {
 }
 
 if (el.posterRender) el.posterRender.addEventListener('click', renderPosterCanvas);
+if (el.submitRosterBtn) el.submitRosterBtn.addEventListener('click', submitRoster);
+if (el.submitMirnyBtn) el.submitMirnyBtn.addEventListener('click', submitMirnyList);
+if (el.createGameConfirm) el.createGameConfirm.addEventListener('click', confirmCreateGame);
+if (el.createGameCancel) el.createGameCancel.addEventListener('click', () => el.createGameDialog?.close());
 
 if (el.profileSettingsTrigger) {
   el.profileSettingsTrigger.addEventListener('click', openProfileSettings);
@@ -226,17 +255,84 @@ function renderThemes(themes) {
 async function sendAction(action, extra = {}) {
   if (!tg || !tg.initData) {
     showToast('Открой mini app внутри Telegram, чтобы выполнить действие.');
-    return;
+    return null;
   }
 
-  showToast('Отправляю действие в бот...');
   try {
     const json = await miniappAction(action, extra);
+    if (json.stay) {
+      showToast(json.message || 'Готово');
+      if (json.data) {
+        state.data = json.data;
+        if (json.selected_game) {
+          state.selectedGame = json.data.games?.find((g) => String(g.kod) === String(json.selected_game)) || state.selectedGame;
+        }
+        render();
+      } else if (json.selected_game) {
+        await loadState(state.selectedKlubId, true);
+      }
+      return json;
+    }
     showToast(json.message || 'Готово, смотри бот');
     setTimeout(() => tg.close(), 650);
+    return json;
   } catch (error) {
-    showToast('Не удалось отправить действие. Попробуй ещё раз.');
+    showToast('Не удалось выполнить действие. Попробуй ещё раз.');
+    return null;
   }
+}
+
+function openCreateGameDialog() {
+  const clubs = state.data?.clubs || [];
+  if (!clubs.length) {
+    showToast('Сначала нужен клуб ведущего.');
+    return;
+  }
+  el.createGameClub.innerHTML = clubs.map((club) =>
+    `<option value="${escapeAttr(club.id)}">${escapeHtml(club.nazvaniye || 'Клуб')}</option>`
+  ).join('');
+  const preferred = state.selectedKlubId || clubs[0]?.id;
+  if (preferred) el.createGameClub.value = preferred;
+  el.createGameDialog?.showModal();
+}
+
+async function confirmCreateGame() {
+  const klub_id = el.createGameClub?.value;
+  const kolichestvo = parseInt(el.createGameSize?.value, 10);
+  if (!klub_id || !Number.isFinite(kolichestvo)) return;
+  el.createGameDialog?.close();
+  showToast('Создаю игру...');
+  await sendAction('create_game', { klub_id, kolichestvo });
+}
+
+async function submitRoster() {
+  const game = state.selectedGame;
+  if (!game?.kod) return;
+  const text = el.rosterInput?.value || '';
+  showToast('Сохраняю состав...');
+  await sendAction('submit_roster', { kod: game.kod, text });
+}
+
+async function submitMirnyList() {
+  const game = state.selectedGame;
+  if (!game?.kod) return;
+  await hostAction('intro_mirny', { text: el.mirnyInput?.value || '' });
+  if (el.mirnyInput) el.mirnyInput.value = '';
+}
+
+function hostClickMode(host) {
+  if (host?.intro?.phase === 'roles') return 'intro_assign';
+  if (host?.intro?.phase === 'mirny') return 'intro_mirny';
+  if (host?.can_pick_first) return 'pick_first';
+  if (host?.can_nominate) return 'nominate';
+  if (host?.night?.guided && !host?.night?.done) return 'night_pick';
+  return null;
+}
+
+async function hostAction(sub, extra = {}) {
+  const game = state.selectedGame;
+  if (!game?.kod) return;
+  await sendAction('host_action', { kod: game.kod, sub, ...extra });
 }
 
 async function loadState(klubId, silent) {
@@ -251,7 +347,12 @@ async function loadState(klubId, silent) {
     if (!response.ok || !json.ok) throw new Error(json.error || 'load_failed');
     state.data = json.data;
     state.selectedKlubId = json.data.selected_klub_id || json.data.clubs?.[0]?.id || null;
-    if (!state.selectedGame) state.selectedGame = json.data.games?.[0] || null;
+    const prevKod = state.selectedGame?.kod;
+    if (prevKod) {
+      state.selectedGame = json.data.games?.find((g) => String(g.kod) === String(prevKod)) || json.data.games?.[0] || null;
+    } else if (!state.selectedGame) {
+      state.selectedGame = json.data.games?.[0] || null;
+    }
     render();
   } catch (error) {
     if (!silent) renderError(error);
@@ -585,37 +686,143 @@ function renderGame(game = state.selectedGame) {
     el.gameStatus.textContent = 'ожидание';
     el.playersCount.textContent = '0';
     el.aliveCount.textContent = '0';
+    el.hostPanel?.classList.add('hidden');
     renderSeats([]);
     return;
   }
 
   state.selectedGame = game;
-  el.gameTitle.textContent = `Игра №${game.kod}`;
-  el.gameStatus.textContent = `${statusLabel(game.status)} · день ${game.den || 1}`;
+  el.gameTitle.textContent = `Игра №${game.kod}${game.klub ? ' · ' + game.klub : ''}`;
+  el.gameStatus.textContent = `${statusLabel(game.status)} · ${game.faza || 'ожидание'} · день ${game.den || 1}`;
   el.playersCount.textContent = game.players.length;
   el.aliveCount.textContent = game.zhivye;
-  renderSeats(game.players);
+  renderHostPanel(game);
+  renderSeats(game.players, game.host);
 }
 
-function renderSeats(players) {
+function renderHostPanel(game) {
+  const host = game.host;
+  const isHost = game.is_host && host;
+  if (!el.hostPanel) return;
+  if (!isHost) {
+    el.hostPanel.classList.add('hidden');
+    return;
+  }
+  el.hostPanel.classList.remove('hidden');
+
+  const parts = [];
+  if (host.can_submit_roster) parts.push(`Состав: ${host.roster_count}/${host.roster_needed}`);
+  if (host.intro?.phase === 'roles') {
+    parts.push(`Ночь знакомства ${(host.intro.idx ?? 0) + 1}/${host.intro.total}: ${host.intro.label}`);
+  } else if (host.intro?.phase === 'mirny') {
+    parts.push(`Мирные: осталось ${host.intro.remaining}`);
+  }
+  if (host.speaking_nomer) {
+    parts.push(`Говорит №${host.speaking_nomer}${host.timer_sec ? ' · ⏱ ' + host.timer_sec + 'с' : ''}`);
+  }
+  if (host.nominees?.length && (game.faza === 'opravdanie' || game.faza === 'golosovanie')) {
+    parts.push(`На голосовании: ${host.nominees.map((n) => '№' + n.nomer).join(', ')}`);
+  }
+  el.hostMeta.textContent = parts.join(' · ') || 'Управляй игрой здесь — бот не нужен';
+
+  el.hostActions.innerHTML = '';
+  const addBtn = (label, handler, primary = false) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'button' + (primary ? ' primary' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', handler);
+    el.hostActions.appendChild(btn);
+  };
+
+  el.hostRoster?.classList.toggle('hidden', !host.can_submit_roster);
+  el.hostIntro?.classList.toggle('hidden', !host.intro || host.intro.phase === 'mirny');
+  el.hostMirny?.classList.toggle('hidden', host.intro?.phase !== 'mirny');
+  el.hostSummary?.classList.toggle('hidden', !host.night_summary);
+  if (host.night_summary && el.hostSummaryText) el.hostSummaryText.textContent = host.night_summary;
+
+  if (host.intro?.phase === 'roles' && el.hostIntroStep) {
+    el.hostIntroStep.textContent = `${host.intro.label} (${host.intro.idx + 1}/${host.intro.total})`;
+    if (el.hostIntroHint) el.hostIntroHint.textContent = 'Нажми на место игрока с этой ролью';
+  }
+
+  if (host.can_submit_roster && el.rosterInput && !el.rosterInput.value) {
+    el.rosterInput.placeholder = Array.from({ length: host.roster_needed }, (_, i) => 'Игрок ' + (i + 1)).join('\n');
+  }
+  if (host.intro?.phase === 'mirny' && el.mirnyInput && !el.mirnyInput.value) {
+    el.mirnyInput.placeholder = Array.from({ length: host.intro.remaining || 0 }, (_, i) => 'Мирный ' + (i + 1)).join('\n');
+  }
+
+  if (host.can_start_intro) addBtn('🌙 Ночь знакомства', () => hostAction('intro_start'), true);
+  if (host.can_pick_first) {
+    addBtn('🎲 Кто начинает — случайно', () => hostAction('pick_first_auto', { faza: host.pick_first_faza }), true);
+  }
+  if (host.speaking_nomer) addBtn('⏭ Пас', () => hostAction('pass'));
+  if (host.can_nominate) addBtn('💥 Выставить — клик по месту', () => showToast('Нажми на игрока за столом'));
+  if (host.can_undo_nominate) addBtn('❌ Отменить выставление', () => hostAction('undo_nominate'));
+  if (host.can_night) addBtn('🌙 Ночь', () => hostAction('night'), true);
+  if (host.can_finish_night) addBtn('🌟 Итоги ночи', () => hostAction('night_finish'), true);
+
+  if (host.night?.guided) {
+    el.hostNight?.classList.remove('hidden');
+    const step = (host.night.step ?? 0) + 1;
+    el.nightStepLabel.textContent = host.night.done
+      ? 'Все роли пройдены — нажми «Итоги ночи»'
+      : (host.night.step_label ? `Шаг ${step}/${host.night.total}: ${host.night.step_label}` : '');
+    el.nightPickActions.innerHTML = '';
+    if (!host.night.done) {
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'button';
+      prevBtn.textContent = '← Назад';
+      prevBtn.addEventListener('click', () => hostAction('night_prev'));
+      el.nightPickActions.appendChild(prevBtn);
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'button primary';
+      nextBtn.textContent = 'Далее →';
+      nextBtn.addEventListener('click', () => hostAction('night_next'));
+      el.nightPickActions.appendChild(nextBtn);
+    }
+  } else {
+    el.hostNight?.classList.add('hidden');
+  }
+}
+
+function renderSeats(players, hostMeta) {
   el.table.querySelectorAll('.seat').forEach((seat) => seat.remove());
   const rectPad = 12;
   const total = Math.max(players.length, 1);
+  const clickMode = hostClickMode(hostMeta);
 
   players.forEach((player, index) => {
     const angle = (Math.PI * 2 * index / total) - Math.PI / 2;
     const x = 50 + Math.cos(angle) * 37;
     const y = 50 + Math.sin(angle) * 39;
+    const clickable = clickMode && player.status === 'v_igre' &&
+      !(clickMode === 'nominate' && player.speaking) &&
+      !(clickMode === 'intro_assign' && player.role);
     const seat = document.createElement('button');
     seat.type = 'button';
-    seat.className = `seat ${player.status === 'v_igre' ? '' : 'dead'}`;
+    seat.className = `seat ${player.status === 'v_igre' ? '' : 'dead'}${player.speaking ? ' speaking' : ''}${clickable ? ' host-target' : ''}`;
     seat.style.left = `clamp(${rectPad}px, ${x}%, calc(100% - 148px))`;
     seat.style.top = `clamp(${rectPad}px, ${y}%, calc(100% - 86px))`;
+    const roleLine = player.role ? `<div class="seat-role">${escapeHtml(player.role)}</div>` : '';
     seat.innerHTML = `
       <div class="seat-num">№${escapeHtml(player.nomer || index + 1)}</div>
       <div class="seat-name">${escapeHtml(player.name || 'Игрок')}</div>
+      ${roleLine}
       <div class="seat-meta">${player.status === 'v_igre' ? 'в игре' : 'выбыл'} · фолы: ${escapeHtml(player.foly || 0)}</div>
     `;
+    if (clickable) {
+      seat.addEventListener('click', () => {
+        if (clickMode === 'pick_first') hostAction('pick_first', { nomer: player.nomer, faza: hostMeta.pick_first_faza });
+        else if (clickMode === 'intro_assign') hostAction('intro_assign', { nomer: player.nomer });
+        else if (clickMode === 'intro_mirny') hostAction('intro_mirny', { nomer: player.nomer });
+        else if (clickMode === 'nominate') hostAction('nominate', { nomer: player.nomer });
+        else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
+      });
+    }
     if (player.avatar_url) {
       loadAvatarImage(player.avatar_url).then((objectUrl) => {
         if (!objectUrl) return;
