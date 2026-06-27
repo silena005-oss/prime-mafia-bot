@@ -773,7 +773,8 @@ p {
 
 .host-panel.hidden,
 .host-roster.hidden,
-.host-night.hidden {
+.host-night.hidden,
+.hidden {
   display: none;
 }
 

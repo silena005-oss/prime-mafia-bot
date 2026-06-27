@@ -6,6 +6,7 @@ const state = {
   selectedGame: null,
   selectedKlubId: null,
   theme: localStorage.getItem(THEME_KEY) || 'default',
+  nominateArmed: false,
 };
 
 if (tg) {
@@ -324,7 +325,7 @@ function hostClickMode(host) {
   if (host?.intro?.phase === 'roles') return 'intro_assign';
   if (host?.intro?.phase === 'mirny') return 'intro_mirny';
   if (host?.can_pick_first) return 'pick_first';
-  if (host?.can_nominate) return 'nominate';
+  if (host?.can_nominate && state.nominateArmed) return 'nominate';
   if (host?.night?.guided && !host?.night?.done) return 'night_pick';
   return null;
 }
@@ -640,11 +641,19 @@ function render() {
     });
   });
 
-  renderMyRating(data.rating?.my);
-  renderBestGame(data.rating?.best_game);
-  renderRoleStats(data.rating?.role_stats);
+  renderMyRating(data.rating_enabled ? data.rating?.my : null);
+  renderBestGame(data.rating_enabled ? data.rating?.best_game : null);
+  renderRoleStats(data.rating_enabled ? data.rating?.role_stats : null);
   renderGifts(data.bonuses);
-  renderClubTop(data.rating?.top);
+  renderClubTop(data.rating_enabled ? data.rating?.top : null);
+
+  const ratingOn = data.rating_enabled !== false;
+  el.ratingSection?.classList.toggle('hidden', !ratingOn);
+  document.querySelector('.inspector-best')?.classList.toggle('hidden', !ratingOn);
+  document.querySelector('.inspector-roles')?.classList.toggle('hidden', !ratingOn);
+  document.querySelector('.inspector-top')?.classList.toggle('hidden', !ratingOn);
+  const ratingTile = document.querySelector('[data-action="scroll_rating"]');
+  if (ratingTile) ratingTile.style.display = ratingOn ? '' : 'none';
 
   if (data.celebration) {
     showCelebration(data.celebration);
@@ -682,6 +691,7 @@ function render() {
 
 function renderGame(game = state.selectedGame) {
   if (!game) {
+    state.nominateArmed = false;
     el.gameTitle.textContent = 'Стол пока пуст';
     el.gameStatus.textContent = 'ожидание';
     el.playersCount.textContent = '0';
@@ -692,6 +702,7 @@ function renderGame(game = state.selectedGame) {
   }
 
   state.selectedGame = game;
+  if (!game.host?.speaking_nomer || !game.host?.can_nominate) state.nominateArmed = false;
   el.gameTitle.textContent = `Игра №${game.kod}${game.klub ? ' · ' + game.klub : ''}`;
   el.gameStatus.textContent = `${statusLabel(game.status)} · ${game.faza || 'ожидание'} · день ${game.den || 1}`;
   el.playersCount.textContent = game.players.length;
@@ -719,6 +730,9 @@ function renderHostPanel(game) {
   }
   if (host.speaking_nomer) {
     parts.push(`Говорит №${host.speaking_nomer}${host.timer_sec ? ' · ⏱ ' + host.timer_sec + 'с' : ''}`);
+  }
+  if (host.speech_hint && host.speaking_nomer) {
+    parts.push(host.speech_hint);
   }
   if (host.nominees?.length && (game.faza === 'opravdanie' || game.faza === 'golosovanie')) {
     parts.push(`На голосовании: ${host.nominees.map((n) => '№' + n.nomer).join(', ')}`);
@@ -757,8 +771,27 @@ function renderHostPanel(game) {
   if (host.can_pick_first) {
     addBtn('🎲 Кто начинает — случайно', () => hostAction('pick_first_auto', { faza: host.pick_first_faza }), true);
   }
-  if (host.speaking_nomer) addBtn('⏭ Пас', () => hostAction('pass'));
-  if (host.can_nominate) addBtn('💥 Выставить — клик по месту', () => showToast('Нажми на игрока за столом'));
+  if (host.speaking_nomer) {
+    addBtn('⏭ Пас (без выставления)', () => {
+      state.nominateArmed = false;
+      hostAction('pass');
+    });
+  }
+  if (host.can_nominate) {
+    if (state.nominateArmed) {
+      addBtn('✕ Отмена выставления', () => {
+        state.nominateArmed = false;
+        renderGame(game);
+        showToast('Режим выставления выключен');
+      });
+    } else {
+      addBtn('💥 Выставить игрока', () => {
+        state.nominateArmed = true;
+        renderGame(game);
+        showToast('Нажми на место игрока — или «Пас» без выставления');
+      });
+    }
+  }
   if (host.can_undo_nominate) addBtn('❌ Отменить выставление', () => hostAction('undo_nominate'));
   if (host.can_night) addBtn('🌙 Ночь', () => hostAction('night'), true);
   if (host.can_finish_night) addBtn('🌟 Итоги ночи', () => hostAction('night_finish'), true);
@@ -819,7 +852,10 @@ function renderSeats(players, hostMeta) {
         if (clickMode === 'pick_first') hostAction('pick_first', { nomer: player.nomer, faza: hostMeta.pick_first_faza });
         else if (clickMode === 'intro_assign') hostAction('intro_assign', { nomer: player.nomer });
         else if (clickMode === 'intro_mirny') hostAction('intro_mirny', { nomer: player.nomer });
-        else if (clickMode === 'nominate') hostAction('nominate', { nomer: player.nomer });
+        else if (clickMode === 'nominate') {
+          state.nominateArmed = false;
+          hostAction('nominate', { nomer: player.nomer });
+        }
         else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
       });
     }

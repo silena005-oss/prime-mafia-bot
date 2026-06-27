@@ -177,6 +177,11 @@ async function poluchitMiniAppUser(req) {
     return null;
 }
 
+function klubImeetReyting(nastroyki = {}) {
+    if (nastroyki.bez_reytinga === true || nastroyki.reyting_vklyuchen === false) return false;
+    return true;
+}
+
 function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
     const igroki = Array.isArray(igra.igroki) ? igra.igroki : [];
     const zhivye = igroki.filter(i => i.status === 'v_igre').length;
@@ -254,6 +259,9 @@ function metaHostaMiniApp(igra, kod) {
         timer_sec: igra.taymer_aktiven ? (igra.taymer_sekundy || 0) : 0,
         can_nominate: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov &&
             !uzheVystavilTekushchiyGovoryashchiy(igra) && kandidatyNaVystavlenie(igra, gov).length > 0,
+        speech_hint: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov
+            ? 'Выставление необязательно — «Пас» передаёт ход без номинации'
+            : null,
         can_undo_nominate: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov &&
             govoryashchiyVystavilNaGolos(igra, gov) != null,
         nominees: nominirovannyePoPoryadku(igra).map(i => ({ nomer: i.nomer, name: i.name })),
@@ -388,7 +396,8 @@ async function poluchitKlubyMiniApp(telegram_id) {
             nazvaniye: full.nazvaniye || k.nazvaniye,
             branded: !!(full.nastroyki?.stilizatsiya_kluba || hasLogo),
             club_theme: clubTheme,
-            logo_url: hasLogo ? '/api/miniapp/club-logo?klub_id=' + encodeURIComponent(full.id) : null
+            logo_url: hasLogo ? '/api/miniapp/club-logo?klub_id=' + encodeURIComponent(full.id) : null,
+            has_rating: klubImeetReyting(full.nastroyki || {})
         };
     });
 }
@@ -513,13 +522,18 @@ async function sostoyanieMiniApp(user) {
         .forEach(([kod, igra]) => games.push(kratkoIgruDlyaMiniApp(kod, igra, telegram_id)));
     games = await obogatitIgryAvatarami(games, telegram_id);
 
-    const rating = await poluchitReytingMiniApp(telegram_id, selectedKlubId).catch(() => ({
-        klub_id: selectedKlubId,
-        my: null,
-        top: [],
-        best_game: null,
-        role_stats: []
-    }));
+    const selectedClub = clubs.find(c => c.id === selectedKlubId);
+    const ratingEnabled = selectedClub?.has_rating !== false;
+
+    const rating = ratingEnabled
+        ? await poluchitReytingMiniApp(telegram_id, selectedKlubId).catch(() => ({
+            klub_id: selectedKlubId,
+            my: null,
+            top: [],
+            best_game: null,
+            role_stats: []
+        }))
+        : { klub_id: selectedKlubId, enabled: false, my: null, top: [], best_game: null, role_stats: [] };
 
     let bonuses = { active: [] };
     if (igrok?.id) {
@@ -545,6 +559,7 @@ async function sostoyanieMiniApp(user) {
         clubs,
         selected_klub_id: selectedKlubId,
         rating,
+        rating_enabled: ratingEnabled,
         bonuses,
         celebration,
         games
@@ -690,7 +705,13 @@ async function obrabotatMiniAppApi(req, res, url) {
         const data = await sostoyanieMiniApp(user);
         if (klub_id && data.clubs?.some(c => c.id === klub_id)) {
             data.selected_klub_id = klub_id;
-            data.rating = await poluchitReytingMiniApp(Number(user.id), klub_id).catch(() => data.rating);
+            const club = data.clubs.find(c => c.id === klub_id);
+            data.rating_enabled = club?.has_rating !== false;
+            if (data.rating_enabled) {
+                data.rating = await poluchitReytingMiniApp(Number(user.id), klub_id).catch(() => data.rating);
+            } else {
+                data.rating = { klub_id, enabled: false, my: null, top: [], best_game: null, role_stats: [] };
+            }
             const rolesK = await poluchitRoliPolzovatelya(Number(user.id));
             if (rolesK.igrok?.id) {
                 data.bonuses = { active: await bonusy.poluchitBonusyIgroka(rolesK.igrok.id, klub_id).catch(() => []) };
@@ -6600,6 +6621,9 @@ function buildPanelText(igra, kod) {
     if (igra.taymer_aktiven && igra.taymer_sekundy > 0) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
         t += '\u23F1 *' + formatTime(igra.taymer_sekundy) + '* — \u2116' + (cur ? cur.nomer : '?') + ' ' + (cur ? cur.name : '') + '\n';
+        if (igra.faza === 'den' && cur) {
+            t += '_Выставление необязательно — «Пас» без номинации._\n';
+        }
     } else if (igra.tekushchiy_nomer) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
         t += '\u25B6\uFE0F Ход: \u2116' + (cur ? cur.nomer : '?') + ' *' + (cur ? cur.name : '') + '*\n';
@@ -7715,6 +7739,11 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
 // ФУНКЦИЯ ЗАПИСИ БАЛЛОВ
 // ============================================
 async function zapisat_bally(igra, kod) {
+    if (igra._druzya_rezhim) return;
+    if (igra.klub_id) {
+        const { data: klub } = await supabase.from('kluby').select('nastroyki').eq('id', igra.klub_id).single();
+        if (!klubImeetReyting(klub?.nastroyki || {})) return;
+    }
     const pobeditel = igra.pobeditel;
     const sportivniy = igra._nastroyki?.sportivniy_rezhim || false;
 

@@ -14,6 +14,7 @@
     "perviy_hod_nomer": 1,
     "posle_znakomstva_golosovanie": true,
     "tip_kluba": "paskal",
-    "max_foly": 4
+    "max_foly": 4,
+    "bez_reytinga": true
   }
 }
