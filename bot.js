@@ -182,6 +182,76 @@ function klubImeetReyting(nastroyki = {}) {
     return true;
 }
 
+function tekstNastroykiKlubaPanel(klub_nk) {
+    const sport = klub_nk.sportivniy_rezhim;
+    const n = klub_nk.nastroyki || {};
+    const tipPrav = n.tip_kluba || 'paskal';
+    let t = '\u2699\uFE0F *Настройки клуба — ' + klub_nk.nazvaniye + '*\n\n';
+    t += '\uD83C\uDFC6 Спортивный режим: ' + (sport ? '\u2705 Включён' : '\u274C Выключен') + '\n';
+    t += '\uD83C\uDFC6 Рейтинг и баллы: ' + (klubImeetReyting(n) ? '\u2705 Включены' : '\u274C Выключены') + '\n';
+    t += '\uD83D\uDC4B Знакомство: ' + (n.znakomstvo_sek || 10) + ' сек\n';
+    t += '\u26A0\uFE0F Оправдание: ' + (n.opravdanie_sek || 30) + ' сек\n';
+    t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 4) + '\n';
+    t += '\uD83D\uDCDC Правила: *' + (tipPrav === 'vip' ? 'VIP' : tipPrav === 'sportivniy' ? 'Спортивный' : 'Pascal') + '*\n';
+    t += '\uD83D\uDC89 Доктор: ' + tekstPravilDoktora({ tip_kluba: tipPrav, _nastroyki: n }) + '\n\n';
+    if (klubImeetReyting(n)) {
+        t += '*Баллы:*\n';
+        const b = n.bally || BALLY_DEFAULT;
+        t += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
+        t += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
+        t += '\uD83D\uDD34 Дон победил: +' + (b.bonus_don_pobedil ?? 2) + '\n';
+        t += '\uD83C\uDFAF Маньяк победил: +' + (b.bonus_manyak_pobedil ?? 5) + '\n';
+        t += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
+    } else {
+        t += '_Рейтинг выключен — баллы после игры не начисляются, в mini app блоки рейтинга скрыты._\n';
+    }
+    const chatIdGr = n.telegram_chat_id;
+    t += '\n📢 *Публикация итогов:*\n';
+    if (chatIdGr) {
+        t += 'Группа: *' + md(n.telegram_chat_title || 'привязана') + '*\n';
+        t += 'Авто после игры: ' + (n.auto_publish_results ? '✅' : '❌') + '\n';
+    } else {
+        t += '_Группа не привязана — перешлите сообщение из чата клуба._\n';
+    }
+    return t;
+}
+
+function knopkiNastroykiKlubaPanel(klub_nk) {
+    const n = klub_nk.nastroyki || {};
+    const sport = klub_nk.sportivniy_rezhim;
+    const tipPrav = n.tip_kluba || 'paskal';
+    const reytingOn = klubImeetReyting(n);
+    const chatIdGr = n.telegram_chat_id;
+    const knGr = chatIdGr
+        ? [
+            [{ text: n.auto_publish_results ? '❌ Выключить автопубликацию' : '✅ Автопубликация после игры', callback_data: 'gruppa_klub_auto_' + klub_nk.id }],
+            [{ text: '🔗 Отвязать группу', callback_data: 'gruppa_klub_otvyaz_' + klub_nk.id }]
+        ]
+        : [[{ text: '📢 Привязать группу клуба', callback_data: 'gruppa_klub_setup_' + klub_nk.id }]];
+    return [
+        [{ text: sport ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_nk.id }],
+        [{ text: reytingOn ? '\u274C Выключить рейтинг' : '\u2705 Включить рейтинг', callback_data: 'toggle_reyting_' + klub_nk.id }],
+        [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
+        [{ text: n.logo_file_id ? '🎨 Заменить логотип' : '🎨 Загрузить логотип', callback_data: 'brend_klub_' + klub_nk.id }],
+        ...(n.logo_file_id ? [[{ text: '🗑 Удалить логотип', callback_data: 'brend_klub_del_' + klub_nk.id }]] : []),
+        [{ text: '\uD83C\uDFA8 Стилизация клуба — 5000₽ навсегда', callback_data: 'stil_klub_' + klub_nk.id }],
+        [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
+        ...(reytingOn ? [[{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }]] : []),
+        ...knGr,
+        [{ text: '🔗 Приглашение в клуб', callback_data: 'klub_invite_show_' + klub_nk.id }],
+        [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
+    ];
+}
+
+async function pokazatNastroykiKlubaV(chatId, messageId, klub_nk) {
+    await bot.editMessageText(tekstNastroykiKlubaPanel(klub_nk), {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopkiNastroykiKlubaPanel(klub_nk) }
+    });
+}
+
 function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
     const igroki = Array.isArray(igra.igroki) ? igra.igroki : [];
     const zhivye = igroki.filter(i => i.status === 'v_igre').length;
@@ -11941,52 +12011,35 @@ bot.on('callback_query', async function(query) {
         const { data: chleny_nk } = await supabase.from('chleny_klubov').select('klub_id, kluby(id, nazvaniye, nastroyki, sportivniy_rezhim)').eq('igrok_id', igrok_nk?.id).eq('rol', 'vladyelets');
         const klub_nk = chleny_nk?.[0]?.kluby;
         if (!klub_nk) { bot.answerCallbackQuery(query.id, { text: '\u274C Нет клуба' }); return; }
+        await pokazatNastroykiKlubaV(chatId, messageId, klub_nk);
+    }
 
-        const sport = klub_nk.sportivniy_rezhim;
-        const n = klub_nk.nastroyki || {};
-        let t = '\u2699\uFE0F *Настройки клуба — ' + klub_nk.nazvaniye + '*\n\n';
-        t += '\uD83C\uDFC6 Спортивный режим: ' + (sport ? '\u2705 Включён' : '\u274C Выключен') + '\n';
-        t += '\uD83D\uDC4B Знакомство: ' + (n.znakomstvo_sek || 10) + ' сек\n';
-        t += '\u26A0\uFE0F Оправдание: ' + (n.opravdanie_sek || 30) + ' сек\n';
-        t += '\uD83D\uDD34 Макс. фолов: ' + (n.max_foly || 4) + '\n';
-        const tipPrav = n.tip_kluba || 'paskal';
-        t += '\uD83D\uDCDC Правила: *' + (tipPrav === 'vip' ? 'VIP' : tipPrav === 'sportivniy' ? 'Спортивный' : 'Pascal') + '*\n';
-        t += '\uD83D\uDC89 Доктор: ' + tekstPravilDoktora({ tip_kluba: tipPrav, _nastroyki: n }) + '\n\n';
-        t += '*Баллы:*\n';
-        const b = n.bally || BALLY_DEFAULT;
-        t += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
-        t += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
-        t += '\uD83D\uDD34 Дон победил: +' + (b.bonus_don_pobedil ?? 2) + '\n';
-        t += '\uD83C\uDFAF Маньяк победил: +' + (b.bonus_manyak_pobedil ?? 5) + '\n';
-        t += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
-        const chatIdGr = n.telegram_chat_id;
-        t += '\n📢 *Публикация итогов:*\n';
-        if (chatIdGr) {
-            t += 'Группа: *' + md(n.telegram_chat_title || 'привязана') + '*\n';
-            t += 'Авто после игры: ' + (n.auto_publish_results ? '✅' : '❌') + '\n';
-        } else {
-            t += '_Группа не привязана — перешлите сообщение из чата клуба._\n';
+    else if (data.startsWith('toggle_reyting_')) {
+        const klub_id_tr = data.replace('toggle_reyting_', '');
+        const { data: igrok_tr } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
+        const { data: chlen_tr } = await supabase.from('chleny_klubov').select('klub_id').eq('igrok_id', igrok_tr?.id).eq('klub_id', klub_id_tr).eq('rol', 'vladyelets').single();
+        if (!chlen_tr) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа', show_alert: true });
+            return;
         }
-
-        const knGr = chatIdGr
-            ? [
-                [{ text: n.auto_publish_results ? '❌ Выключить автопубликацию' : '✅ Автопубликация после игры', callback_data: 'gruppa_klub_auto_' + klub_nk.id }],
-                [{ text: '🔗 Отвязать группу', callback_data: 'gruppa_klub_otvyaz_' + klub_nk.id }]
-            ]
-            : [[{ text: '📢 Привязать группу клуба', callback_data: 'gruppa_klub_setup_' + klub_nk.id }]];
-
-        bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-            [{ text: sport ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_nk.id }],
-            [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
-            [{ text: n.logo_file_id ? '🎨 Заменить логотип' : '🎨 Загрузить логотип', callback_data: 'brend_klub_' + klub_nk.id }],
-            ...(n.logo_file_id ? [[{ text: '🗑 Удалить логотип', callback_data: 'brend_klub_del_' + klub_nk.id }]] : []),
-            [{ text: '\uD83C\uDFA8 Стилизация клуба — 5000₽ навсегда', callback_data: 'stil_klub_' + klub_nk.id }],
-            [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
-            [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }],
-            ...knGr,
-            [{ text: '🔗 Приглашение в клуб', callback_data: 'klub_invite_show_' + klub_nk.id }],
-            [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
-        ]}});
+        const { data: k_tr } = await supabase.from('kluby').select('nastroyki, nazvaniye, sportivniy_rezhim').eq('id', klub_id_tr).single();
+        const nastroyki_tr = { ...(k_tr?.nastroyki || {}) };
+        const vklyuchen = klubImeetReyting(nastroyki_tr);
+        if (vklyuchen) {
+            nastroyki_tr.bez_reytinga = true;
+            delete nastroyki_tr.reyting_vklyuchen;
+        } else {
+            delete nastroyki_tr.bez_reytinga;
+            nastroyki_tr.reyting_vklyuchen = true;
+        }
+        await supabase.from('kluby').update({ nastroyki: nastroyki_tr }).eq('id', klub_id_tr);
+        bot.answerCallbackQuery(query.id, { text: vklyuchen ? 'Рейтинг выключен' : 'Рейтинг включён' });
+        await pokazatNastroykiKlubaV(chatId, messageId, {
+            id: klub_id_tr,
+            nazvaniye: k_tr?.nazvaniye,
+            nastroyki: nastroyki_tr,
+            sportivniy_rezhim: k_tr?.sportivniy_rezhim
+        });
     }
 
     else if (data === 'brend_klub_menu') {
@@ -12177,60 +12230,32 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('toggle_tip_kluba_')) {
         const klub_id_tt = data.replace('toggle_tip_kluba_', '');
         const { data: k_tt } = await supabase.from('kluby').select('nastroyki, nazvaniye, sportivniy_rezhim').eq('id', klub_id_tt).single();
-        const nastroyki_tt = k_tt?.nastroyki || {};
+        const nastroyki_tt = { ...(k_tt?.nastroyki || {}) };
         const new_tip = (nastroyki_tt.tip_kluba || 'paskal') === 'vip' ? 'paskal' : 'vip';
-        await supabase.from('kluby').update({ nastroyki: { ...nastroyki_tt, tip_kluba: new_tip } }).eq('id', klub_id_tt);
+        nastroyki_tt.tip_kluba = new_tip;
+        await supabase.from('kluby').update({ nastroyki: nastroyki_tt }).eq('id', klub_id_tt);
         bot.answerCallbackQuery(query.id, { text: new_tip === 'vip' ? 'Правила VIP' : 'Правила Pascal', show_alert: true });
-        const sport_tt = k_tt?.sportivniy_rezhim;
-        const b = nastroyki_tt.bally || BALLY_DEFAULT;
-        let t_tt = '\u2699\uFE0F *Настройки клуба — ' + k_tt.nazvaniye + '*\n\n';
-        t_tt += '\uD83C\uDFC6 Спортивный режим: ' + (sport_tt ? '\u2705 Включён' : '\u274C Выключен') + '\n';
-        t_tt += '\uD83D\uDC4B Знакомство: ' + (nastroyki_tt.znakomstvo_sek || 10) + ' сек\n';
-        t_tt += '\u26A0\uFE0F Оправдание: ' + (nastroyki_tt.opravdanie_sek || 30) + ' сек\n';
-        t_tt += '\uD83D\uDD34 Макс. фолов: ' + (nastroyki_tt.max_foly || 4) + '\n';
-        t_tt += '\uD83D\uDCDC Правила: *' + (new_tip === 'vip' ? 'VIP' : 'Pascal') + '*\n';
-        t_tt += '\uD83D\uDC89 Доктор: ' + tekstPravilDoktora({ tip_kluba: new_tip, _nastroyki: nastroyki_tt }) + '\n\n';
-        t_tt += '*Баллы:*\n';
-        t_tt += '\uD83D\uDFE2 Победа команды: +' + (b.pobeda_komanda ?? 3) + '\n';
-        t_tt += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
-        t_tt += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
-        bot.editMessageText(t_tt, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-            [{ text: sport_tt ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_id_tt }],
-            [{ text: new_tip === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_id_tt }],
-            [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_id_tt }],
-            [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_id_tt }],
-            [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
-        ]}});
+        await pokazatNastroykiKlubaV(chatId, messageId, {
+            id: klub_id_tt,
+            nazvaniye: k_tt?.nazvaniye,
+            nastroyki: nastroyki_tt,
+            sportivniy_rezhim: k_tt?.sportivniy_rezhim
+        });
     }
 
     // ===== TOGGLE СПОРТИВНЫЙ РЕЖИМ =====
     else if (data.startsWith('toggle_sport_')) {
         const klub_id_ts = data.replace('toggle_sport_', '');
-        const { data: k_ts } = await supabase.from('kluby').select('sportivniy_rezhim').eq('id', klub_id_ts).single();
+        const { data: k_ts } = await supabase.from('kluby').select('sportivniy_rezhim, nastroyki, nazvaniye').eq('id', klub_id_ts).single();
         const new_val = !k_ts?.sportivniy_rezhim;
         await supabase.from('kluby').update({ sportivniy_rezhim: new_val }).eq('id', klub_id_ts);
         bot.answerCallbackQuery(query.id, { text: new_val ? '\uD83C\uDFC6 Спортивный режим включён!' : '\u274C Спортивный режим выключен', show_alert: true });
-        // Обновляем настройки
-        const fake_data = 'nastroyki_kluba_v';
-        const fakeQuery = { ...query, data: fake_data };
-        // Re-trigger
-        const { data: igrok_ts } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
-        const { data: chleny_ts } = await supabase.from('chleny_klubov').select('klub_id, kluby(id, nazvaniye, nastroyki, sportivniy_rezhim)').eq('igrok_id', igrok_ts?.id).eq('rol', 'vladyelets');
-        const klub_ts = chleny_ts?.[0]?.kluby;
-        if (!klub_ts) return;
-        const sport_ts = klub_ts.sportivniy_rezhim;
-        const n_ts = klub_ts.nastroyki || {};
-        let t_ts = '\u2699\uFE0F *Настройки клуба — ' + klub_ts.nazvaniye + '*\n\n';
-        t_ts += '\uD83C\uDFC6 Спортивный режим: ' + (sport_ts ? '\u2705 Включён' : '\u274C Выключен') + '\n';
-        t_ts += '\uD83D\uDC4B Знакомство: ' + (n_ts.znakomstvo_sek || 10) + ' сек\n';
-        t_ts += '\u26A0\uFE0F Оправдание: ' + (n_ts.opravdanie_sek || 30) + ' сек\n';
-        t_ts += '\uD83D\uDD34 Макс. фолов: ' + (n_ts.max_foly || 4) + '\n';
-        bot.editMessageText(t_ts, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-            [{ text: sport_ts ? '\u274C Выключить спорт. режим' : '\u2705 Включить спорт. режим', callback_data: 'toggle_sport_' + klub_ts.id }],
-            [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_ts.id }],
-            [{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_ts.id }],
-            [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
-        ]}});
+        await pokazatNastroykiKlubaV(chatId, messageId, {
+            id: klub_id_ts,
+            nazvaniye: k_ts?.nazvaniye,
+            nastroyki: k_ts?.nastroyki || {},
+            sportivniy_rezhim: new_val
+        });
     }
 
     // ===== ИЗМЕНИТЬ БАЛЛЫ =====

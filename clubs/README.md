@@ -37,6 +37,10 @@ clubs/my-club/
 | `perviy_hod_nomer` | Номер места автостарта (обычно 1) |
 | `posle_znakomstva_golosovanie` | После представлений — сразу голосование |
 | `tip_kluba` | `paskal` / `vip` / `naila` |
+| `bez_reytinga` | `true` — без рейтинга и баллов (скрывает UI в mini app) |
+| `reyting_vklyuchen` | `false` — то же, что `bez_reytinga: true` |
+
+Владелец клуба может включить/выключить рейтинг в боте: **Настройки клуба → «Включить/Выключить рейтинг»** (сохраняется в Supabase как `bez_reytinga` / `reyting_vklyuchen`).
 
 Порядок слияния: значения из **Supabase** перекрывают пресет; пресет заполняет пробелы.
 
