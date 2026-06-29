@@ -392,6 +392,7 @@ function metaHostaMiniApp(igra, kod) {
         can_start_day: igra.roli_razdany && pickFaza === 'den' && !gov && !intro,
         can_start_voting: (igra.faza === 'znakomstvo' || igra.faza === 'opravdanie') && !gov && nazn.length > 0,
         can_go_voting: igra.faza === 'znakomstvo' && !gov && posleZnakomstvaGolosovanie(igra),
+        can_view_immunity: !!igra.roli_razdany,
         voting_active: igra.faza === 'golosovanie',
         can_vote_manual: igra.faza === 'golosovanie',
         voting_nominees: nazn,
@@ -3915,6 +3916,7 @@ bot.on('message', async function(msg) {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
+                [knopkaImmuniteta(kod)],
                 [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }]
             ]}
         });
@@ -5207,6 +5209,7 @@ async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
+                [knopkaImmuniteta(kod)],
                 [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }]
             ] }
         });
@@ -8217,6 +8220,7 @@ function buildTimerKnopki(kod, faza) {
     }
     const finishVecher = knopkaZavershitVecher(igra_sv?.klub_id);
     if (finishVecher) knopki.push([finishVecher]);
+    if (igra_sv?.roli_razdany) knopki.push([knopkaImmuniteta(kod)]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
     return knopki;
 }
@@ -8293,6 +8297,59 @@ function tekstSpiskaPosleRoley(igra) {
     t += '\n' + tekstImmuniteta(igra);
     t += '_Игроков с иммунитетом нельзя выставить на голосование._';
     return t;
+}
+
+function opisanieImmunitetaIgroka(igrok, igra) {
+    const parts = [];
+    if (igrok.immunitet_golos) parts.push('бонус игрока вечера');
+    if (igrok.immunitet || igrok.bonus_immunitet) parts.push('иммунитет');
+    if (igrok.immunitet_do) parts.push('до ' + igrok.immunitet_do);
+    if (igrok.immunitet_posle_nochi) {
+        parts.push(igra?.faza === 'znakomstvo' ? 'круг (с 1-го дня)' : 'после ночи / круг');
+    }
+    return parts.join(', ') || 'иммунитет';
+}
+
+function knopkaImmuniteta(kod) {
+    return { text: '\uD83D\uDEE1 Иммунитет', callback_data: 'panel_immunitet_' + kod };
+}
+
+async function pokazatPanelImmuniteta(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) return;
+    await podgruzitImmunitetIgrokam(igra);
+    await sohranit_igru(kod);
+
+    let t = '\uD83D\uDEE1 *Иммунитет* — Игра \u2116' + kod + '\n\n';
+    const sImm = (igra.igroki || []).filter(i => i.status === 'v_igre' && estImmunitetOtGolosovaniya(i, igra));
+    if (!sImm.length) {
+        t += '_Активных иммунитетов нет._\n';
+    } else {
+        sImm.forEach(i => {
+            t += '\u2116' + i.nomer + ' *' + i.name + '* — _' + opisanieImmunitetaIgroka(i, igra) + '_\n';
+        });
+    }
+    t += '\n_Правила:_\n';
+    t += '• Бонус игрока вечера — после ночи знакомства\n';
+    t += '• Первый и последний в круге — иммунитет с 1-го дня\n';
+    t += '• Выжившие после ночного выстрела — на следующий день\n';
+    t += '\n_Игроков с \uD83D\uDEE1 нельзя выставить на голосование._';
+
+    const knopki = [[{ text: '\uD83D\uDD04 Обновить бонусы', callback_data: 'panel_immunitet_' + kod }]];
+    if (igra._pick_first_faza && !igra.tekushchiy_nomer) {
+        knopki.unshift([{ text: knopkaKtoNachinaet(igra._pick_first_faza), callback_data: 'faza_' + igra._pick_first_faza + '_' + kod }]);
+    }
+    const nazad = fazaKRuchiRechi(igra.faza) ? 'timer_back_' + kod : 'panel_' + kod;
+    knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: nazad }]);
+
+    const opts = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
+    if (messageId) {
+        await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, ...opts }).catch(() =>
+            bot.sendMessage(chatId, t, opts).catch(() => {})
+        );
+    } else {
+        await bot.sendMessage(chatId, t, opts).catch(() => {});
+    }
 }
 
 function govoryashchiyVystavilNaGolos(igra, govNomer) {
@@ -9084,6 +9141,15 @@ async function miniAppHostAction(tg_id, user, body) {
         await zapolnitIgruIzSpiskaVechera(igra, spisok);
         await sohranit_igru(kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Состав из вечера подтверждён');
+    }
+    if (sub === 'immunity') {
+        await podgruzitImmunitetIgrokam(igra);
+        await sohranit_igru(kod);
+        const immune = (igra.igroki || []).filter(i => i.status === 'v_igre' && estImmunitetOtGolosovaniya(i, igra));
+        const msg = immune.length
+            ? 'Иммунитет: ' + immune.map(i => '№' + i.nomer + ' ' + i.name).join(', ')
+            : 'Активных иммунитетов нет — бонусы POE подгружаются после ночи знакомства';
+        return otvetMiniAppPosleDeystviya(tg_id, user, msg);
     }
     if (sub === 'start_znakomstvo') {
         await podgruzitNastroykiIgry(igra);
@@ -11713,8 +11779,24 @@ bot.on('callback_query', async function(query) {
     }
 
 
+    // ===== ПАНЕЛЬ ИММУНИТЕТА =====
+    else if (data.startsWith('panel_immunitet_')) {
+        const kod = data.replace('panel_immunitet_', '');
+        const igra = igry[kod];
+        if (!igra) {
+            bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
+            return;
+        }
+        if (!estDostupKIgre(igra, telegram_id)) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа', show_alert: true });
+            return;
+        }
+        bot.answerCallbackQuery(query.id);
+        await pokazatPanelImmuniteta(chatId, messageId, kod);
+    }
+
     // ===== ИГРОВАЯ ПАНЕЛЬ =====
-    else if (data.startsWith('panel_') && !data.startsWith('panel_foly_')) {
+    else if (data.startsWith('panel_') && !data.startsWith('panel_foly_') && !data.startsWith('panel_mirny_') && !data.startsWith('panel_immunitet_')) {
         const kod = data.replace('panel_', '');
         const igra = igry[kod];
         if (!igra) {
@@ -11779,6 +11861,7 @@ bot.on('callback_query', async function(query) {
             knopki.push([{ text: '\uD83D\uDFE2 + Мирный житель (' + mirnyeOstalosVnesti(igra) + ')', callback_data: 'panel_mirny_' + kod }]);
         }
         knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
+        if (igra.roli_razdany) knopki.push([knopkaImmuniteta(kod)]);
         if (igra.vedushchii_id === telegram_id) {
             knopki.push([{ text: '🎁 Подарок игроку', callback_data: 'podarok_menu_' + kod }]);
         }
