@@ -1108,6 +1108,10 @@ function klubSkrytIzSpiska(klub) {
     return /prime\s*mafia|прайм\s*мафия/.test(name);
 }
 
+function otfiltrovatSkrytyeTestKluby(kluby) {
+    return (kluby || []).filter(k => !klubSkrytIzSpiska(k));
+}
+
 async function poluchitRoliPolzovatelya(telegram_id) {
     const { data: igrok } = await supabase
         .from('igroki')
@@ -1244,7 +1248,7 @@ async function klubyVladeltsa(owner_tg_id) {
     const { data: vse } = ids.size
         ? await supabase.from('kluby').select('id, nazvaniye').in('id', [...ids])
         : { data: [] };
-    return (vse || klubySpisok).filter(k => ids.has(k.id)).filter(k => !klubSkrytIzSpiska(k));
+    return (vse || klubySpisok).filter(k => ids.has(k.id));
 }
 
 async function klubIdDlyaNaznacheniyaVedushchego(owner_tg_id, igrok_id) {
@@ -3230,12 +3234,14 @@ async function obrabotatMiniAppData(msg) {
     }
     if (action === 'igrovoy_vecher') {
         const kluby = await poluchitKlubyDlyaIgr(tg_id);
+        const pokazat = otfiltrovatSkrytyeTestKluby(kluby);
+        const vybor = pokazat.length ? pokazat : kluby;
         if (kluby.length === 0) {
             await bot.sendMessage(chatId, '🌙 У тебя пока нет клуба для игрового вечера.');
-        } else if (kluby.length === 1) {
+        } else if (vybor.length === 1) {
             const soobsh = await bot.sendMessage(chatId, '🌙 Открываю игровой вечер...', bystrayaKlaviaturaVedushchego);
             try {
-                await pokazatIgrovoyVecher(chatId, soobsh.message_id, kluby[0], tg_id);
+                await pokazatIgrovoyVecher(chatId, soobsh.message_id, vybor[0], tg_id);
             } catch (e) {
                 console.error('[vecher miniapp]', e?.message || e);
                 await bot.sendMessage(chatId, '❌ Не удалось открыть игровой вечер. Попробуй ещё раз.', bystrayaKlaviaturaVedushchego);
@@ -3243,7 +3249,7 @@ async function obrabotatMiniAppData(msg) {
         } else {
             await bot.sendMessage(chatId, '🌙 *Игровой вечер*\n\nВыбери клуб:', {
                 parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: kluby.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]) }
+                reply_markup: { inline_keyboard: vybor.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]) }
             });
         }
         return;
@@ -3301,7 +3307,7 @@ bot.on('message', async function(msg) {
     }
 
     if (text === '🏠 Меню') {
-        await otkrytMenyuPoRolyam(chatId, tg_id);
+        await obrabotatStart(msg, []);
         return;
     }
 
@@ -3329,18 +3335,20 @@ bot.on('message', async function(msg) {
     }
     if (text === '🌙 Игровой вечер') {
         const kluby = await poluchitKlubyDlyaIgr(tg_id);
+        const pokazat = otfiltrovatSkrytyeTestKluby(kluby);
+        const vybor = pokazat.length ? pokazat : kluby;
         if (kluby.length === 0) {
             await bot.sendMessage(chatId, '🌙 У тебя пока нет клуба для игрового вечера.', bystrayaKlaviaturaVedushchego);
-        } else if (kluby.length === 1) {
+        } else if (vybor.length === 1) {
             const msgVecher = await bot.sendMessage(chatId, '🌙 Открываю игровой вечер...', bystrayaKlaviaturaVedushchego);
             try {
-                await pokazatIgrovoyVecher(chatId, msgVecher.message_id, kluby[0], tg_id);
+                await pokazatIgrovoyVecher(chatId, msgVecher.message_id, vybor[0], tg_id);
             } catch (e) {
                 console.error('[vecher open]', e?.message || e);
                 await bot.sendMessage(chatId, '❌ Не удалось открыть игровой вечер. Попробуй ещё раз.', bystrayaKlaviaturaVedushchego);
             }
         } else {
-            const knopki = kluby.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]);
+            const knopki = vybor.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]);
             await bot.sendMessage(chatId, '🌙 *Игровой вечер*\n\nВыбери клуб:', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: knopki }
@@ -4638,7 +4646,11 @@ async function vernutPanelTaymera(igra, kod, chatId, messageId, opts = {}) {
     if (!igra) return false;
     delete igra._taymer_ui_mode;
     delete igra._picker_type;
-    delete sostoyanie[igra.vedushchii_id];
+    const vedId = igra.vedushchii_id;
+    const st = vedId ? sostoyanie[vedId] : null;
+    if (typeof st === 'string' && (st === 'vystav_golos_' + kod || st.startsWith('golos_count_' + kod + '_'))) {
+        delete sostoyanie[vedId];
+    }
     const { chat_id, message_id } = idSoobshcheniyaTaymera(igra, chatId, messageId);
     const ui = tekstIKnopkiTaymera(igra, kod);
     const text = ui.text + (opts.suffix || '');
@@ -6942,7 +6954,7 @@ async function poluchitKlubyDlyaIgr(telegram_id) {
         byId.set(k.id, k);
     }
 
-    return [...byId.values()].filter(k => !klubSkrytIzSpiska(k));
+    return [...byId.values()];
 }
 
 async function pokazatRezultatyVechera(chatId, messageId, klub_id, telegram_id) {
@@ -9494,6 +9506,8 @@ bot.on('callback_query', async function(query) {
 
     else if (data === 'igrovoy_vecher') {
         const kluby = await poluchitKlubyDlyaIgr(telegram_id);
+        const klubyVSpiske = otfiltrovatSkrytyeTestKluby(kluby);
+        const pokazat = klubyVSpiske.length ? klubyVSpiske : kluby;
         if (kluby.length === 0) {
             bot.editMessageText('🌙 *Игровой вечер*\n\nУ тебя пока нет клуба, где ты собственник или ведущая.', {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -9501,16 +9515,16 @@ bot.on('callback_query', async function(query) {
             });
             return;
         }
-        if (kluby.length === 1) {
+        if (pokazat.length === 1) {
             try {
-                await pokazatIgrovoyVecher(chatId, messageId, kluby[0], telegram_id);
+                await pokazatIgrovoyVecher(chatId, messageId, pokazat[0], telegram_id);
             } catch (e) {
                 console.error('[vecher callback]', e?.message || e);
                 bot.sendMessage(chatId, '❌ Не удалось открыть игровой вечер. Попробуй ещё раз.', bystrayaKlaviaturaVedushchego).catch(() => {});
             }
             return;
         }
-        const knopki = kluby.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]);
+        const knopki = pokazat.map(k => [{ text: '🌙 ' + k.nazvaniye, callback_data: 'vecher_klub_' + k.id }]);
         knopki.push([{ text: '⬅️ В меню', callback_data: 'menu_vedushchego' }]);
         bot.editMessageText('🌙 *Игровой вечер*\n\nВыбери клуб:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -10506,7 +10520,10 @@ bot.on('callback_query', async function(query) {
             return;
         }
 
-        const knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'igra_klub_' + k.id }]);
+        let knopki = otfiltrovatSkrytyeTestKluby(kluby).map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'igra_klub_' + k.id }]);
+        if (!knopki.length) {
+            knopki = kluby.map(k => [{ text: '🎴 ' + k.nazvaniye, callback_data: 'igra_klub_' + k.id }]);
+        }
         knopki.push([nazad]);
         bot.editMessageText('🎲 *Создание игры*\n\nВыбери клуб:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
