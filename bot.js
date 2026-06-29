@@ -2543,6 +2543,7 @@ const bystrayaKlaviaturaVedushchego = {
         keyboard: [
             ['🏠 Меню', '🌙 Игровой вечер'],
             ['🎮 Мои игры', '🎲 Создать игру'],
+            ['🏁 Завершить вечер', '📋 Результаты вечера'],
             ['⏸ Пауза/стоп', '▶️ Возобновить'],
             ['🗑 Удалить игру']
         ],
@@ -2560,7 +2561,7 @@ bot.setMyCommands([
 ]).catch(e => console.error('[commands]', e?.message || e));
 
 async function pokazatBystryeKnopkiVedushchego(chatId) {
-    await bot.sendMessage(chatId, '⚡ Быстрые кнопки', bystrayaKlaviaturaVedushchego).catch(() => {});
+    await bot.sendMessage(chatId, '⌨️ Панель ведущего — кнопки под полем ввода', bystrayaKlaviaturaVedushchego).catch(() => {});
 }
 
 async function mozhetUpravlyatIgrami(tg_id, roles) {
@@ -3331,6 +3332,29 @@ bot.on('message', async function(msg) {
 
     if (text === '🎮 Мои игры' || text === '/games') {
         await pokazatMoiIgryBystraya(chatId, tg_id);
+        return;
+    }
+    if (text === '🏁 Завершить вечер') {
+        await otkrytZavershenieVecheraDlyaPolzovatelya(chatId, tg_id, null);
+        return;
+    }
+    if (text === '📋 Результаты вечера') {
+        const kluby = await poluchitKlubyDlyaIgr(tg_id);
+        if (!kluby.length) {
+            await bot.sendMessage(chatId, '📋 Нет клуба для результатов вечера.', bystrayaKlaviaturaVedushchego);
+            return;
+        }
+        if (kluby.length === 1) {
+            const msg = await bot.sendMessage(chatId, '📋 Загружаю результаты...', bystrayaKlaviaturaVedushchego);
+            await pokazatRezultatyVechera(chatId, msg.message_id, kluby[0].id, tg_id);
+            return;
+        }
+        const vybor = otfiltrovatSkrytyeTestKluby(kluby);
+        const klubyPick = vybor.length ? vybor : kluby;
+        await bot.sendMessage(chatId, '📋 *Результаты вечера*\n\nВыбери клуб:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: klubyPick.map(k => [{ text: '📋 ' + k.nazvaniye, callback_data: 'vecher_rezultaty_' + k.id }]) }
+        });
         return;
     }
     if (text === '🌙 Игровой вечер') {
@@ -5665,6 +5689,53 @@ async function vecherKlubaZavershen(klub_id) {
     return nastroyki.vecher_data === dataIgrovoegoVechera() && !!nastroyki.vecher_zavershen;
 }
 
+function knopkaZavershitVecher(klub_id) {
+    if (!klub_id) return null;
+    return { text: '🏁 Завершить игровой вечер', callback_data: 'vecher_finish_' + klub_id };
+}
+
+async function pokazatPodtverzhdenieZaversheniyaVechera(chatId, messageId, klub_id) {
+    const payload = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '✅ Да, завершить вечер', callback_data: 'vecher_finish_ok_' + klub_id }],
+            [{ text: '🌙 К игровому вечеру', callback_data: 'vecher_klub_' + klub_id }]
+        ]}
+    };
+    const text = '🏁 *Завершить игровой вечер?*\n\n' +
+        'Рейтинг вечера будет подсчитан по всем внесённым играм.\n' +
+        'Состав вечера сохранится, но новые игры не будут привязаны к этому вечеру.';
+    if (messageId) {
+        await bezopasnoObnovitSoobshchenie(chatId, messageId, text, payload);
+    } else {
+        await bot.sendMessage(chatId, text, payload);
+    }
+}
+
+async function otkrytZavershenieVecheraDlyaPolzovatelya(chatId, tg_id, messageId) {
+    const kluby = await poluchitKlubyDlyaIgr(tg_id);
+    if (!kluby.length) {
+        const msg = '❌ Нет клуба для завершения вечера.';
+        if (messageId) await bezopasnoObnovitSoobshchenie(chatId, messageId, msg);
+        else await bot.sendMessage(chatId, msg, bystrayaKlaviaturaVedushchego);
+        return;
+    }
+    if (kluby.length === 1) {
+        await pokazatPodtverzhdenieZaversheniyaVechera(chatId, messageId, kluby[0].id);
+        return;
+    }
+    const pokazat = otfiltrovatSkrytyeTestKluby(kluby);
+    const vybor = pokazat.length ? pokazat : kluby;
+    const knopki = vybor.map(k => [{ text: '🏁 ' + k.nazvaniye, callback_data: 'vecher_finish_' + k.id }]);
+    knopki.push([{ text: '🌙 Игровой вечер', callback_data: 'igrovoy_vecher' }]);
+    const text = '🏁 *Завершить игровой вечер*\n\nВыбери клуб:';
+    if (messageId) {
+        await bezopasnoObnovitSoobshchenie(chatId, messageId, text, { reply_markup: { inline_keyboard: knopki } });
+    } else {
+        await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+    }
+}
+
 async function vecherKlubaAktiven(klub_id) {
     if (!klub_id) return false;
     const nastroyki = await poluchitNastroykiVecheraKluba(klub_id);
@@ -6990,7 +7061,8 @@ async function pokazatRezultatyVechera(chatId, messageId, klub_id, telegram_id) 
         t += '\n\n_Уже внесены игры: №' + usedNomera.join(', №') + '_';
         t += '\n_Следующий номер: №' + nomerNext + '_';
     }
-    knopki.push([{ text: '🏁 Завершить игровой вечер', callback_data: 'vecher_finish_' + klub_id }]);
+    const finishBtn = knopkaZavershitVecher(klub_id);
+    if (finishBtn) knopki.unshift([finishBtn]);
     knopki.push([{ text: '⬅️ К вечеру', callback_data: 'vecher_klub_' + klub_id }]);
 
     await bezopasnoObnovitSoobshchenie(chatId, messageId, t, {
@@ -7156,6 +7228,7 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
     }
 
     if (!zavershen) {
+        knopki.push([knopkaZavershitVecher(klubInfo.id)]);
         const { data: anonsy } = await supabase
             .from('anonsy')
             .select('id, data_igry, vremya')
@@ -7178,7 +7251,6 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
         if (liveReyting?.length) {
             knopki.push([{ text: '📊 Полный рейтинг вечера', callback_data: 'vecher_reyting_' + klubInfo.id }]);
         }
-        knopki.push([{ text: '🏁 Завершить игровой вечер', callback_data: 'vecher_finish_' + klubInfo.id }]);
     } else {
         if (awaitPoe && spisok?.length) {
             knopki.push([{ text: '⭐ Выбрать игрока вечера', callback_data: 'vecher_poe_' + klubInfo.id }]);
@@ -8100,6 +8172,8 @@ function buildTimerKnopki(kod, faza) {
     if (igra_sv?.klub_id && igra_sv._smena_ved_dostupna) {
         knopki.push([{ text: '🎤 Сменить ведущего', callback_data: 'smenit_vedushchego_' + kod }]);
     }
+    const finishVecher = knopkaZavershitVecher(igra_sv?.klub_id);
+    if (finishVecher) knopki.push([finishVecher]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
     return knopki;
 }
@@ -8413,6 +8487,8 @@ function knopkiGolosovaniyaSPodschetom(igra, kod) {
     knopki.push([{ text: '\u270D\uFE0F Итог вручную', callback_data: 'golos_itog_ruch_' + kod }]);
     knopki.push([{ text: '\u2705 Никто не выбывает', callback_data: 'golos_nikto_' + kod }]);
     knopki.push([{ text: '\u2B05\uFE0F К оправданию', callback_data: 'faza_opravdanie_' + kod }]);
+    const finishVecher = knopkaZavershitVecher(igra?.klub_id);
+    if (finishVecher) knopki.push([finishVecher]);
     return knopki;
 }
 
@@ -9657,18 +9733,7 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('vecher_finish_')) {
         const klub_id = data.replace('vecher_finish_', '');
         bot.answerCallbackQuery(query.id);
-        bot.editMessageText(
-            '🏁 *Завершить игровой вечер?*\n\n' +
-            'Рейтинг вечера будет подсчитан по всем внесённым играм.\n' +
-            'Состав вечера сохранится, но новые игры не будут привязаны к этому вечеру.',
-            {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [
-                    [{ text: '✅ Да, завершить вечер', callback_data: 'vecher_finish_ok_' + klub_id }],
-                    [{ text: '⬅️ Назад', callback_data: 'vecher_klub_' + klub_id }]
-                ]}
-            }
-        );
+        await pokazatPodtverzhdenieZaversheniyaVechera(chatId, messageId, klub_id);
     }
 
     else if (data.startsWith('poe_tg_')) {
