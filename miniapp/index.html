@@ -27,6 +27,17 @@
 
     <section class="layout">
       <aside class="panel sidebar">
+        <div class="evening-panel hidden" id="eveningPanel">
+          <div class="section-title">Игровой вечер</div>
+          <p class="evening-meta" id="eveningMeta"></p>
+          <ul class="evening-players" id="eveningPlayers"></ul>
+          <div class="evening-actions" id="eveningActions"></div>
+          <label class="host-roster-label evening-roster-label hidden" id="eveningRosterLabel">
+            Состав вечера (каждый ник с новой строки)
+            <textarea id="eveningRosterInput" rows="6" placeholder="Аня&#10;Боря&#10;..."></textarea>
+          </label>
+        </div>
+
         <div class="section-title">
           <span>Профиль</span>
           <span class="status-dot"></span>
@@ -85,6 +96,9 @@
           <div class="host-meta" id="hostMeta"></div>
           <div class="host-intro hidden" id="hostIntro">
             <p class="host-intro-step" id="hostIntroStep"></p>
+            <div class="role-card-preview hidden" id="hostIntroCardWrap">
+              <img id="hostIntroCard" alt="" class="role-card-img role-card-img-lg" />
+            </div>
             <p class="muted" id="hostIntroHint">Нажми на место игрока за столом</p>
           </div>
           <div class="host-actions" id="hostActions"></div>
@@ -104,8 +118,21 @@
             <p class="muted" id="nightStepLabel"></p>
             <div class="host-night-actions" id="nightPickActions"></div>
           </div>
+          <div class="host-voting hidden" id="hostVoting">
+            <p class="muted">Голосование — введи число голосов за каждого</p>
+            <div id="votingNominees"></div>
+            <button type="button" class="button primary" id="voteFinishBtn">Итог голосования</button>
+          </div>
           <div class="host-summary hidden" id="hostSummary">
             <pre class="host-summary-text" id="hostSummaryText"></pre>
+          </div>
+        </div>
+
+        <div class="my-role-panel hidden" id="myRolePanel">
+          <div class="section-title">Моя роль</div>
+          <div class="role-card-preview">
+            <img id="myRoleCard" alt="" class="role-card-img role-card-img-lg" />
+            <p class="my-role-name" id="myRoleName"></p>
           </div>
         </div>
 
@@ -154,6 +181,13 @@
         <div class="inspector-gifts" id="giftsSection">
           <div class="section-title">Мои подарки и бонусы</div>
           <div class="gifts-card" id="giftsList"></div>
+        </div>
+
+        <div class="inspector-import hidden" id="importRatingSection">
+          <div class="section-title">Архив рейтинга</div>
+          <p class="muted import-hint">Вставь CSV (как при экспорте) — игроки должны быть в клубе.</p>
+          <textarea id="importRatingInput" rows="5" placeholder="Имя,Ник,Роль,Победа,Выжил,..."></textarea>
+          <button type="button" class="button primary" id="importRatingBtn">Импортировать</button>
         </div>
 
         <div class="inspector-top">

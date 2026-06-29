@@ -784,6 +784,131 @@ p {
   margin: 0 0 4px;
 }
 
+.evening-panel {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+
+.evening-panel.hidden {
+  display: none;
+}
+
+.evening-meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.evening-players {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 13px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.evening-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evening-actions .button {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.host-voting.hidden {
+  display: none;
+}
+
+.vote-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.vote-input {
+  width: 64px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+}
+
+.inspector-import textarea {
+  width: 100%;
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.inspector-import.hidden {
+  display: none;
+}
+
+.role-card-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.role-card-preview.hidden {
+  display: none;
+}
+
+.role-card-img {
+  display: block;
+  width: 72px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  object-fit: cover;
+}
+
+.role-card-img-lg {
+  width: min(160px, 42vw);
+  max-height: 220px;
+}
+
+.my-role-panel {
+  margin: 0 0 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+
+.my-role-panel.hidden {
+  display: none;
+}
+
+.my-role-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gold);
+  text-align: center;
+}
+
+.seat-role-card {
+  width: 48px;
+  height: auto;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
 .seat-role {
   font-size: 10px;
   color: var(--gold);

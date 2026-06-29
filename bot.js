@@ -22,6 +22,7 @@ const klubAnketa = require('./lib/klub-anketa');
 const bonusy = require('./lib/bonusy');
 const gorodaUi = require('./lib/goroda-ui');
 const vecherReyting = require('./lib/vecher-reyting');
+const reytingImport = require('./lib/reyting-import');
 const itogFrazy = require('./lib/itog-frazy');
 
 const {
@@ -182,6 +183,13 @@ function klubImeetReyting(nastroyki = {}) {
     return true;
 }
 
+function urlKartyRoliMiniApp(klub_id, role, kod) {
+    if (!klub_id || !role || !kod) return null;
+    return '/api/miniapp/role-card?klub_id=' + encodeURIComponent(String(klub_id))
+        + '&role=' + encodeURIComponent(role)
+        + '&kod=' + encodeURIComponent(String(kod));
+}
+
 function tekstNastroykiKlubaPanel(klub_nk) {
     const sport = klub_nk.sportivniy_rezhim;
     const n = klub_nk.nastroyki || {};
@@ -237,6 +245,7 @@ function knopkiNastroykiKlubaPanel(klub_nk) {
         [{ text: '\uD83C\uDFA8 Стилизация клуба — 5000₽ навсегда', callback_data: 'stil_klub_' + klub_nk.id }],
         [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
         ...(reytingOn ? [[{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }]] : []),
+        ...(reytingOn ? [[{ text: '\uD83D\uDCE5 Импорт рейтинга (CSV)', callback_data: 'reyting_import_' + klub_nk.id }]] : []),
         ...knGr,
         [{ text: '🔗 Приглашение в клуб', callback_data: 'klub_invite_show_' + klub_nk.id }],
         [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
@@ -256,6 +265,26 @@ function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
     const igroki = Array.isArray(igra.igroki) ? igra.igroki : [];
     const zhivye = igroki.filter(i => i.status === 'v_igre').length;
     const isHost = requesterId != null && igra.vedushchii_id === requesterId;
+    const isParticipant = requesterId != null && igroki.some(i => i.telegram_id === requesterId);
+    const me = requesterId != null ? igroki.find(i => i.telegram_id === requesterId) : null;
+    const klub_id = igra.klub_id || null;
+
+    function cardUrl(rol) {
+        return klub_id && rol ? urlKartyRoliMiniApp(klub_id, rol, kod) : null;
+    }
+    function roleVisibleToRequester(igrok) {
+        if (!igrok?.rol) return false;
+        if (isHost) return true;
+        if (!isParticipant) return false;
+        if (igrok.telegram_id === requesterId) return true;
+        return igrok.status !== 'v_igre';
+    }
+
+    const hostMeta = isHost ? metaHostaMiniApp(igra, kod) : null;
+    if (hostMeta?.intro?.rol) {
+        hostMeta.intro.role_card_url = cardUrl(hostMeta.intro.rol);
+    }
+
     return {
         kod,
         klub_id: igra.klub_id || null,
@@ -269,17 +298,23 @@ function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
         vedushchii_id: igra.vedushchii_id || null,
         pobeditel: igra.pobeditel || null,
         is_host: isHost,
-        host: isHost ? metaHostaMiniApp(igra, kod) : null,
-        players: igroki.map(i => ({
-            nomer: i.nomer,
-            name: i.name,
-            telegram_id: i.telegram_id || null,
-            status: i.status || 'v_igre',
-            foly: i.foly || 0,
-            rol_vidna: isHost && !!i.rol,
-            role: isHost ? (i.rol || null) : null,
-            speaking: isHost && igra.tekushchiy_nomer === i.nomer
-        })),
+        my_role: isParticipant && !isHost && me?.rol ? me.rol : null,
+        my_role_card_url: isParticipant && !isHost && me?.rol ? cardUrl(me.rol) : null,
+        host: hostMeta,
+        players: igroki.map(i => {
+            const showRole = roleVisibleToRequester(i);
+            return {
+                nomer: i.nomer,
+                name: i.name,
+                telegram_id: i.telegram_id || null,
+                status: i.status || 'v_igre',
+                foly: i.foly || 0,
+                rol_vidna: showRole,
+                role: showRole ? (i.rol || null) : null,
+                role_card_url: showRole && i.rol ? cardUrl(i.rol) : null,
+                speaking: isHost && igra.tekushchiy_nomer === i.nomer
+            };
+        }),
         composition: isHost ? poluchitSostavDlyaIgry(igra) : null
     };
 }
@@ -320,13 +355,22 @@ function metaHostaMiniApp(igra, kod) {
     const idx = Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null;
     const intro = shagIntroNochi(igra);
     const nightDone = igra.faza === 'noch' && idx != null && idx >= shagi.length;
+    const nastroyki = igra._nastroyki || {};
+    const igroki = igra.igroki || [];
+    const nazn = (igra.naznacheny_golos || []).map(n => {
+        const p = igroki.find(i => i.nomer === n);
+        return p ? { nomer: p.nomer, name: p.name, votes: (igra.golosa_dnya || {})[n] ?? null } : null;
+    }).filter(Boolean);
+    const pickFaza = igra._pick_first_faza || null;
     return {
         can_submit_roster: igra.rezhim_rolei === 'karty' && !igra.roli_razdany && !intro &&
-            (igra.igroki || []).length < igra.kolichestvo,
-        roster_count: (igra.igroki || []).length,
+            igroki.length < igra.kolichestvo,
+        roster_count: igroki.length,
         roster_needed: igra.kolichestvo,
+        can_confirm_vecher_roster: !!igra.klub_id && igroki.length < igra.kolichestvo && !intro,
         speaking_nomer: gov || null,
         timer_sec: igra.taymer_aktiven ? (igra.taymer_sekundy || 0) : 0,
+        faza: igra.faza || 'ozhidanie',
         can_nominate: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov &&
             !uzheVystavilTekushchiyGovoryashchiy(igra) && kandidatyNaVystavlenie(igra, gov).length > 0,
         speech_hint: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov
@@ -336,15 +380,21 @@ function metaHostaMiniApp(igra, kod) {
             govoryashchiyVystavilNaGolos(igra, gov) != null,
         nominees: nominirovannyePoPoryadku(igra).map(i => ({ nomer: i.nomer, name: i.name })),
         can_start_intro: !intro && igra.rezhim_rolei === 'karty' && !igra.roli_razdany &&
-            (igra.igroki || []).length >= igra.kolichestvo,
+            igroki.length >= igra.kolichestvo,
         intro,
-        can_pick_first: !!igra._pick_first_faza && igra.roli_razdany,
-        pick_first_faza: igra._pick_first_faza || null,
-        can_start_day: false,
+        can_pick_first: !!pickFaza && igra.roli_razdany && !gov && !intro,
+        pick_first_faza: pickFaza,
+        can_start_znakomstvo: igra.roli_razdany && pickFaza === 'znakomstvo' && !gov && !intro,
+        can_start_day: igra.roli_razdany && pickFaza === 'den' && !gov && !intro,
+        can_start_voting: (igra.faza === 'znakomstvo' || igra.faza === 'opravdanie') && !gov && nazn.length > 0,
+        can_go_voting: igra.faza === 'znakomstvo' && !gov && posleZnakomstvaGolosovanie(igra),
+        voting_active: igra.faza === 'golosovanie',
+        voting_nominees: nazn,
         can_night: igra.roli_razdany && (igra.faza === 'den' || igra.faza === 'golosovanie') && !gov && !intro,
         can_finish_night: nightDone,
         night_summary: igra._miniapp_noch_itog || null,
-        need_pick_first_day: !!igra._pick_first_faza,
+        need_pick_first_day: !!pickFaza,
+        club_auto_first: !!(nastroyki.perviy_hod_avto && nastroyki.perviy_hod_nomer),
         night: igra.faza === 'noch' ? {
             guided: idx != null,
             step: idx,
@@ -615,6 +665,11 @@ async function sostoyanieMiniApp(user) {
 
     const hasAvatar = !!igrok?.avatar_file_id;
 
+    const canManageEvening = (roles.isHost || roles.isOwner) && selectedKlubId;
+    const evening = canManageEvening
+        ? await sostoyanieVecheraDlyaMiniApp(selectedKlubId, telegram_id).catch(() => null)
+        : null;
+
     return {
         user: {
             telegram_id,
@@ -622,12 +677,15 @@ async function sostoyanieMiniApp(user) {
             registered: roles.registered,
             is_owner: roles.isOwner,
             is_host: roles.isHost || roles.isOwner,
+            can_manage_evening: !!canManageEvening,
+            can_import_rating: roles.isOwner && ratingEnabled,
             birthday: igrok?.den_rozhdeniya ? formatDenRozhdeniya(igrok.den_rozhdeniya) : null,
             avatar_url: hasAvatar ? '/api/miniapp/avatar' : null
         },
         themes: dostupnyeTemyMiniApp(clubs),
         clubs,
         selected_klub_id: selectedKlubId,
+        evening,
         rating,
         rating_enabled: ratingEnabled,
         bonuses,
@@ -648,7 +706,22 @@ async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}, body = {
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Список игр обновлён');
     }
     if (action === 'igrovoy_vecher') {
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Выбери клуб и создай игру здесь');
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игровой вечер');
+    }
+    if (action === 'vecher_action') {
+        return miniAppVecherAction(tg_id, user, body);
+    }
+    if (action === 'import_rating') {
+        const roles = await poluchitRoliPolzovatelya(tg_id);
+        if (!roles.isOwner) return { stay: true, message: 'Импорт рейтинга — только для владельца клуба' };
+        const klub_id = body.klub_id;
+        const { data: chlen } = await supabase.from('chleny_klubov').select('klub_id').eq('igrok_id', roles.igrok?.id).eq('klub_id', klub_id).eq('rol', 'vladyelets').single();
+        if (!chlen) return { stay: true, message: 'Нет доступа к клубу' };
+        const rez = await reytingImport.importRatingCsv(supabase, klub_id, body.text || '', { sportivniy: !!body.sportivniy });
+        const msg = rez.ok
+            ? 'Импортировано записей: ' + rez.imported + (rez.skipped ? ', пропущено: ' + rez.skipped : '')
+            : 'Импорт не выполнен';
+        return otvetMiniAppPosleDeystviya(tg_id, user, msg);
     }
     if (action === 'create_game') {
         const klub_id = body.klub_id;
@@ -756,6 +829,42 @@ async function obrabotatMiniAppClubLogo(req, res, url) {
     await otsylkaAvatara(bot, file_id, res);
 }
 
+function mozhnoSmotretKartuRoli(requesterTgId, klub_id, rol, kod) {
+    if (!rol || !klub_id || !kod) return false;
+    const igra = igry[kod];
+    if (!igra || String(igra.klub_id) !== String(klub_id)) return false;
+    if (igra.vedushchii_id === requesterTgId) return true;
+    const igroki = igra.igroki || [];
+    const me = igroki.find(i => i.telegram_id === requesterTgId);
+    if (!me) return false;
+    if (me.rol === rol) return true;
+    return igroki.some(i => i.rol === rol && i.status !== 'v_igre');
+}
+
+async function obrabotatMiniAppRoleCard(req, res, url) {
+    const user = await poluchitMiniAppUser(req);
+    if (!user) {
+        res.writeHead(401);
+        res.end();
+        return;
+    }
+    const klub_id = url.searchParams.get('klub_id');
+    const kod = url.searchParams.get('kod');
+    const rol = normalizovatNazvanieRoli(url.searchParams.get('role'));
+    if (!rol || !klub_id || !kod || !mozhnoSmotretKartuRoli(Number(user.id), klub_id, rol, kod)) {
+        res.writeHead(403);
+        res.end();
+        return;
+    }
+    const file_id = fotoRoliDlyaIgry({ klub_id }, rol);
+    if (!file_id) {
+        res.writeHead(404);
+        res.end();
+        return;
+    }
+    await otsylkaAvatara(bot, file_id, res);
+}
+
 async function obrabotatMiniAppApi(req, res, url) {
     if (req.method === 'GET' && url.pathname === '/api/miniapp/avatar') {
         await obrabotatMiniAppAvatar(req, res, url);
@@ -763,6 +872,10 @@ async function obrabotatMiniAppApi(req, res, url) {
     }
     if (req.method === 'GET' && url.pathname === '/api/miniapp/club-logo') {
         await obrabotatMiniAppClubLogo(req, res, url);
+        return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/miniapp/role-card') {
+        await obrabotatMiniAppRoleCard(req, res, url);
         return;
     }
     const user = await poluchitMiniAppUser(req);
@@ -785,6 +898,9 @@ async function obrabotatMiniAppApi(req, res, url) {
             const rolesK = await poluchitRoliPolzovatelya(Number(user.id));
             if (rolesK.igrok?.id) {
                 data.bonuses = { active: await bonusy.poluchitBonusyIgroka(rolesK.igrok.id, klub_id).catch(() => []) };
+            }
+            if (data.user?.can_manage_evening) {
+                data.evening = await sostoyanieVecheraDlyaMiniApp(klub_id, Number(user.id)).catch(() => null);
             }
         }
         otpravitJson(res, 200, { ok: true, data });
@@ -3337,6 +3453,38 @@ bot.on('message', async function(msg) {
         return;
     }
 
+    if (sostoyanie[tg_id]?.startsWith('reyting_import_')) {
+        const klub_id = sostoyanie[tg_id].replace('reyting_import_', '');
+        let csvText = text;
+        if (msg.document) {
+            try {
+                const file = await bot.getFile(msg.document.file_id);
+                const url = 'https://api.telegram.org/file/bot' + token + '/' + file.file_path;
+                const res = await fetch(url);
+                csvText = await res.text();
+            } catch (e) {
+                bot.sendMessage(chatId, '❌ Не удалось прочитать файл: ' + (e.message || e));
+                return;
+            }
+        }
+        if (!csvText?.trim()) {
+            bot.sendMessage(chatId, '❌ Отправь CSV-файл или текст с данными рейтинга.');
+            return;
+        }
+        const rez = await reytingImport.importRatingCsv(supabase, klub_id, csvText, { sportivniy: false });
+        delete sostoyanie[tg_id];
+        let t = rez.ok
+            ? '✅ Импортировано записей: *' + rez.imported + '*'
+            : '❌ Импорт не выполнен';
+        if (rez.skipped) t += '\nПропущено: ' + rez.skipped;
+        if (rez.errors?.length) t += '\n\n' + rez.errors.slice(0, 8).map(e => '• ' + e).join('\n');
+        bot.sendMessage(chatId, t, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' }]] }
+        });
+        return;
+    }
+
     if (sostoyanie[tg_id]?.startsWith('vecher_vvod_')) {
         const klub_id = sostoyanie[tg_id].replace('vecher_vvod_', '');
         const niki = razobratSpisokNikov(text);
@@ -5699,6 +5847,184 @@ async function ubratIgrokovIzSpiskaVechera(klub_id, text) {
     return { ok: true, count: igraTemp.igroki.length, removed: remove.size };
 }
 
+async function sostoyanieVecheraDlyaMiniApp(klub_id, tg_id) {
+    const kluby = await poluchitKlubyDlyaIgr(tg_id);
+    if (!kluby.some(k => String(k.id) === String(klub_id))) return null;
+    const { data: klubFull } = await supabase.from('kluby').select('nazvaniye, nastroyki').eq('id', klub_id).single();
+    const dannye = await poluchitDannyeVecheraKluba(klub_id);
+    const today = dataIgrovoegoVechera();
+    const itogi = dannye.zavershen ? await vecherReyting.poluchitIgrokaVechera(supabase, klub_id, today) : null;
+    const { data: anonsy } = await supabase
+        .from('anonsy')
+        .select('id, data_igry, vremya')
+        .eq('klub_id', klub_id)
+        .eq('status', 'aktiven')
+        .order('data_igry', { ascending: true })
+        .limit(20);
+    const anonsySegodnya = (anonsy || [])
+        .filter(a => (razobrat_datu_anonsa(a.data_igry) || a.data_igry) === today)
+        .map(a => ({ id: a.id, vremya: a.vremya || '' }));
+    return {
+        klub_id,
+        klub: klubFull?.nazvaniye || '',
+        date: today,
+        finished: !!dannye.zavershen,
+        players: (dannye.spisok || []).map((p, i) => ({ num: i + 1, name: p.name })),
+        player_count: dannye.spisok?.length || 0,
+        can_create_game: !!(dannye.spisok?.length && !dannye.zavershen),
+        tip_kluba: klubFull?.nastroyki?.tip_kluba || 'paskal',
+        anonsy: anonsySegodnya,
+        await_poe: !!(dannye.zavershen && klubFull?.nastroyki?.vecher_await_poe),
+        poe_name: itogi?.igroki?.igrovoy_nik || itogi?.igroki?.imya || null,
+        evening_rating: itogi?.reyting_vechera || null
+    };
+}
+
+async function sozdatIgryIzVechera(tg_id, klub_id) {
+    const spisok = await poluchitSpisokVecheraKluba(klub_id);
+    if (!spisok?.length) return null;
+    const kod = await sozdatNovuyuIgry(tg_id, klub_id, spisok.length);
+    const igra = igry[kod];
+    await zapolnitIgruIzSpiskaVechera(igra, spisok);
+    await sohranit_igru(kod);
+    return kod;
+}
+
+async function nachatGolosovanieIgry(igra, kod) {
+    if (!igra) return { ok: false, message: 'Игра не найдена' };
+    stopTimer(kod);
+    const naznacheny = (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(Boolean);
+    if (!naznacheny.length) return { ok: false, message: 'Некого выводить на голосование' };
+    igra.faza = 'golosovanie';
+    igra.tekushchiy_nomer = null;
+    igra.golosa_dnya = {};
+    await sohranit_igru(kod);
+    return { ok: true, message: 'Голосование начато' };
+}
+
+async function primeniItogGolosovaniyaMiniApp(igra, kod) {
+    const naznacheny = (igra.naznacheny_golos || [])
+        .map(n => igra.igroki.find(i => i.nomer === n))
+        .filter(Boolean);
+    const golosa = igra.golosa_dnya || {};
+    const neVneseny = naznacheny.filter(i => !Number.isFinite(golosa[i.nomer]));
+    if (neVneseny.length > 0) {
+        return { ok: false, message: 'Внеси голоса за всех выставленных' };
+    }
+    const max = Math.max(...naznacheny.map(i => golosa[i.nomer] || 0));
+    const lidery = naznacheny.filter(i => (golosa[i.nomer] || 0) === max);
+    if (lidery.length !== 1 || max === 0) {
+        if (!igra.peregolosovanie_aktivno) {
+            igra.peregolosovanie_aktivno = true;
+            igra.naznacheny_golos = lidery.map(i => i.nomer);
+            igra.golosa_dnya = {};
+            await sohranit_igru(kod);
+            return { ok: true, message: 'Переголосование между лидерами', revote: true };
+        }
+        return { ok: false, message: 'Равенство повторилось — решите за столом в боте' };
+    }
+    const vybyv = lidery[0];
+    vybyv.status = 'vybyl';
+    zapisatDen1Vybyl(igra, vybyv);
+    const ubitye_gv = [vybyv];
+    primenitSmertShahida(igra, vybyv, 'golosovanie', ubitye_gv);
+    igra.naznacheny_golos = [];
+    igra.golosa_dnya = {};
+    igra.peregolosovanie_aktivno = false;
+    igra.peregolosovanie_finalisty = [];
+    await sohranit_igru(kod);
+    const pobeditel = opredelitPobeditelya(igra);
+    if (pobeditel) {
+        igra.pobeditel = pobeditel;
+        await zapisat_bally(igra, kod);
+        await sohranit_igru(kod);
+        return { ok: true, message: 'Игра окончена', game_over: true, eliminated: vybyv.nomer };
+    }
+    igra.faza = 'noch';
+    igra._noch_guided_idx = 0;
+    await sohranit_igru(kod);
+    return { ok: true, message: '№' + vybyv.nomer + ' выбыл. Ночь ' + (igra.den || 1), eliminated: vybyv.nomer };
+}
+
+async function miniAppVecherAction(tg_id, user, body) {
+    const klub_id = body.klub_id;
+    const sub = body.sub;
+    if (!klub_id) return { stay: true, message: 'Клуб не выбран' };
+    const kluby = await poluchitKlubyDlyaIgr(tg_id);
+    if (!kluby.some(k => String(k.id) === String(klub_id))) {
+        return { stay: true, message: 'Нет доступа к клубу' };
+    }
+
+    if (sub === 'set_roster') {
+        const niki = razobratSpisokNikov(body.text || '');
+        if (!niki.length) return { stay: true, message: 'Отправь ники — каждый с новой строки' };
+        const igraTemp = { klub_id, igroki: [] };
+        for (let i = 0; i < niki.length; i++) {
+            const igrok = { telegram_id: null, name: niki[i], nomer: i + 1, status: 'v_igre', foly: 0, igrok_id: null };
+            await privyazatIgrokaIzBazy(igraTemp, igrok);
+            igraTemp.igroki.push(igrok);
+        }
+        await sohranitSpisokVecheraKluba(klub_id, igraTemp.igroki);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Состав вечера: ' + niki.length + ' игроков');
+    }
+    if (sub === 'add') {
+        const rez = await dobavitIgrokovVSpisokVechera(klub_id, body.text || '');
+        if (!rez.ok) return { stay: true, message: 'Не удалось добавить — проверь ники' };
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'В составе вечера: ' + rez.count);
+    }
+    if (sub === 'remove') {
+        const rez = await ubratIgrokovIzSpiskaVechera(klub_id, body.text || '');
+        if (!rez.ok) return { stay: true, message: rez.error === 'not_found' ? 'Игрок не найден в списке' : 'Не удалось убрать' };
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Осталось в вечере: ' + rez.count);
+    }
+    if (sub === 'from_anons') {
+        const anons_id = body.anons_id;
+        const { data: zapisi } = await supabase
+            .from('zapisi_na_anons')
+            .select('status, igroki(id, tg_id, imya, igrovoy_nik)')
+            .eq('anons_id', anons_id);
+        const rows = zapisi || [];
+        const prioritet = rows.some(z => z.status === 'prishel') ? rows.filter(z => z.status === 'prishel') : rows;
+        if (!prioritet.length) return { stay: true, message: 'В анонсе нет игроков' };
+        const igrokiVechera = prioritet.map((z, idx) => ({
+            telegram_id: z.igroki?.tg_id || null,
+            name: z.igroki?.igrovoy_nik || z.igroki?.imya || 'Игрок ' + (idx + 1),
+            nomer: idx + 1,
+            status: 'v_igre',
+            foly: 0,
+            igrok_id: z.igroki?.id || null
+        }));
+        await sohranitSpisokVecheraKluba(klub_id, igrokiVechera);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Из анонса: ' + igrokiVechera.length + ' игроков');
+    }
+    if (sub === 'create_game') {
+        const kod = await sozdatIgryIzVechera(tg_id, klub_id);
+        if (!kod) return { stay: true, message: 'Сначала зафиксируй состав вечера' };
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + kod + ' создана из состава вечера', { selected_game: kod });
+    }
+    if (sub === 'finish') {
+        await zavershitIgrovoyVecherKluba(klub_id);
+        const today = dataIgrovoegoVechera();
+        const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
+        await vecherReyting.sohranitReytingVechera(supabase, klub_id, today, reyting);
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+        await vecherReyting.obrabotatMesyachnyItog(supabase, bot, klub_id, klub?.nazvaniye);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игровой вечер завершён');
+    }
+    if (sub === 'reopen') {
+        await obnovitNastroykiVecheraKluba(klub_id, {
+            vecher_data: dataIgrovoegoVechera(),
+            vecher_zavershen: false,
+            vecher_zavershen_v: null,
+            vecher_await_poe: false
+        });
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Вечер открыт заново');
+    }
+    return { stay: true, message: 'Неизвестное действие вечера' };
+}
+
 async function zapolnitIgruIzSpiskaVechera(igra, spisok) {
     igra.igroki = [];
     for (let i = 0; i < spisok.length; i++) {
@@ -7731,6 +8057,52 @@ async function miniAppHostAction(tg_id, user, body) {
         igra._noch_guided_idx = Math.max(0, (igra._noch_guided_idx || 0) - 1);
         await sohranit_igru(kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Предыдущая роль');
+    }
+    if (sub === 'confirm_vecher_roster') {
+        const spisok = await poluchitSpisokVecheraKluba(igra.klub_id);
+        if (!spisok || spisok.length !== igra.kolichestvo) {
+            return { stay: true, message: 'Состав вечера не совпадает с числом мест в игре' };
+        }
+        await zapolnitIgruIzSpiskaVechera(igra, spisok);
+        await sohranit_igru(kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Состав из вечера подтверждён');
+    }
+    if (sub === 'start_znakomstvo') {
+        await podgruzitNastroykiIgry(igra);
+        const n = igra._nastroyki || {};
+        if (n.perviy_hod_avto && n.perviy_hod_nomer) {
+            await ustanovitPervogoHoda(null, null, kod, n.perviy_hod_nomer, 'znakomstvo', tg_id);
+        } else {
+            await nachatZnakomstvoKluba(null, null, kod, tg_id);
+        }
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Представление начато');
+    }
+    if (sub === 'start_voting') {
+        const rez = await nachatGolosovanieIgry(igra, kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, rez.message);
+    }
+    if (sub === 'vote_set') {
+        const nomer = parseInt(body.nomer, 10);
+        const count = parseInt(body.count, 10);
+        if (!Number.isFinite(nomer) || !Number.isFinite(count) || count < 0) {
+            return { stay: true, message: 'Некорректное число голосов' };
+        }
+        igra.golosa_dnya = igra.golosa_dnya || {};
+        igra.golosa_dnya[nomer] = count;
+        await sohranit_igru(kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Голоса за №' + nomer + ': ' + count);
+    }
+    if (sub === 'vote_finish') {
+        const rez = await primeniItogGolosovaniyaMiniApp(igra, kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, rez.message, rez);
+    }
+    if (sub === 'nominate_to_vote') {
+        const nomer = parseInt(body.nomer, 10);
+        const igrok = igra.igroki.find(i => i.nomer === nomer);
+        const rez = vystavitIgrokaNaGolos(igra, igrok);
+        if (!rez.ok) return { stay: true, message: 'Не удалось выставить на голосование' };
+        await sohranit_igru(kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, '№' + nomer + ' на голосовании');
     }
 
     return { stay: true, message: 'Неизвестное действие' };
@@ -11979,6 +12351,27 @@ bot.on('callback_query', async function(query) {
     }
 
     // ===== РЕЙТИНГ: скачать CSV =====
+    else if (data.startsWith('reyting_import_')) {
+        const klub_id_ri = data.replace('reyting_import_', '');
+        const { data: igrok_ri } = await supabase.from('igroki').select('id').eq('tg_id', telegram_id).single();
+        const { data: chlen_ri } = await supabase.from('chleny_klubov').select('klub_id').eq('igrok_id', igrok_ri?.id).eq('klub_id', klub_id_ri).eq('rol', 'vladyelets').single();
+        if (!chlen_ri) {
+            bot.answerCallbackQuery(query.id, { text: 'Только владелец клуба', show_alert: true });
+            return;
+        }
+        sostoyanie[telegram_id] = 'reyting_import_' + klub_id_ri;
+        bot.editMessageText(
+            '\uD83D\uDCE5 *Импорт архивного рейтинга*\n\n' +
+            'Отправь CSV-файл или вставь текст с колонками:\n' +
+            '`Имя, Ник, Роль, Победа, Выжил, Баллы команды, Личные баллы, Итого, Дата`\n\n' +
+            '_Игроки должны быть в клубе — сопоставление по нику или имени._',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Отмена', callback_data: 'nastroyki_kluba_v' }]] }
+            }
+        );
+    }
+
     else if (data.startsWith('reyting_csv_')) {
         const parts_csv = data.replace('reyting_csv_', '').split('_');
         const klub_id_csv = parts_csv[0];
