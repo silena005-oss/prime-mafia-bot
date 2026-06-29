@@ -3657,8 +3657,7 @@ bot.on('message', async function(msg) {
         if (!igrok_nz) {
             if ((igra_nz.igroki || []).length >= igra_nz.kolichestvo) {
                 bot.sendMessage(chatId,
-                    '❌ Не нашёл такого игрока за столом.\n\n' +
-                    'Отправь *номер места* или точный ник игрока. Например: `7`',
+                    '❌ Не нашёл такого игрока за столом.\n\n' + tekstPodskazkiPoiskaIgroka(),
                     { parse_mode: 'Markdown' }
                 );
                 return;
@@ -4760,17 +4759,76 @@ function poryadokRoleyDlyaNochi(igra) {
     });
 }
 
+function tekstPodskazkiPoiskaIgroka() {
+    return '· *№12* / *#12* / *место 12* — номер за столом\n' +
+        '· *12* — ник «12», если такой есть; иначе место 12\n' +
+        '· *Аня* — по нику';
+}
+
+function razobratVvodIgroka(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return { kind: 'empty', raw };
+    const lower = raw.toLowerCase();
+    const seatExplicit = lower.match(/^(?:№|#|n|место|номер)\s*(\d+)$/);
+    if (seatExplicit) return { kind: 'seat', seat: parseInt(seatExplicit[1], 10), raw };
+    if (/^\d+$/.test(raw)) return { kind: 'number', seat: parseInt(raw, 10), raw };
+    if (raw.startsWith('@')) return { kind: 'nick', query: raw.slice(1), raw };
+    return { kind: 'nick', query: raw, raw };
+}
+
+function naytiIgrokaPoNicku(igra, query) {
+    const vvod = String(query || '').trim().toLowerCase();
+    if (!vvod) return null;
+    const igroki = igra.igroki || [];
+    const exact = igroki.filter(i => String(i.name || '').toLowerCase() === vvod);
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return exact[0];
+    const partial = igroki.filter(i => String(i.name || '').toLowerCase().includes(vvod));
+    if (partial.length === 1) return partial[0];
+    return null;
+}
+
 function naytiIgrokaPoVvodu(igra, text) {
-    const vvod = String(text || '').trim().toLowerCase();
-    const nomer = parseInt(vvod, 10);
-    if (Number.isFinite(nomer)) {
-        const poNomeru = igra.igroki.find(i => i.nomer === nomer);
-        if (poNomeru) return poNomeru;
+    const parsed = razobratVvodIgroka(text);
+    const igroki = igra.igroki || [];
+    if (parsed.kind === 'empty') return null;
+    if (parsed.kind === 'seat') {
+        return igroki.find(i => i.nomer === parsed.seat) || null;
     }
-    return igra.igroki.find(i =>
-        String(i.name || '').toLowerCase() === vvod ||
-        String(i.name || '').toLowerCase().includes(vvod)
-    ) || null;
+    if (parsed.kind === 'nick') {
+        return naytiIgrokaPoNicku(igra, parsed.query);
+    }
+    if (parsed.kind === 'number') {
+        const poNicku = naytiIgrokaPoNicku(igra, parsed.raw);
+        if (poNicku) return poNicku;
+        return igroki.find(i => i.nomer === parsed.seat) || null;
+    }
+    return null;
+}
+
+function indeksShagaDlyaRoli(igra, rol) {
+    const roles = poryadokRoleyDlyaNochi(igra);
+    const assignedCount = (igra.igroki || []).filter(p => p.rol === rol).length;
+    let seen = 0;
+    for (let i = 0; i < roles.length; i++) {
+        if (roles[i] !== rol) continue;
+        seen++;
+        if (seen > assignedCount) return i;
+    }
+    const idx = roles.indexOf(rol);
+    return idx >= 0 ? idx : 0;
+}
+
+function knopkiShagaNochiZnakomstva(igra, kod, idx) {
+    const knopki = [];
+    const sRolyami = (igra.igroki || []).filter(i => i.rol && i.rol !== 'Мирный');
+    if (sRolyami.length) {
+        knopki.push([{ text: '✏️ Исправить внесённые роли', callback_data: 'nz_fix_' + kod }]);
+    }
+    if (idx > 0) {
+        knopki.push([{ text: '← Предыдущий шаг', callback_data: 'nz_prev_' + kod + '_' + (idx - 1) }]);
+    }
+    return knopki;
 }
 
 function tekstShagaNochiZnakomstva(igra, kod, idx) {
@@ -4786,7 +4844,8 @@ function tekstShagaNochiZnakomstva(igra, kod, idx) {
     t += 'Шаг *' + (idx + 1) + '/' + vsego + '*\n';
     t += 'Роль: *' + label + '*\n\n';
     t += 'Отправь номер или ник игрока, у которого эта роль.\n';
-    t += '_Например: `7` или `Аня`_\n\n';
+    t += '_Например: `№7` — место 7, `12` — ник «12» (если есть), `Аня` — по нику_\n\n';
+    t += tekstPodskazkiPoiskaIgroka() + '\n\n';
     t += 'Мирных жителей вводить на этом шаге не нужно — их добавим отдельно после всех активных ролей.';
     return t;
 }
@@ -5260,7 +5319,11 @@ async function pokazatShagNochiZnakomstva(chatId, kod, idx) {
         return;
     }
     sostoyanie[igra.vedushchii_id] = 'noch_znakomstvo_' + kod + '_' + idx;
-    await bot.sendMessage(chatId, tekstShagaNochiZnakomstva(igra, kod, idx), { parse_mode: 'Markdown' });
+    const knopki = knopkiShagaNochiZnakomstva(igra, kod, idx);
+    await bot.sendMessage(chatId, tekstShagaNochiZnakomstva(igra, kod, idx), {
+        parse_mode: 'Markdown',
+        reply_markup: knopki.length ? { inline_keyboard: knopki } : undefined
+    });
 }
 
 function poluchitResidentovIzNastroek(nastroyki) {
@@ -7173,6 +7236,7 @@ function tekstVyboraPervogoHoda(igra, kod, faza) {
         : '\u2600\uFE0F *Кто начинает день ' + (igra.den || 1) + '?*';
     t += ' — Игра \u2116' + kod + '\n\n';
     t += 'Выбери игрока кнопкой или отправь *номер / ник*.\n';
+    t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_\n';
     t += faza === 'znakomstvo'
         ? 'Круг представления пойдёт *по часовой* с этого места.\n\n'
         : 'Дневные речи пойдут *против часовой* с этого места.\n\n';
@@ -7787,7 +7851,8 @@ function tekstVyboraNochiGuided(igra, kod, step, idx, vsego) {
     if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
     t += 'Шаг *' + (idx + 1) + '/' + vsego + '*\n';
     t += '*' + step.label + '*\n\n';
-    t += 'Выбери игрока кнопкой или отправь *номер / ник*.';
+    t += 'Выбери игрока кнопкой или отправь *номер / ник*.\n';
+    t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_';
     if (step.tip === 'strelok') t += '\n_Можно пропустить выстрел этой ночью._';
     const cur = tekushchiyVyborNochi(igra, step.tip);
     if (cur != null) t += '\n\n_Текущий выбор: ' + (cur === 'пропуск' ? 'пропуск выстрела' : '№' + cur) + '_';
@@ -8280,6 +8345,10 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
     if (roli_alive.includes('Эскортница') && eskortVyboryNochi(igra).length < limitVystrelovEskort(igra)) {
         knopki.push([{ text: '\uD83D\uDC8B Эскортница (' + eskortVyboryNochi(igra).length + '/' + limitVystrelovEskort(igra) + ')', callback_data: 'noch_vybor_eskort_' + kod }]);
+    }
+    if (roli_alive.includes('Эскортница') && eskortVyboryNochi(igra).length) {
+        knopki.push([{ text: '\u270F\uFE0F Изменить эскорт', callback_data: 'noch_eskort_fix_' + kod }]);
+        knopki.push([{ text: '\u274C Сброс: эскорт', callback_data: 'noch_sbr_eskort_' + kod }]);
     }
     if (roli_alive.includes('Консильери') && mozhetKonsilyeriVerbovat(igra)) knopki.push([{ text: '\uD83E\uDD1D Консильери вербует', callback_data: 'noch_vybor_kons_' + kod }]);
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
@@ -10262,6 +10331,75 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    else if (data.startsWith('nz_fix_')) {
+        const kod = data.replace('nz_fix_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const sRolyami = (igra.igroki || []).filter(i => i.rol && i.rol !== 'Мирный');
+        if (!sRolyami.length) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет ролей для исправления' });
+            return;
+        }
+        let t = '✏️ *Исправить роли ночи знакомства*\n\n';
+        t += 'Нажми на игрока, чтобы снять роль и внести заново:\n\n';
+        sRolyami.forEach(i => { t += '№' + i.nomer + ' *' + i.name + '* — ' + i.rol + '\n'; });
+        const knopki = sRolyami.map(i => [{
+            text: '✏️ №' + i.nomer + ' ' + i.name + ' (' + i.rol + ')',
+            callback_data: 'nz_clr_' + kod + '_' + i.nomer
+        }]);
+        knopki.push([{ text: '⬅️ К текущему шагу', callback_data: 'nz_back_' + kod }]);
+        bot.answerCallbackQuery(query.id);
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('nz_clr_')) {
+        const parts = data.replace('nz_clr_', '').split('_');
+        const kod = parts[0];
+        const nomer = parseInt(parts[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        const igrok = igra.igroki.find(i => i.nomer === nomer);
+        if (!igrok?.rol || igrok.rol === 'Мирный') {
+            bot.answerCallbackQuery(query.id, { text: 'У игрока нет роли' });
+            return;
+        }
+        const rol = igrok.rol;
+        delete igrok.rol;
+        await sohranit_igru(kod);
+        const idx = indeksShagaDlyaRoli(igra, rol);
+        bot.answerCallbackQuery(query.id, { text: 'Роль снята' });
+        await bot.sendMessage(chatId,
+            '✏️ С *№' + nomer + ' ' + igrok.name + '* снята роль *' + rol + '*.\n\nВведи игрока заново:',
+            { parse_mode: 'Markdown' }
+        );
+        await pokazatShagNochiZnakomstva(chatId, kod, idx);
+    }
+
+    else if (data.startsWith('nz_prev_')) {
+        const parts = data.replace('nz_prev_', '').split('_');
+        const kod = parts[0];
+        const idx = parseInt(parts[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        bot.answerCallbackQuery(query.id, { text: 'Шаг ' + (idx + 1) });
+        await pokazatShagNochiZnakomstva(chatId, kod, idx);
+    }
+
+    else if (data.startsWith('nz_back_')) {
+        const kod = data.replace('nz_back_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const st = sostoyanie[telegram_id] || '';
+        const m = st.match(/^noch_znakomstvo_(.+)_(\d+)$/);
+        const idx = m ? parseInt(m[2], 10) : 0;
+        bot.answerCallbackQuery(query.id);
+        if (Number.isFinite(idx)) await pokazatShagNochiZnakomstva(chatId, kod, idx);
+        else await pokazatShagNochiZnakomstva(chatId, kod, 0);
+    }
+
     else if (data.startsWith('noch_znakomstvo_')) {
         const kod = data.replace('noch_znakomstvo_', '');
         const igra = igry[kod];
@@ -12075,6 +12213,48 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD2B Цель: ' + (zhertva_ns?.name || '') });
         await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDD2B Стрелок/Охотник выбрал \u2116' + nomer_ns);
+    }
+
+    // ===== НОЧЬ: изменить выбор Эскортницы =====
+    else if (data.startsWith('noch_eskort_fix_')) {
+        const kod = data.replace('noch_eskort_fix_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const vybory = eskortVyboryNochi(igra);
+        if (!vybory.length) {
+            bot.answerCallbackQuery(query.id, { text: 'Эскортница ещё не стреляла' });
+            return;
+        }
+        let t = '✏️ *Изменить выстрелы эскортницы*\n\n';
+        const knopki = [];
+        vybory.forEach((v, idx) => {
+            const igrok = igra.igroki.find(i => i.nomer === v.nomer);
+            t += (idx + 1) + '. №' + v.nomer + ' *' + (igrok?.name || '') + '* → ' + v.ugadannaya_rol + '\n';
+            knopki.push([{ text: '✏️ Убрать выстрел ' + (idx + 1), callback_data: 'noch_eskort_del_' + kod + '_' + idx }]);
+        });
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('noch_eskort_del_')) {
+        const parts = data.replace('noch_eskort_del_', '').split('_');
+        const kod = parts[0];
+        const shotIdx = parseInt(parts[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        const vybory = eskortVyboryNochi(igra);
+        if (!vybory[shotIdx]) {
+            bot.answerCallbackQuery(query.id, { text: 'Выстрел не найден' });
+            return;
+        }
+        vybory.splice(shotIdx, 1);
+        igra.noch_deystviya.eskort_vybory = vybory;
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Выстрел убран' });
+        await pokazat_noch_panel(chatId, messageId, kod, '✏️ Выстрел эскортницы снят — можно выбрать заново');
     }
 
     // ===== НОЧЬ: выбор цели Эскортницы =====
