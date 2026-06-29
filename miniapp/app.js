@@ -8,6 +8,7 @@ const state = {
   theme: localStorage.getItem(THEME_KEY) || 'default',
   nominateArmed: false,
   nominateMode: null,
+  foulArmed: false,
   showEvening: false,
 };
 
@@ -396,6 +397,7 @@ function hostClickMode(host) {
   if (host?.can_pick_first) return 'pick_first';
   if (state.nominateArmed && state.nominateMode === 'to_vote') return 'to_vote';
   if (host?.can_nominate && state.nominateArmed) return 'nominate';
+  if (host?.can_foul && state.foulArmed) return 'foul';
   if (host?.night?.guided && !host?.night?.done) return 'night_pick';
   return null;
 }
@@ -1045,6 +1047,12 @@ function renderHostPanel(game) {
     }
   }
   if (host.can_undo_nominate) addBtn('❌ Отменить выставление', () => hostAction('undo_nominate'));
+  if (host.can_edit_nominees) addBtn('✏️ Редактировать список', () => showToast('На панели речи: «✏️ Редактировать список»'));
+  if (host.can_foul) addBtn('⚠️ Фол / замечание', () => {
+    state.foulArmed = true;
+    renderGame(game);
+    showToast('Нажми на место игрока для фола');
+  });
   if (host.can_night) addBtn('🌙 Ночь', () => hostAction('night'), true);
   if (host.can_finish_night) addBtn('🌟 Итоги ночи', () => hostAction('night_finish'), true);
 
@@ -1151,6 +1159,10 @@ function renderSeats(players, hostMeta) {
           state.nominateArmed = false;
           state.nominateMode = null;
           hostAction('nominate_to_vote', { nomer: player.nomer });
+        }
+        else if (clickMode === 'foul') {
+          state.foulArmed = false;
+          hostAction('give_foul', { nomer: player.nomer });
         }
         else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
       });
