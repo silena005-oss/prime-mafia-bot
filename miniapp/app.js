@@ -842,6 +842,27 @@ function renderEveningPanel(data) {
     }
     el.eveningRosterLabel?.classList.toggle('hidden', ev.player_count > 0 && !state.showEveningRoster);
   } else {
+    if (ev.win_stats?.vsego) {
+      const ws = ev.win_stats;
+      const statsEl = document.createElement('p');
+      statsEl.className = 'muted';
+      statsEl.textContent = `Итоги: 🟢${ws.mirnye} 🔴${ws.mafiya} 🎯${ws.manyak} (${ws.vsego} игр)`;
+      el.eveningActions.appendChild(statsEl);
+    }
+    if (ev.poe_name) {
+      const poeEl = document.createElement('p');
+      poeEl.innerHTML = `⭐ Игрок вечера: <strong>${escapeHtml(ev.poe_name)}</strong>`;
+      el.eveningActions.appendChild(poeEl);
+    }
+    if (ev.evening_rating?.length) {
+      const top = ev.evening_rating.slice(0, 5).map((p, i) =>
+        `${i + 1}. ${escapeHtml(p.name)} — ${p.pts} очк.`
+      ).join('\n');
+      const ratEl = document.createElement('pre');
+      ratEl.className = 'evening-rating muted';
+      ratEl.textContent = top;
+      el.eveningActions.appendChild(ratEl);
+    }
     addEvBtn('↩️ Открыть вечер заново', () => vecherAction('reopen'));
   }
 }
@@ -994,6 +1015,14 @@ function renderHostPanel(game) {
       : (host.night.step_label ? `Шаг ${step}/${host.night.total}: ${host.night.step_label}` : '');
     el.nightPickActions.innerHTML = '';
     if (!host.night.done) {
+      if (host.night.can_skip) {
+        const skipBtn = document.createElement('button');
+        skipBtn.type = 'button';
+        skipBtn.className = 'button';
+        skipBtn.textContent = '⏭ Пропустить выстрел';
+        skipBtn.addEventListener('click', () => hostAction('night_skip'));
+        el.nightPickActions.appendChild(skipBtn);
+      }
       const prevBtn = document.createElement('button');
       prevBtn.type = 'button';
       prevBtn.className = 'button';

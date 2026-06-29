@@ -400,6 +400,8 @@ function metaHostaMiniApp(igra, kod) {
             step: idx,
             total: shagi.length,
             step_label: idx != null && shagi[idx] ? shagi[idx].label : null,
+            step_tip: idx != null && shagi[idx] ? shagi[idx].tip : null,
+            can_skip: idx != null && shagi[idx]?.tip === 'strelok',
             done: nightDone
         } : null
     };
@@ -420,6 +422,7 @@ async function sozdatNovuyuIgry(telegram_id, klub_id, kolichestvo, anons_id = nu
         roli_razdany: false,
         tip_kluba: nastroyki_igry.tip_kluba || 'paskal',
         rezhim_rolei: 'karty',
+        data_igry: klub_id ? dataIgrovoegoVechera() : null,
         _nastroyki: nastroyki_igry
     };
     await sohranit_igru(kod);
@@ -1859,8 +1862,8 @@ const roli_opisaniya = {
     'Детектив': '\uD83D\uDFE2 *Детектив*\n\nКаждую ночь проверяешь игрока. \uD83D\uDC4D — мирный, \uD83D\uDC4E — мафия. Маньяк всегда показывается как мирный.',
     'Доктор': '\uD83D\uDFE2 *Доктор*\n\nКаждую ночь спасаешь одного игрока от одного ночного выстрела.\n\n\u274C Если в игрока стреляли и мафия, и маньяк — доктор его не спасает.\n\nPascal: одного и того же игрока можно лечить сколько угодно, себя — до 2 ночей подряд.\nVIP: нельзя лечить одного игрока две ночи подряд, себя — через ночь.',
     'Подрывник': '\uD83D\uDFE2 *Подрывник*\n\nЕсли ночью тебя убивает мафия — ты взрываешься и забираешь с собой того мафиози, которого выбрал.',
-    'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока. Убил 2 мирных — выбываешь сам.',
-    'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
+    'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока или пропустить выстрел. Убил 2 мирных — выбываешь сам.',
+    'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить или пропустить выстрел. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
     'Камикадзе': '\uD83D\uDFE2 *Камикадзе*\n\nКаждую ночь идёшь к игроку. Пошёл к мафии — вы оба выбываете. К мирному/маньяку — ничего.',
     'Бессмертный': '\uD83D\uDFE2 *Бессмертный — Мирный житель*\n\nПросыпаешься только в первую ночь для знакомства с ведущим.\n\n\uD83D\uDEE1\uFE0F Не умирает от выстрела мафии и стрелка.\n\u274C Умирает от: эскортницы (если угадали роль), выстрела маньяка, голосования днём.\n\n\uD83C\uDFAF Задача: притягивай выстрелы мафии на себя.',
@@ -5723,39 +5726,102 @@ async function pokazatGorodaPoBukve(chatId, messageId, strana, mode, bukvaIdx, s
     });
 }
 
-async function pokazatVyborIgrokVechera(chatId, messageId, klub_id, reyting, sostav, telegram_id) {
-    const { data: klub } = await supabase.from('kluby').select('id, nazvaniye').eq('id', klub_id).single();
+async function nachislitBonusyIgrokaVechera(igrok_id, klub_id, vecher_data) {
+    const meta = { vecher_data, na_sleduyushchiy_vecher: true };
+    await bonusy.nachislitBonus({
+        igrok_id,
+        klub_id,
+        tip: 'vybor_karty',
+        istochnik: 'igrok_vechera',
+        opisaniye: 'Игрок вечера — выбор карты на следующий вечер',
+        meta
+    });
+    await bonusy.nachislitBonus({
+        igrok_id,
+        klub_id,
+        tip: 'immunitet_golos',
+        istochnik: 'igrok_vechera',
+        opisaniye: 'Игрок вечера — иммунитет на голосование',
+        meta
+    });
+}
+
+async function uvedomitIgrokaVechera(tg_id, klubNazvaniye, today, pts) {
+    if (!tg_id) return;
+    let msg = '⭐ *Ты — игрок вечера!*\n\n';
+    msg += 'Клуб: *' + (klubNazvaniye || '') + '*\n';
+    msg += 'Дата: *' + today + '*\n';
+    if (pts != null) msg += 'Очков за вечер: *' + pts + '*\n';
+    msg += '\nНа следующий вечер:\n';
+    msg += '🎴 выбор карты\n';
+    msg += '🛡 иммунитет на голосование\n\n';
+    msg += 'Бонусы в mini app → «Подарки».';
+    bot.sendMessage(tg_id, msg, { parse_mode: 'Markdown' }).catch(() => {});
+}
+
+async function obrabotatZavershenieVechera(klub_id) {
+    const today = dataIgrovoegoVechera();
+    const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
+    const stat = await vecherReyting.poluchitStatistikuPobedVechera(supabase, klub_id, today);
+    await zavershitIgrovoyVecherKluba(klub_id);
+    await vecherReyting.sohranitReytingVechera(supabase, klub_id, today, reyting);
+    const { data: klub } = await supabase.from('kluby').select('id, nazvaniye, nastroyki').eq('id', klub_id).single();
+    await vecherReyting.obrabotatMesyachnyItog(supabase, bot, klub_id, klub?.nazvaniye);
+
+    const poe = reyting.find(p => p.igrok_id) || null;
+    let poeImya = null;
+    if (poe?.igrok_id) {
+        await vecherReyting.ustanovitIgrokaVechera(supabase, klub_id, today, poe.igrok_id);
+        await obnovitNastroykiVecheraKluba(klub_id, { vecher_await_poe: false });
+        await nachislitBonusyIgrokaVechera(poe.igrok_id, klub_id, today);
+        poeImya = poe.name;
+        await uvedomitIgrokaVechera(poe.tg_id, klub?.nazvaniye, today, poe.pts);
+    }
+
+    return { today, reyting, stat, poe, poeImya, klub };
+}
+
+async function pokazatItogiVechera(chatId, messageId, klub_id, itogi, sostav, telegram_id) {
+    const { reyting, stat, poe, poeImya, today, klub } = itogi;
     const now = new Date();
     const mesyachny = await vecherReyting.poluchitMesyachnyReyting(supabase, klub_id, now.getFullYear(), now.getMonth() + 1);
 
     let t = '🏁 *Игровой вечер завершён*\n\n';
+    t += '📊 *Итоги вечера:*\n';
+    t += vecherReyting.formatStatistikuPobed(stat) + '\n\n';
     t += vecherReyting.formatReytingSpiska(reyting, '🌆 Рейтинг вечера (городской)', 12);
-    t += '\n\n📅 *Месячный рейтинг* (обновляется автоматически):\n';
+    if (poeImya) {
+        t += '\n\n⭐ *Игрок вечера:* ' + poeImya;
+        if (poe?.pts != null) t += ' — *' + poe.pts + '* очк.';
+        t += '\n_На следующий вечер: иммунитет + выбор карты._';
+    } else if (reyting.length) {
+        t += '\n\n_Игрок вечера не назначен — у лидера нет профиля в боте. Выбери вручную:_';
+    } else {
+        t += '\n\n_Нет очков за игры — игрок вечера не назначен._';
+    }
+    t += '\n\n📅 *Месячный рейтинг:*\n';
     t += vecherReyting.formatReytingSpiska(mesyachny, null, 5).replace(/^\*[^*]+\*\n\n/, '');
-    t += '\n\n⭐ *Выбери игрока вечера* — ему придёт сообщение в личку:';
 
     const knopki = [];
-    const uniq = new Map();
-    for (const p of sostav || []) {
-        const key = p.igrok_id || p.telegram_id || p.name;
-        if (uniq.has(key)) continue;
-        uniq.set(key, p);
-    }
-    const list = [...uniq.values()];
-    for (let i = 0; i < list.length; i += 2) {
-        const row = [];
-        for (let j = i; j < Math.min(i + 2, list.length); j++) {
-            const p = list[j];
-            const cb = p.igrok_id
-                ? 'poe_' + klub_id + '_' + p.igrok_id
-                : 'poe_tg_' + klub_id + '_' + (p.telegram_id || 0);
-            row.push({ text: '⭐ ' + p.name, callback_data: cb });
+    if (!poeImya && reyting.length) {
+        const uniq = new Map();
+        for (const p of sostav || []) {
+            const key = p.igrok_id || p.telegram_id || p.name;
+            if (uniq.has(key) || !p.igrok_id) continue;
+            uniq.set(key, p);
         }
-        knopki.push(row);
+        const list = [...uniq.values()];
+        for (let i = 0; i < list.length; i += 2) {
+            const row = [];
+            for (let j = i; j < Math.min(i + 2, list.length); j++) {
+                const p = list[j];
+                row.push({ text: '⭐ ' + p.name, callback_data: 'poe_' + klub_id + '_' + p.igrok_id });
+            }
+            knopki.push(row);
+        }
+        if (knopki.length) knopki.push([{ text: '⏭ Без игрока вечера', callback_data: 'poe_skip_' + klub_id }]);
     }
-    if (knopki.length === 0) {
-        knopki.push([{ text: '⏭ Пропустить', callback_data: 'poe_skip_' + klub_id }]);
-    }
+    knopki.push([{ text: '🌙 К вечеру', callback_data: 'vecher_klub_' + klub_id }]);
     const roles = await poluchitRoliPolzovatelya(telegram_id);
     knopki.push([knopkaGlavnogoMenu(roles)]);
 
@@ -5854,6 +5920,9 @@ async function sostoyanieVecheraDlyaMiniApp(klub_id, tg_id) {
     const dannye = await poluchitDannyeVecheraKluba(klub_id);
     const today = dataIgrovoegoVechera();
     const itogi = dannye.zavershen ? await vecherReyting.poluchitIgrokaVechera(supabase, klub_id, today) : null;
+    const winStats = dannye.zavershen
+        ? await vecherReyting.poluchitStatistikuPobedVechera(supabase, klub_id, today)
+        : null;
     const { data: anonsy } = await supabase
         .from('anonsy')
         .select('id, data_igry, vremya')
@@ -5876,7 +5945,8 @@ async function sostoyanieVecheraDlyaMiniApp(klub_id, tg_id) {
         anonsy: anonsySegodnya,
         await_poe: !!(dannye.zavershen && klubFull?.nastroyki?.vecher_await_poe),
         poe_name: itogi?.igroki?.igrovoy_nik || itogi?.igroki?.imya || null,
-        evening_rating: itogi?.reyting_vechera || null
+        evening_rating: itogi?.reyting_vechera || null,
+        win_stats: winStats
     };
 }
 
@@ -5885,6 +5955,7 @@ async function sozdatIgryIzVechera(tg_id, klub_id) {
     if (!spisok?.length) return null;
     const kod = await sozdatNovuyuIgry(tg_id, klub_id, spisok.length);
     const igra = igry[kod];
+    igra.data_igry = dataIgrovoegoVechera();
     await zapolnitIgruIzSpiskaVechera(igra, spisok);
     await sohranit_igru(kod);
     return kod;
@@ -6005,13 +6076,14 @@ async function miniAppVecherAction(tg_id, user, body) {
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + kod + ' создана из состава вечера', { selected_game: kod });
     }
     if (sub === 'finish') {
-        await zavershitIgrovoyVecherKluba(klub_id);
-        const today = dataIgrovoegoVechera();
-        const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
-        await vecherReyting.sohranitReytingVechera(supabase, klub_id, today, reyting);
-        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
-        await vecherReyting.obrabotatMesyachnyItog(supabase, bot, klub_id, klub?.nazvaniye);
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игровой вечер завершён');
+        const itogi = await obrabotatZavershenieVechera(klub_id);
+        let msg = 'Игровой вечер завершён';
+        if (itogi.stat?.vsego) {
+            msg += '. Игр: ' + itogi.stat.vsego;
+            msg += ' (🟢' + itogi.stat.mirnye + ' 🔴' + itogi.stat.mafiya + ' 🎯' + itogi.stat.manyak + ')';
+        }
+        if (itogi.poeImya) msg += '. Игрок вечера: ' + itogi.poeImya;
+        return otvetMiniAppPosleDeystviya(tg_id, user, msg);
     }
     if (sub === 'reopen') {
         await obnovitNastroykiVecheraKluba(klub_id, {
@@ -6400,6 +6472,13 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
         const poeName = itogiVechera.igroki?.igrovoy_nik || itogiVechera.igroki?.imya;
         if (poeName) t += '⭐ Игрок вечера: *' + poeName + '*\n';
     }
+    if (zavershen) {
+        const stat = await vecherReyting.poluchitStatistikuPobedVechera(supabase, klubInfo.id, today);
+        if (stat?.vsego) {
+            t += '\n📊 *Побед за вечер:*\n';
+            t += vecherReyting.formatStatistikuPobed(stat) + '\n';
+        }
+    }
     t += '\n';
     if (spisok?.length) {
         t += '*Состав вечера (' + spisok.length + '):*\n';
@@ -6569,6 +6648,22 @@ function isPeacefulRole(rol) {
 
 function rolStrelyayushchegoZaMirnyh(rol) {
     return ['Стрелок', 'Охотник'].includes(rol);
+}
+
+function propustitStrelokNoch(igra) {
+    igra.noch_deystviya = igra.noch_deystviya || {};
+    delete igra.noch_deystviya.strelok_tseli;
+    igra.noch_deystviya.strelok_propustil = true;
+}
+
+function tekstStrelokNochi(d = {}) {
+    if (d.strelok_tseli) return '\u2116' + d.strelok_tseli;
+    if (d.strelok_propustil) return 'пропустил выстрел';
+    return 'не выбрал';
+}
+
+function strelokNochZavershen(d = {}) {
+    return !!(d.strelok_tseli || d.strelok_propustil);
 }
 
 function dobavitAvtoBonus(igra, nomer, key, pts, text, meta = {}) {
@@ -6828,6 +6923,7 @@ function primenitNochnyeVystrely(igra, d) {
     }
 
     if (maf == null && !(d.mafiya_tseli || []).length) lines.push('_Мафия не выбрала цель_\n');
+    if (d.strelok_propustil && strelok) lines.push('_Стрелок/Охотник пропустил выстрел_\n');
     return { lines, ubity_t };
 }
 
@@ -7258,7 +7354,14 @@ async function sleduyushchiy(chatId, messageId, kod) {
 function vystavitIgrokaNaGolos(igra, igrok) {
     if (!igra || !igrok) return { ok: false, error: 'not_found' };
     if (igrok.status !== 'v_igre') return { ok: false, error: 'vybyl' };
-    if (estImmunitetOtGolosovaniya(igrok)) return { ok: false, error: 'immunitet' };
+    if (estImmunitetOtGolosovaniya(igrok)) {
+        if (igrok._bonus_immunitet_id) {
+            bonusy.ispolzovatBonus(igrok._bonus_immunitet_id).catch(() => {});
+            delete igrok._bonus_immunitet_id;
+            delete igrok.immunitet_golos;
+        }
+        return { ok: false, error: 'immunitet' };
+    }
     igra.naznacheny_golos = igra.naznacheny_golos || [];
     if (igra.naznacheny_golos.includes(igrok.nomer)) return { ok: true, already: true, igrok };
     igra.naznacheny_golos.push(igrok.nomer);
@@ -7321,14 +7424,22 @@ async function podgruzitImmunitetIgrokam(igra) {
             .in('id', ids);
         if (error || !data) return;
         const map = Object.fromEntries(data.map(r => [r.id, r]));
-        (igra.igroki || []).forEach(i => {
+        for (const i of igra.igroki || []) {
             const row = i.igrok_id && map[i.igrok_id];
-            if (!row) return;
-            if (row.immunitet) i.immunitet = row.immunitet;
-            if (row.immunitet_golos) i.immunitet_golos = row.immunitet_golos;
-            if (row.immunitet_do) i.immunitet_do = row.immunitet_do;
-            if (row.bonus_immunitet) i.bonus_immunitet = row.bonus_immunitet;
-        });
+            if (row) {
+                if (row.immunitet) i.immunitet = row.immunitet;
+                if (row.immunitet_golos) i.immunitet_golos = row.immunitet_golos;
+                if (row.immunitet_do) i.immunitet_do = row.immunitet_do;
+                if (row.bonus_immunitet) i.bonus_immunitet = row.bonus_immunitet;
+            }
+            if (!i.igrok_id) continue;
+            const bonuses = await bonusy.poluchitBonusyIgroka(i.igrok_id, igra.klub_id).catch(() => []);
+            const imm = bonuses.find(b => b.tip === 'immunitet_golos');
+            if (imm) {
+                i.immunitet_golos = true;
+                i._bonus_immunitet_id = imm.id;
+            }
+        }
     } catch (_) {}
 }
 
@@ -7677,8 +7788,9 @@ function tekstVyboraNochiGuided(igra, kod, step, idx, vsego) {
     t += 'Шаг *' + (idx + 1) + '/' + vsego + '*\n';
     t += '*' + step.label + '*\n\n';
     t += 'Выбери игрока кнопкой или отправь *номер / ник*.';
+    if (step.tip === 'strelok') t += '\n_Можно пропустить выстрел этой ночью._';
     const cur = tekushchiyVyborNochi(igra, step.tip);
-    if (cur != null) t += '\n\n_Текущий выбор: №' + cur + '_';
+    if (cur != null) t += '\n\n_Текущий выбор: ' + (cur === 'пропуск' ? 'пропуск выстрела' : '№' + cur) + '_';
     return t;
 }
 
@@ -7690,7 +7802,7 @@ function tekushchiyVyborNochi(igra, tip) {
     if (tip === 'doc') return d.doctor_tseli ?? null;
     if (tip === 'sher') return d.sherif_tseli ?? null;
     if (tip === 'manyak') return d.manyak_tseli ?? null;
-    if (tip === 'strelok') return d.strelok_tseli ?? null;
+    if (tip === 'strelok') return d.strelok_propustil ? 'пропуск' : (d.strelok_tseli ?? null);
     if (tip === 'zat') return d.zatychka_tseli ?? null;
     if (tip === 'shahid') {
         const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
@@ -7711,7 +7823,7 @@ function sbrNochnoeDeystvie(igra, tip) {
     else if (tip === 'doc') delete d.doctor_tseli;
     else if (tip === 'sher') delete d.sherif_tseli;
     else if (tip === 'manyak') delete d.manyak_tseli;
-    else if (tip === 'strelok') delete d.strelok_tseli;
+    else if (tip === 'strelok') { delete d.strelok_tseli; delete d.strelok_propustil; }
     else if (tip === 'zat') { delete d.zatychka_tseli; delete igra.zablokirovan_nomer; }
     else if (tip === 'shahid') delete d.shahid_miny_tseli;
     else if (tip === 'eskort') delete d.eskort_vybory;
@@ -7753,6 +7865,7 @@ async function primeniNochnoeDeystvie(igra, tip, nomer, chatId) {
         return { ok: true, text: 'Маньяк → №' + nomer };
     }
     if (tip === 'strelok') {
+        delete igra.noch_deystviya.strelok_propustil;
         igra.noch_deystviya.strelok_tseli = nomer;
         return { ok: true, text: 'Стрелок → №' + nomer };
     }
@@ -7775,6 +7888,9 @@ function knopkiShagaNochiGuided(igra, kod, step, idx) {
         text: '\u2116' + i.nomer + ' ' + i.name,
         callback_data: 'noch_g_pick_' + kod + '_' + idx + '_' + i.nomer
     }]);
+    if (step.tip === 'strelok') {
+        knopki.unshift([{ text: '\u23ED Пропустить выстрел', callback_data: 'noch_g_skip_' + kod + '_' + idx }]);
+    }
     if (tekushchiyVyborNochi(igra, step.tip) != null) {
         knopki.push([{ text: '\u274C Сбросить выбор', callback_data: 'noch_g_sbr_' + kod + '_' + idx }]);
     }
@@ -7822,7 +7938,8 @@ async function pokazatSvodkuNochiGuided(chatId, messageId, kod) {
     shagi.forEach((step, idx) => {
         const cur = tekushchiyVyborNochi(igra, step.tip);
         t += (cur != null ? '\u2705' : '\u25A1') + ' ' + step.label;
-        t += cur != null ? ' → №' + cur : '';
+        if (step.tip === 'strelok') t += cur != null ? ' → ' + (cur === 'пропуск' ? 'пропуск' : '№' + cur) : '';
+        else t += cur != null ? ' → №' + cur : '';
         t += '\n';
     });
     t += '\n_Эскортница и Шахид — на классической панели ночи._';
@@ -8007,6 +8124,15 @@ async function miniAppHostAction(tg_id, user, body) {
         await sohranit_igru(kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, rez.text);
     }
+    if (sub === 'night_skip') {
+        const shagi = shagiNochiDeystviy(igra);
+        const idx = Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : 0;
+        const step = shagi[idx];
+        if (step?.tip !== 'strelok') return { stay: true, message: 'Пропуск только для Стрелка/Охотника' };
+        propustitStrelokNoch(igra);
+        await sohranit_igru(kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Стрелок/Охотник пропустил выстрел');
+    }
     if (sub === 'night_next') {
         const shagi = shagiNochiDeystviy(igra);
         igra._noch_guided_idx = Math.min((igra._noch_guided_idx || 0) + 1, shagi.length);
@@ -8138,7 +8264,10 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Маньяк')) t += (d.manyak_tseli ? '\u2705' : '\u25A1') + ' Маньяк: ' + (d.manyak_tseli ? '\u2116' + d.manyak_tseli : 'не выбрал') + '\n';
-    if (roli_alive.some(rolStrelyayushchegoZaMirnyh)) t += (d.strelok_tseli ? '\u2705' : '\u25A1') + ' Стрелок/Охотник: ' + (d.strelok_tseli ? '\u2116' + d.strelok_tseli : 'не выбрал') + '\n';
+    if (roli_alive.some(rolStrelyayushchegoZaMirnyh)) {
+        const stTxt = tekstStrelokNochi(d);
+        t += (strelokNochZavershen(d) ? '\u2705' : '\u25A1') + ' Стрелок/Охотник: ' + stTxt + '\n';
+    }
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
         const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
@@ -8156,7 +8285,12 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
     if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
     if (roli_alive.includes('Маньяк')) knopki.push([{ text: '\uD83C\uDFAF Маньяк стреляет', callback_data: 'noch_vybor_manyak_' + kod }]);
-    if (roli_alive.some(rolStrelyayushchegoZaMirnyh)) knopki.push([{ text: '\uD83D\uDD2B Стрелок/Охотник стреляет', callback_data: 'noch_vybor_strelok_' + kod }]);
+    if (roli_alive.some(rolStrelyayushchegoZaMirnyh)) {
+        knopki.push([{ text: '\uD83D\uDD2B Стрелок/Охотник стреляет', callback_data: 'noch_vybor_strelok_' + kod }]);
+        if (!strelokNochZavershen(d)) {
+            knopki.push([{ text: '\u23ED Стрелок пропускает выстрел', callback_data: 'noch_strelok_pass_' + kod }]);
+        }
+    }
     if (roli_alive.includes('Затычка')) knopki.push([{ text: '\uD83D\uDD07 Затычка блокирует', callback_data: 'noch_vybor_zat_' + kod }]);
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
         knopki.push([{ text: igra.den === 1 ? '\uD83D\uDCA3 Шахид минирует' : '\uD83D\uDCA3 Шахид переминирует', callback_data: 'noch_vybor_shahid_' + kod }]);
@@ -8168,7 +8302,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (d.doctor_tseli) knopki.push([{ text: '\u274C Сброс: доктор', callback_data: 'noch_sbr_doc_' + kod }]);
     if (d.sherif_tseli) knopki.push([{ text: '\u274C Сброс: шериф', callback_data: 'noch_sbr_sher_' + kod }]);
     if (d.manyak_tseli) knopki.push([{ text: '\u274C Сброс: маньяк', callback_data: 'noch_sbr_manyak_' + kod }]);
-    if (d.strelok_tseli) knopki.push([{ text: '\u274C Сброс: стрелок', callback_data: 'noch_sbr_strelok_' + kod }]);
+    if (strelokNochZavershen(d)) knopki.push([{ text: '\u274C Сброс: стрелок', callback_data: 'noch_sbr_strelok_' + kod }]);
     if (d.zatychka_tseli) knopki.push([{ text: '\u274C Сброс: затычка', callback_data: 'noch_sbr_zat_' + kod }]);
     knopki.push([{ text: '\uD83C\uDF19 Пошаговая ночь', callback_data: 'noch_guided_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
@@ -8282,6 +8416,7 @@ async function zapisat_bally(igra, kod) {
             bonus_info
         };
         if (igra.data_igry) record.data_igry = igra.data_igry;
+        else if (igra.klub_id) record.data_igry = dataIgrovoegoVechera();
         records.push(record);
     }
 
@@ -8648,15 +8783,10 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('vecher_finish_')) {
         const klub_id = data.replace('vecher_finish_', '');
-        const today = dataIgrovoegoVechera();
         const { spisok } = await poluchitDannyeVecheraKluba(klub_id);
-        const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
-        await zavershitIgrovoyVecherKluba(klub_id);
-        await vecherReyting.sohranitReytingVechera(supabase, klub_id, today, reyting);
-        const { data: klub } = await supabase.from('kluby').select('id, nazvaniye, nastroyki').eq('id', klub_id).single();
-        await vecherReyting.obrabotatMesyachnyItog(supabase, bot, klub_id, klub?.nazvaniye);
-        bot.answerCallbackQuery(query.id, { text: 'Выбери игрока вечера' });
-        await pokazatVyborIgrokVechera(chatId, messageId, klub_id, reyting, spisok, telegram_id);
+        const itogi = await obrabotatZavershenieVechera(klub_id);
+        bot.answerCallbackQuery(query.id, { text: itogi.poeImya ? 'Игрок вечера: ' + itogi.poeImya : 'Вечер завершён' });
+        await pokazatItogiVechera(chatId, messageId, klub_id, itogi, spisok, telegram_id);
     }
 
     else if (data.startsWith('poe_tg_')) {
@@ -8671,15 +8801,11 @@ bot.on('callback_query', async function(query) {
         const imya = igrokRow?.igrovoy_nik || igrokRow?.imya || 'Игрок';
         await vecherReyting.ustanovitIgrokaVechera(supabase, klub_id, today, igrok_id);
         await obnovitNastroykiVecheraKluba(klub_id, { vecher_await_poe: false });
-        if (tgId) {
-            const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
-            bot.sendMessage(tgId,
-                '⭐ *Ты — игрок вечера!*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\nДата: *' + today + '*\n\nПоздравляем! 🎉',
-                { parse_mode: 'Markdown' }
-            ).catch(() => {});
-        }
+        if (igrok_id) await nachislitBonusyIgrokaVechera(igrok_id, klub_id, today);
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+        await uvedomitIgrokaVechera(tgId, klub?.nazvaniye, today, null);
         bot.answerCallbackQuery(query.id, { text: 'Игрок вечера: ' + imya });
-        bot.editMessageText('✅ *Игрок вечера:* ' + imya + '\n\nСообщение отправлено в личку (если игрок в боте).', {
+        bot.editMessageText('✅ *Игрок вечера:* ' + imya + '\n\nБонусы на следующий вечер начислены.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '🌙 К вечеру', callback_data: 'vecher_klub_' + klub_id }]] }
         });
@@ -8711,15 +8837,11 @@ bot.on('callback_query', async function(query) {
         const imya = igrokRow?.igrovoy_nik || igrokRow?.imya || 'Игрок';
         await vecherReyting.ustanovitIgrokaVechera(supabase, klub_id, today, igrok_id);
         await obnovitNastroykiVecheraKluba(klub_id, { vecher_await_poe: false });
-        if (igrokRow?.tg_id) {
-            const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
-            bot.sendMessage(igrokRow.tg_id,
-                '⭐ *Ты — игрок вечера!*\n\nКлуб: *' + (klub?.nazvaniye || '') + '*\nДата: *' + today + '*\n\nПоздравляем! 🎉',
-                { parse_mode: 'Markdown' }
-            ).catch(() => {});
-        }
+        await nachislitBonusyIgrokaVechera(igrok_id, klub_id, today);
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).single();
+        await uvedomitIgrokaVechera(igrokRow?.tg_id, klub?.nazvaniye, today, null);
         bot.answerCallbackQuery(query.id, { text: 'Игрок вечера: ' + imya });
-        bot.editMessageText('✅ *Игрок вечера:* ' + imya + '\n\nСообщение отправлено в личку.', {
+        bot.editMessageText('✅ *Игрок вечера:* ' + imya + '\n\nБонусы на следующий вечер начислены.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '🌙 К вечеру', callback_data: 'vecher_klub_' + klub_id }]] }
         });
@@ -11644,6 +11766,24 @@ bot.on('callback_query', async function(query) {
         await nachatNochGuided(chatId, messageId, kod);
     }
 
+    else if (data.startsWith('noch_g_skip_')) {
+        const parts = data.replace('noch_g_skip_', '').split('_');
+        const kod = parts[0];
+        const idx = parseInt(parts[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        const step = shagiNochiDeystviy(igra)[idx];
+        if (!step || step.tip !== 'strelok') {
+            bot.answerCallbackQuery(query.id, { text: 'Не шаг стрелка', show_alert: true });
+            return;
+        }
+        propustitStrelokNoch(igra);
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Выстрел пропущен' });
+        igra._noch_guided_idx = idx;
+        await pokazatShagNochiGuided(chatId, messageId, kod);
+    }
+
     else if (data.startsWith('noch_g_pick_')) {
         const parts = data.replace('noch_g_pick_', '').split('_');
         const kod = parts[0];
@@ -11906,8 +12046,19 @@ bot.on('callback_query', async function(query) {
         const strelok = igra.igroki.find(i => i.status === 'v_igre' && rolStrelyayushchegoZaMirnyh(i.rol));
         const alive_strelok = igra.igroki.filter(i => i.status === 'v_igre' && i.nomer !== strelok?.nomer);
         const knopki_strelok = alive_strelok.map(i => [{ text: '\uD83D\uDD2B \u2116' + i.nomer + ' ' + i.name, callback_data: 'noch_strelok_' + kod + '_' + i.nomer }]);
+        knopki_strelok.push([{ text: '\u23ED Пропустить выстрел', callback_data: 'noch_strelok_pass_' + kod }]);
         knopki_strelok.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
-        bot.editMessageText('\uD83D\uDD2B *Стрелок/Охотник: выбери цель*', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_strelok } });
+        bot.editMessageText('\uD83D\uDD2B *Стрелок/Охотник: выбери цель или пропусти выстрел*', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_strelok } });
+    }
+
+    else if (data.startsWith('noch_strelok_pass_')) {
+        const kod = data.replace('noch_strelok_pass_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        propustitStrelokNoch(igra);
+        bot.answerCallbackQuery(query.id, { text: 'Выстрел пропущен' });
+        await sohranit_igru(kod);
+        await pokazat_noch_panel(chatId, messageId, kod, '\u23ED Стрелок/Охотник пропустил выстрел');
     }
 
     // ===== НОЧЬ: Стрелок/Охотник выбрал цель =====
@@ -11918,6 +12069,7 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         igra.noch_deystviya = igra.noch_deystviya || {};
+        delete igra.noch_deystviya.strelok_propustil;
         igra.noch_deystviya.strelok_tseli = nomer_ns;
         const zhertva_ns = igra.igroki.find(i => i.nomer === nomer_ns);
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD2B Цель: ' + (zhertva_ns?.name || '') });
@@ -13174,7 +13326,9 @@ bot.on('callback_query', async function(query) {
         const today = dataIgrovoegoVechera();
         const { spisok } = await poluchitDannyeVecheraKluba(klub_id);
         const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
-        await pokazatVyborIgrokVechera(chatId, messageId, klub_id, reyting, spisok, telegram_id);
+        const stat = await vecherReyting.poluchitStatistikuPobedVechera(supabase, klub_id, today);
+        const itogi = { today, reyting, stat, poe: null, poeImya: null, klub: null };
+        await pokazatItogiVechera(chatId, messageId, klub_id, itogi, spisok, telegram_id);
     }
 
     else if (data.startsWith('vecher_reyting_')) {
