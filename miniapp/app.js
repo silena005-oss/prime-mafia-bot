@@ -800,7 +800,8 @@ function renderEveningPanel(data) {
   }
   el.eveningPanel.classList.remove('hidden');
   const status = ev.finished ? 'завершён' : 'идёт';
-  el.eveningMeta.textContent = `${ev.klub || 'Клуб'} · ${ev.date} · ${status} · ${ev.player_count} игроков`;
+  const gamesInfo = ev.win_stats?.vsego ? ` · ${ev.win_stats.vsego} игр` : '';
+  el.eveningMeta.textContent = `${ev.klub || 'Клуб'} · ${ev.date} · ${status} · ${ev.player_count} игроков${gamesInfo}`;
   el.eveningPlayers.innerHTML = ev.players?.length
     ? ev.players.map((p) => `<li>${escapeHtml(p.num)}. ${escapeHtml(p.name)}</li>`).join('')
     : '<li class="muted">Состав ещё не зафиксирован</li>';
@@ -816,6 +817,23 @@ function renderEveningPanel(data) {
   };
 
   if (!ev.finished) {
+    const rating = ev.live_rating || ev.evening_rating;
+    if (ev.win_stats?.vsego) {
+      const ws = ev.win_stats;
+      const statsEl = document.createElement('p');
+      statsEl.className = 'muted';
+      statsEl.textContent = `Побед: 🟢${ws.mirnye} 🔴${ws.mafiya} 🎯${ws.manyak}`;
+      el.eveningActions.appendChild(statsEl);
+    }
+    if (rating?.length) {
+      const top = rating.slice(0, 5).map((p, i) =>
+        `${i + 1}. ${escapeHtml(p.name)} — ${p.pts} очк.`
+      ).join('\n');
+      const ratEl = document.createElement('pre');
+      ratEl.className = 'evening-rating muted';
+      ratEl.textContent = top;
+      el.eveningActions.appendChild(ratEl);
+    }
     ev.anonsy?.forEach((a) => {
       addEvBtn('📢 Анонс ' + (a.vremya || ''), () => vecherAction('from_anons', { anons_id: a.id }));
     });
@@ -828,19 +846,42 @@ function renderEveningPanel(data) {
       }
       vecherAction('set_roster', { text });
     }, true);
+    addEvBtn('➕ Добавить игроков', () => {
+      const text = el.eveningRosterInput?.value || window.prompt('Ники для добавления (через запятую или с новой строки)') || '';
+      if (text.trim()) vecherAction('add', { text });
+    });
     if (ev.player_count > 0) {
-      addEvBtn('➕ Добавить', () => {
-        const text = window.prompt('Ники для добавления (через запятую или с новой строки)') || '';
-        if (text.trim()) vecherAction('add', { text });
-      });
       addEvBtn('➖ Убрать', () => {
         const text = window.prompt('Номер или ник для удаления') || '';
         if (text.trim()) vecherAction('remove', { text });
       });
       addEvBtn('🎲 Игра на ' + ev.player_count, () => vecherAction('create_game'), true);
-      addEvBtn('🏁 Завершить вечер', () => vecherAction('finish'));
     }
-    el.eveningRosterLabel?.classList.toggle('hidden', ev.player_count > 0 && !state.showEveningRoster);
+    if (ev.can_enter_result) {
+      addEvBtn('📋 Внести результат игры', () => {
+        const suggested = ev.suggested_game_number || 1;
+        const usedHint = ev.used_game_numbers?.length
+          ? `\nУже внесены: №${ev.used_game_numbers.join(', №')}`
+          : '';
+        const raw = window.prompt(`Номер игры за вечер?${usedHint}`, String(suggested)) || '';
+        const num = parseInt(raw, 10);
+        if (!Number.isFinite(num) || num < 1) {
+          showToast('Введи номер игры');
+          return;
+        }
+        vecherAction('enter_result', { game_number: num });
+      });
+    }
+    addEvBtn('🏁 Завершить игровой вечер', () => {
+      if (!window.confirm('Завершить игровой вечер? Рейтинг будет подсчитан по всем внесённым играм.')) return;
+      vecherAction('finish');
+    });
+    el.eveningRosterLabel?.classList.remove('hidden');
+    if (el.eveningRosterInput) {
+      el.eveningRosterInput.placeholder = ev.player_count > 0
+        ? 'Новые ники — для ➕ Добавить\nИли полный список — для ✍️ Сохранить'
+        : 'Аня\nБоря\n...';
+    }
   } else {
     if (ev.win_stats?.vsego) {
       const ws = ev.win_stats;
