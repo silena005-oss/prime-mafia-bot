@@ -2553,6 +2553,16 @@ const bystrayaKlaviaturaVedushchego = {
     }
 };
 
+const klaviaturaVedushchegoPokazana = new Set();
+
+function normalizovatTekstKnopki(text) {
+    return String(text || '').trim().replace(/\uFE0F/g, '');
+}
+
+function etoKnopkaBystroi(text, expected) {
+    return normalizovatTekstKnopki(text) === normalizovatTekstKnopki(expected);
+}
+
 bot.setMyCommands([
     { command: 'start', description: 'Открыть меню' },
     { command: 'help', description: 'Как пользоваться ботом' },
@@ -2561,8 +2571,13 @@ bot.setMyCommands([
     { command: 'resume', description: 'Возобновить игру' }
 ]).catch(e => console.error('[commands]', e?.message || e));
 
-async function pokazatBystryeKnopkiVedushchego(chatId) {
-    await bot.sendMessage(chatId, '⌨️ Панель ведущего — кнопки под полем ввода', bystrayaKlaviaturaVedushchego).catch(() => {});
+async function pokazatBystryeKnopkiVedushchego(chatId, opts = {}) {
+    if (!opts.force && klaviaturaVedushchegoPokazana.has(chatId)) return;
+    klaviaturaVedushchegoPokazana.add(chatId);
+    await bot.sendMessage(chatId, '⌨️ Панель ведущего — кнопки под полем ввода', {
+        ...bystrayaKlaviaturaVedushchego,
+        disable_notification: true
+    }).catch(() => {});
 }
 
 async function mozhetUpravlyatIgrami(tg_id, roles) {
@@ -3308,8 +3323,8 @@ bot.on('message', async function(msg) {
         return;
     }
 
-    if (text === '🏠 Меню') {
-        await obrabotatStart(msg, []);
+    if (etoKnopkaBystroi(text, '🏠 Меню')) {
+        await otkrytMenyuPoRolyam(chatId, tg_id);
         return;
     }
 
@@ -3331,15 +3346,15 @@ bot.on('message', async function(msg) {
         return;
     }
 
-    if (text === '🎮 Мои игры' || text === '/games') {
+    if (etoKnopkaBystroi(text, '🎮 Мои игры') || text === '/games') {
         await pokazatMoiIgryBystraya(chatId, tg_id);
         return;
     }
-    if (text === '🏁 Завершить вечер') {
+    if (etoKnopkaBystroi(text, '🏁 Завершить вечер')) {
         await otkrytZavershenieVecheraDlyaPolzovatelya(chatId, tg_id, null);
         return;
     }
-    if (text === '📋 Результаты вечера') {
+    if (etoKnopkaBystroi(text, '📋 Результаты вечера')) {
         const kluby = await poluchitKlubyDlyaIgr(tg_id);
         if (!kluby.length) {
             await bot.sendMessage(chatId, '📋 Нет клуба для результатов вечера.', bystrayaKlaviaturaVedushchego);
@@ -3358,7 +3373,7 @@ bot.on('message', async function(msg) {
         });
         return;
     }
-    if (text === '🌙 Игровой вечер') {
+    if (etoKnopkaBystroi(text, '🌙 Игровой вечер')) {
         const kluby = await poluchitKlubyDlyaIgr(tg_id);
         const pokazat = otfiltrovatSkrytyeTestKluby(kluby);
         const vybor = pokazat.length ? pokazat : kluby;
@@ -3381,22 +3396,22 @@ bot.on('message', async function(msg) {
         }
         return;
     }
-    if (text === '🎲 Создать игру') {
+    if (etoKnopkaBystroi(text, '🎲 Создать игру')) {
         await bot.sendMessage(chatId, '🎲 *Создать игру*', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }]] }
         });
         return;
     }
-    if (text === '⏸ Пауза/стоп' || text === '/pause') {
+    if (etoKnopkaBystroi(text, '⏸ Пауза/стоп') || text === '/pause') {
         await pokazatBystryyVyborIgry(chatId, tg_id, 'pause');
         return;
     }
-    if (text === '▶️ Возобновить' || text === '/resume') {
+    if (etoKnopkaBystroi(text, '▶️ Возобновить') || text === '/resume') {
         await pokazatBystryyVyborIgry(chatId, tg_id, 'resume');
         return;
     }
-    if (text === '🗑 Удалить игру') {
+    if (etoKnopkaBystroi(text, '🗑 Удалить игру')) {
         await pokazatBystryyVyborIgry(chatId, tg_id, 'delete');
         return;
     }
