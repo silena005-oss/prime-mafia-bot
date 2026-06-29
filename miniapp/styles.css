@@ -820,6 +820,29 @@ p {
   min-width: 120px;
 }
 
+.evening-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evening-footer.hidden {
+  display: none;
+}
+
+.evening-footer .button.finish-evening {
+  width: 100%;
+  font-weight: 600;
+}
+
+.host-finish-evening {
+  margin-top: 10px;
+  width: 100%;
+}
+
 .host-voting.hidden {
   display: none;
 }

@@ -98,6 +98,7 @@ const el = {
   eveningActions: document.getElementById('eveningActions'),
   eveningRosterLabel: document.getElementById('eveningRosterLabel'),
   eveningRosterInput: document.getElementById('eveningRosterInput'),
+  eveningFooter: document.getElementById('eveningFooter'),
   hostVoting: document.getElementById('hostVoting'),
   votingNominees: document.getElementById('votingNominees'),
   voteFinishBtn: document.getElementById('voteFinishBtn'),
@@ -128,8 +129,7 @@ document.querySelectorAll('[data-action]').forEach((button) => {
     }
     if (action === 'igrovoy_vecher') {
       state.showEvening = true;
-      render();
-      showToast('Игровой вечер — слева');
+      loadState(state.selectedKlubId, true).then(() => showToast('Игровой вечер — слева'));
       return;
     }
     sendAction(action);
@@ -175,9 +175,14 @@ async function vecherAction(sub, extra = {}) {
       }
       render();
     }
-  } catch {
-    showToast('Не удалось выполнить действие');
+  } catch (err) {
+    showToast(err?.message === 'action_failed' ? 'Не удалось выполнить действие' : (err?.message || 'Не удалось выполнить действие'));
   }
+}
+
+function confirmFinishEvening() {
+  if (!window.confirm('Завершить игровой вечер?\n\nРейтинг будет подсчитан по всем внесённым играм.\nСостав сохранится, новые игры не привяжутся к этому вечеру.')) return;
+  vecherAction('finish');
 }
 
 if (el.celebrationClose) {
@@ -809,6 +814,10 @@ function renderEveningPanel(data) {
     : '<li class="muted">Состав ещё не зафиксирован</li>';
 
   el.eveningActions.innerHTML = '';
+  if (el.eveningFooter) {
+    el.eveningFooter.innerHTML = '';
+    el.eveningFooter.classList.add('hidden');
+  }
   const addEvBtn = (label, handler, primary = false) => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -816,6 +825,16 @@ function renderEveningPanel(data) {
     btn.textContent = label;
     btn.addEventListener('click', handler);
     el.eveningActions.appendChild(btn);
+  };
+  const addFooterBtn = (label, handler, primary = false, extraClass = '') => {
+    if (!el.eveningFooter) return;
+    el.eveningFooter.classList.remove('hidden');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'button' + (primary ? ' primary' : '') + (extraClass ? ' ' + extraClass : '');
+    btn.textContent = label;
+    btn.addEventListener('click', handler);
+    el.eveningFooter.appendChild(btn);
   };
 
   if (!ev.finished) {
@@ -874,15 +893,18 @@ function renderEveningPanel(data) {
         vecherAction('enter_result', { game_number: num });
       });
     }
-    addEvBtn('🏁 Завершить игровой вечер', () => {
-      if (!window.confirm('Завершить игровой вечер? Рейтинг будет подсчитан по всем внесённым играм.')) return;
-      vecherAction('finish');
-    });
+    if (rating?.length) {
+      addEvBtn('📊 Полный рейтинг вечера', () => vecherAction('full_rating'));
+    }
+    addEvBtn('📋 Результаты вечера', () => vecherAction('results'));
     el.eveningRosterLabel?.classList.remove('hidden');
     if (el.eveningRosterInput) {
       el.eveningRosterInput.placeholder = ev.player_count > 0
         ? 'Новые ники — для ➕ Добавить\nИли полный список — для ✍️ Сохранить'
         : 'Аня\nБоря\n...';
+    }
+    if (ev.can_finish !== false) {
+      addFooterBtn('🏁 Завершить игровой вечер', confirmFinishEvening, true, 'finish-evening');
     }
   } else {
     if (ev.win_stats?.vsego) {
@@ -905,8 +927,11 @@ function renderEveningPanel(data) {
       ratEl.className = 'evening-rating muted';
       ratEl.textContent = top;
       el.eveningActions.appendChild(ratEl);
+      addEvBtn('📊 Полный рейтинг вечера', () => vecherAction('full_rating'));
     }
-    addEvBtn('↩️ Открыть вечер заново', () => vecherAction('reopen'));
+    addEvBtn('📋 Результаты вечера', () => vecherAction('results'));
+    el.eveningRosterLabel?.classList.add('hidden');
+    addFooterBtn('↩️ Открыть вечер заново', () => vecherAction('reopen'), true);
   }
 }
 
@@ -1107,6 +1132,25 @@ function renderHostPanel(game) {
     });
   } else {
     el.hostVoting?.classList.add('hidden');
+  }
+
+  const user = state.data?.user;
+  const evEvening = state.data?.evening;
+  const evForGame = !evEvening || String(evEvening.klub_id || state.selectedKlubId) === String(game?.klub_id);
+  if (game?.klub_id && user?.can_manage_evening && evForGame && (!evEvening || !evEvening.finished)) {
+    const finishBtn = document.createElement('button');
+    finishBtn.type = 'button';
+    finishBtn.className = 'button primary host-finish-evening';
+    finishBtn.textContent = '🏁 Завершить игровой вечер';
+    finishBtn.addEventListener('click', async () => {
+      if (game.klub_id !== state.selectedKlubId) {
+        state.selectedKlubId = game.klub_id;
+        await loadState(game.klub_id, true);
+      }
+      state.showEvening = true;
+      confirmFinishEvening();
+    });
+    el.hostActions.appendChild(finishBtn);
   }
 }
 
