@@ -106,6 +106,18 @@ function knopkiMiniApp() {
     return [[{ text: '🃏 Открыть приложение', web_app: { url } }]];
 }
 
+function dopolnitMiniAppKnopkami(menuObj) {
+    const rows = (menuObj?.reply_markup?.inline_keyboard || []).filter(row => {
+        const btn = row?.[0];
+        if (!btn) return false;
+        if (btn.web_app) return false;
+        if (btn.callback_data === 'miniapp_nastroika') return false;
+        const t = String(btn.text || '');
+        return !t.includes('Открыть приложение') && !t.includes('Приложение');
+    });
+    return { reply_markup: { inline_keyboard: [...knopkiMiniApp(), ...rows] } };
+}
+
 function miniAppMime(filePath) {
     if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
     if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -2061,7 +2073,7 @@ async function zavershitAnketuKluba(chatId, tg_id, d, status) {
             reply_markup: { inline_keyboard: [
                 [{ text: '🎁 Тестовая неделя', callback_data: 'tarif_klub_' + klub_id }],
                 [{ text: '🎨 Стилизация 5000₽', callback_data: 'stil_klub_' + klub_id }],
-                ...menu_vladeltsa.reply_markup.inline_keyboard
+                ...dopolnitMiniAppKnopkami(menu_vladeltsa).reply_markup.inline_keyboard
             ] }
         }
     );
@@ -2593,21 +2605,21 @@ async function otkrytMenyuPoRolyam(chatId, tg_id, opts = {}) {
     let menuOpts;
     if (roles.isOwner) {
         text = '🏛 *Меню собственника*\n\nЧто хочешь сделать?';
-        menuOpts = menu_vladeltsa;
+        menuOpts = dopolnitMiniAppKnopkami(menu_vladeltsa);
     } else if (canManage) {
         text = '🎙 *Меню ведущего*\n\nЧто хочешь сделать?';
-        menuOpts = menu_vedushchego;
+        menuOpts = dopolnitMiniAppKnopkami(menu_vedushchego);
     } else {
         text = '🎴 *Меню игрока*\n\nЧто хочешь сделать?';
-        menuOpts = menu_igroka;
+        menuOpts = dopolnitMiniAppKnopkami(menu_igroka);
     }
     const payload = { parse_mode: 'Markdown', ...menuOpts };
-    if (opts.messageId) {
-        await bot.editMessageText(text, { chat_id: chatId, message_id: opts.messageId, ...payload }).catch(() => {
-            bot.sendMessage(chatId, text, payload).catch(() => {});
-        });
+    if (opts.preferNew || !opts.messageId) {
+        await bot.sendMessage(chatId, text, payload).catch(() => {});
     } else {
-        await bot.sendMessage(chatId, text, payload);
+        const ok = await bot.editMessageText(text, { chat_id: chatId, message_id: opts.messageId, ...payload })
+            .then(() => true).catch(() => false);
+        if (!ok) await bot.sendMessage(chatId, text, payload).catch(() => {});
     }
     if (canManage) await pokazatBystryeKnopkiVedushchego(chatId);
     return { roles, canManage };
@@ -2848,7 +2860,7 @@ async function obrabotatStart(msg, match) {
                 '🏛 *Привет, ' + md(igrok.imya) + '!*\n\n' +
                 'Prime Mafia — твой клуб в Telegram: игры, рейтинг, анонсы и mini app.\n\n' +
                 'Меню собственника ниже. Новичку — «📖 Как пользоваться» или /help.' + dop,
-                { parse_mode: 'Markdown', ...menu_vladeltsa }
+                { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vladeltsa) }
             );
             await pokazatBystryeKnopkiVedushchego(chatId);
         } else if (roles.isHost) {
@@ -2856,7 +2868,7 @@ async function obrabotatStart(msg, match) {
                 '🎭 *Привет, ' + md(igrok.imya) + '!*\n\n' +
                 'Prime Mafia поможет провести вечер: создай игру, веди фазы, рейтинг запишется сам.\n\n' +
                 'Меню ведущего ниже. Справка — «📖 Как пользоваться» или /help.',
-                { parse_mode: 'Markdown', ...menu_vedushchego }
+                { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vedushchego) }
             );
             await pokazatBystryeKnopkiVedushchego(chatId);
         } else {
@@ -2864,7 +2876,7 @@ async function obrabotatStart(msg, match) {
                 '🎴 *Привет, ' + md(igrok.imya) + '!*\n\n' +
                 'Войди в игру по коду от ведущего, смотри анонсы и рейтинг.\n\n' +
                 'Меню игрока ниже. Справка — «📖 Как пользоваться» или /help.',
-                { parse_mode: 'Markdown', ...menu_igroka }
+                { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_igroka) }
             );
         }
     } else {
@@ -9530,55 +9542,29 @@ bot.on('callback_query', async function(query) {
     bot.answerCallbackQuery(query.id).catch(() => {});
 
     // ===== ВОЗВРАТ В МЕНЮ =====
-    if (data === 'menu_vedushchego') {
-        const roles = await poluchitRoliPolzovatelya(telegram_id);
-        if (roles.isOwner) {
-            bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
-                chat_id: chatId, message_id: messageId,
-                parse_mode: 'Markdown', ...menu_vladeltsa
-            });
-            await pokazatBystryeKnopkiVedushchego(chatId);
-            return;
-        }
-        bot.editMessageText('🎙 *Меню ведущего*\n\nЧто хочешь сделать?', {
-            chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_vedushchego
-        });
-        await pokazatBystryeKnopkiVedushchego(chatId);
+    if (data === 'menu_vedushchego' || data === 'menu_vladeltsa' || data === 'menu_igroka') {
+        await otkrytMenyuPoRolyam(chatId, telegram_id, { preferNew: true });
         return;
-    }
-
-    else if (data === 'menu_vladeltsa') {
-        bot.editMessageText('🏛 *Меню собственника*\n\nЧто хочешь сделать?', {
-            chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_vladeltsa
-        });
-        await pokazatBystryeKnopkiVedushchego(chatId);
-        return;
-    }
-
-    else if (data === 'menu_igroka') {
-        await otkrytMenyuPoRolyam(chatId, telegram_id, { messageId });
     }
 
     else if (data === 'menu_more_vedushchego') {
         bot.editMessageText('🎙 *Все функции ведущего*', {
             chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_vedushchego_full
+            parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vedushchego_full)
         });
     }
 
     else if (data === 'menu_more_igroka') {
         bot.editMessageText('🎴 *Все функции игрока*', {
             chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_igroka_full
+            parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_igroka_full)
         });
     }
 
     else if (data === 'menu_more_vladeltsa') {
         bot.editMessageText('🏛 *Все функции собственника*', {
             chat_id: chatId, message_id: messageId,
-            parse_mode: 'Markdown', ...menu_vladeltsa_full
+            parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vladeltsa_full)
         });
     }
 
