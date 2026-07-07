@@ -1079,6 +1079,7 @@ function renderHostPanel(game) {
     showToast('Нажми на место игрока для фола');
   });
   if (host.can_view_immunity) addBtn('🛡 Иммунитет', () => hostAction('immunity'));
+  if (host.can_skip_krug) addBtn('⏭ ' + (host.skip_krug_label || 'Пропустить круг'), () => hostAction('skip_krug'));
   if (host.can_night) addBtn('🌙 Ночь', () => hostAction('night'), true);
   if (host.can_finish_night) addBtn('🌟 Итоги ночи', () => hostAction('night_finish'), true);
 

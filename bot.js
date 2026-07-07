@@ -394,6 +394,8 @@ function metaHostaMiniApp(igra, kod) {
         can_edit_nominees: ['den', 'znakomstvo', 'opravdanie', 'golosovanie'].includes(igra.faza) &&
             (!!gov || (igra.naznacheny_golos || []).length > 0),
         can_foul: (igra.faza === 'den' || igra.faza === 'znakomstvo' || igra.faza === 'opravdanie') && !!gov,
+        can_skip_krug: (igra.faza === 'den' || igra.faza === 'znakomstvo') && !!gov,
+        skip_krug_label: igra.faza === 'znakomstvo' ? 'Пропустить представление' : 'Пропустить минуты',
         nominees: nominirovannyePoPoryadku(igra).map(i => ({ nomer: i.nomer, name: i.name })),
         can_start_intro: !intro && igra.rezhim_rolei === 'karty' && !igra.roli_razdany &&
             igroki.length >= igra.kolichestvo,
@@ -8125,6 +8127,39 @@ async function ustanovitPervogoHodaAvto(chatId, messageId, kod, faza, telegram_i
     return ustanovitPervogoHoda(chatId, messageId, kod, vybrannyy.nomer, faza, telegram_id);
 }
 
+async function zavershitKrugRechi(chatId, messageId, kod, opts = {}) {
+    const igra = igry[kod];
+    if (!igra) return;
+    stopTimer(kod);
+    const alive = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
+    const poryadok = igra.poryadok_hoda || alive;
+    igra.tekushchiy_nomer = null;
+    const faza = igra.faza;
+    if (faza === 'znakomstvo' && poryadok.length) {
+        naznachitImmunitetIgroku(igra, poryadok[poryadok.length - 1]);
+    }
+    await sohranit_igru(kod);
+
+    let t = buildPanelText(igra, kod);
+    t += opts.skipped
+        ? (faza === 'znakomstvo' ? '\n\u23ED\uFE0F *Представление пропущено*\n' : '\n\u23ED\uFE0F *Минуты пропущены*\n')
+        : '\n\u2705 *Все высказались*\n';
+    const knopki = [];
+    if (faza === 'znakomstvo') knopki.push(...knopkiKoncaZnakomstva(igra, kod));
+    if (faza === 'den') {
+        knopki.push([{ text: '\uD83D\uDCA5 Выставить на голосование', callback_data: 'vybrat_na_golos_' + kod }]);
+        knopki.push([{ text: '\uD83C\uDF19 Итоги дня — сразу к ночи', callback_data: 'faza_noch_' + kod }]);
+    }
+    if (faza === 'opravdanie') {
+        knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
+        knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
+    }
+    knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
+    if (chatId && messageId) {
+        await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } }).catch(() => {});
+    }
+}
+
 async function sleduyushchiy(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) return;
@@ -8136,26 +8171,7 @@ async function sleduyushchiy(chatId, messageId, kod) {
     const next_idx = idx + 1;
 
     if (next_idx >= poryadok.length) {
-        // Все высказались — показываем кнопки конца фазы
-        igra.tekushchiy_nomer = null;
-        const faza = igra.faza;
-        if (faza === 'znakomstvo' && poryadok.length) {
-            naznachitImmunitetIgroku(igra, poryadok[poryadok.length - 1]);
-        }
-        let t = buildPanelText(igra, kod);
-        t += '\n\u2705 *Все высказались*\n';
-        const knopki = [];
-        if (faza === 'znakomstvo') knopki.push(...knopkiKoncaZnakomstva(igra, kod));
-        if (faza === 'den') {
-            knopki.push([{ text: '\uD83D\uDCA5 Выставить на голосование', callback_data: 'vybrat_na_golos_' + kod }]);
-            knopki.push([{ text: '\uD83C\uDF19 Перейти к ночи', callback_data: 'faza_noch_' + kod }]);
-        }
-        if (faza === 'opravdanie') {
-            knopki.push([{ text: '\u26A0\uFE0F Выдать фол', callback_data: 'panel_foly_' + kod }]);
-            knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
-        }
-        knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
-        bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+        await zavershitKrugRechi(chatId, messageId, kod);
         return;
     }
 
@@ -8217,6 +8233,8 @@ function buildTimerKnopki(kod, faza) {
         const igra_t = igry[kod];
         if (igra_t?.tekushchiy_nomer) {
             knopki.push(...knopkiRechiDen(igra_t, kod));
+            knopki.push([{ text: '\u23ED\uFE0F Пропустить минуты', callback_data: 'skip_krug_' + kod }]);
+            knopki.push([{ text: '\uD83C\uDF19 Итоги дня — к ночи', callback_data: 'faza_noch_' + kod }]);
         } else {
             knopki.push([{ text: '\u270F\uFE0F Редактировать список', callback_data: 'vybrat_na_golos_' + kod }]);
             knopki.push([{ text: '\uD83C\uDF19 Ночь', callback_data: 'faza_noch_' + kod }]);
@@ -8230,6 +8248,7 @@ function buildTimerKnopki(kod, faza) {
             } else {
                 knopki.push([{ text: '\u26A0\uFE0F Фол / замечание', callback_data: 'panel_foly_' + kod }]);
             }
+            knopki.push([{ text: '\u23ED\uFE0F Пропустить представление', callback_data: 'skip_krug_' + kod }]);
         }
     }
     if (faza === 'opravdanie') {
@@ -9030,6 +9049,16 @@ async function miniAppHostAction(tg_id, user, body) {
     if (sub === 'pass') {
         await hostPasBezPaneli(igra, kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Следующий игрок');
+    }
+    if (sub === 'skip_krug') {
+        const bylaZnak = igra.faza === 'znakomstvo';
+        stopTimer(kod);
+        igra.tekushchiy_nomer = null;
+        const poryadok = igra.poryadok_hoda || igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
+        if (bylaZnak && poryadok.length) naznachitImmunitetIgroku(igra, poryadok[poryadok.length - 1]);
+        await sohranit_igru(kod);
+        obnovitPanelTaymera(kod);
+        return otvetMiniAppPosleDeystviya(tg_id, user, bylaZnak ? 'Представление пропущено' : 'Минуты пропущены');
     }
     if (sub === 'nominate') {
         const nomer = parseInt(body.nomer, 10);
@@ -12428,6 +12457,17 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('pas_', '');
         bot.answerCallbackQuery(query.id, { text: '\u23ED\uFE0F Пас — следующий' });
         sleduyushchiy(chatId, messageId, kod);
+    }
+
+    // ===== ТАЙМЕР: ПРОПУСТИТЬ ВЕСЬ КРУГ =====
+    else if (data.startsWith('skip_krug_')) {
+        const kod = data.replace('skip_krug_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        bot.answerCallbackQuery(query.id, {
+            text: igra.faza === 'znakomstvo' ? '\u23ED\uFE0F Представление пропущено' : '\u23ED\uFE0F Минуты пропущены'
+        });
+        await zavershitKrugRechi(chatId, messageId, kod, { skipped: true });
     }
 
     // ===== ТАЙМЕР: СТОП =====
