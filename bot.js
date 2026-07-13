@@ -2431,14 +2431,12 @@ const menu_vedushchego = {
     reply_markup: {
         inline_keyboard: [
             ...knopkiMiniApp(),
-            [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
-            [
-                { text: '🎲 Создать игру', callback_data: 'sozdat_igru' },
-                { text: '🎮 Мои игры', callback_data: 'moi_igry' }
-            ],
+            [{ text: '📋 Все функции ведущего', callback_data: 'menu_more_vedushchego' }],
             [{ text: '🏆 Рейтинг игроков', callback_data: 'reyting_vybor_kluba' }],
-            [{ text: '✨ Ещё', callback_data: 'menu_more_vedushchego' }],
-            [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }]
+            [
+                { text: '📖 Как пользоваться', callback_data: 'pomoshch' },
+                { text: '💬 Поддержка', callback_data: 'podderzhka' }
+            ]
         ]
     }
 };
@@ -2472,9 +2470,11 @@ const menu_igroka = {
                 { text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' },
                 { text: '🏆 Рейтинг', callback_data: 'moy_reyting' }
             ],
-            [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
-            [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }],
-            [{ text: '✨ Ещё', callback_data: 'menu_more_igroka' }]
+            [{ text: '📋 Все функции игрока', callback_data: 'menu_more_igroka' }],
+            [
+                { text: '📖 Как пользоваться', callback_data: 'pomoshch' },
+                { text: '💬 Поддержка', callback_data: 'podderzhka' }
+            ]
         ]
     }
 };
@@ -2500,16 +2500,15 @@ const menu_vladeltsa = {
     reply_markup: {
         inline_keyboard: [
             ...knopkiMiniApp(),
-            [{ text: '🌙 Начать игровой вечер', callback_data: 'igrovoy_vecher' }],
+            [{ text: '📋 Все функции клуба', callback_data: 'menu_more_vladeltsa' }],
             [
-                { text: '🎲 Создать игру', callback_data: 'sozdat_igru' },
-                { text: '🎮 Мои игры', callback_data: 'moi_igry' }
+                { text: '🏆 Рейтинг игроков', callback_data: 'reyting_vybor_kluba' },
+                { text: '📊 Аналитика', callback_data: 'analitika' }
             ],
             [
-                { text: '📊 Аналитика', callback_data: 'analitika' },
-                { text: '✨ Ещё', callback_data: 'menu_more_vladeltsa' }
-            ],
-            [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }]
+                { text: '📖 Как пользоваться', callback_data: 'pomoshch' },
+                { text: '💬 Поддержка', callback_data: 'podderzhka' }
+            ]
         ]
     }
 };
@@ -2877,24 +2876,24 @@ async function obrabotatStart(msg, match) {
                 : '\n\n_Как собственник, ты можешь вести игры сам или назначить отдельного ведущего._';
             bot.sendMessage(chatId,
                 '🏛 *Привет, ' + md(igrok.imya) + '!*\n\n' +
-                'Prime Mafia — твой клуб в Telegram: игры, рейтинг, анонсы и mini app.\n\n' +
-                'Меню собственника ниже. Новичку — «📖 Как пользоваться» или /help.' + dop,
+                'Всё управление клубом и играми теперь в приложении — нажми *«🃏 Открыть приложение»*.\n\n' +
+                '_Остальные функции — под кнопкой «Все функции клуба»._' + dop,
                 { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vladeltsa) }
             );
             await pokazatBystryeKnopkiVedushchego(chatId);
         } else if (roles.isHost) {
             bot.sendMessage(chatId,
                 '🎭 *Привет, ' + md(igrok.imya) + '!*\n\n' +
-                'Prime Mafia поможет провести вечер: создай игру, веди фазы, рейтинг запишется сам.\n\n' +
-                'Меню ведущего ниже. Справка — «📖 Как пользоваться» или /help.',
+                'Веди весь игровой вечер в приложении — нажми *«🃏 Открыть приложение»*.\n\n' +
+                '_Остальные функции — под кнопкой «Все функции ведущего»._',
                 { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vedushchego) }
             );
             await pokazatBystryeKnopkiVedushchego(chatId);
         } else {
             bot.sendMessage(chatId,
                 '🎴 *Привет, ' + md(igrok.imya) + '!*\n\n' +
-                'Войди в игру по коду от ведущего, смотри анонсы и рейтинг.\n\n' +
-                'Меню игрока ниже. Справка — «📖 Как пользоваться» или /help.',
+                'Открой приложение — там твоя роль, рейтинг, подарки и анонсы. Нажми *«🃏 Открыть приложение»*.\n\n' +
+                '_Войти в игру и остальное — под кнопкой «Все функции игрока»._',
                 { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_igroka) }
             );
         }
