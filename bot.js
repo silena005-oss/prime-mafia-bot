@@ -118,6 +118,21 @@ function dopolnitMiniAppKnopkami(menuObj) {
     return { reply_markup: { inline_keyboard: [...knopkiMiniApp(), ...rows] } };
 }
 
+async function ustanovitKnopkuMenyuPrilozheniya() {
+    const url = poluchitMiniAppUrl();
+    try {
+        if (url) {
+            await bot.setChatMenuButton({
+                menu_button: { type: 'web_app', text: 'Приложение', web_app: { url } }
+            });
+        } else {
+            await bot.setChatMenuButton({ menu_button: { type: 'commands' } });
+        }
+    } catch (e) {
+        console.error('[menu_button]', e?.message || e);
+    }
+}
+
 function miniAppMime(filePath) {
     if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
     if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -2421,6 +2436,7 @@ const menu_vedushchego = {
                 { text: '🎲 Создать игру', callback_data: 'sozdat_igru' },
                 { text: '🎮 Мои игры', callback_data: 'moi_igry' }
             ],
+            [{ text: '🏆 Рейтинг игроков', callback_data: 'reyting_vybor_kluba' }],
             [{ text: '✨ Ещё', callback_data: 'menu_more_vedushchego' }],
             [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }]
         ]
@@ -2434,6 +2450,7 @@ const menu_vedushchego_full = {
             [{ text: '🎲 Создать игру', callback_data: 'sozdat_igru' }],
             [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }],
             [{ text: '🏛 Игры клуба', callback_data: 'igry_kluba' }],
+            [{ text: '🏆 Рейтинг игроков', callback_data: 'reyting_vybor_kluba' }],
             [{ text: '📚 История игр', callback_data: 'istoriya_igr' }],
             [{ text: '📋 Внести результаты', callback_data: 'vnesti_rezultaty' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
@@ -7133,6 +7150,7 @@ async function pokazatRezultatyVechera(chatId, messageId, klub_id, telegram_id) 
     }
     const finishBtn = knopkaZavershitVecher(klub_id);
     if (finishBtn) knopki.unshift([finishBtn]);
+    knopki.push([{ text: '🏆 Рейтинг игроков', callback_data: 'reyting_klub_' + klub_id + '_0' }]);
     knopki.push([{ text: '⬅️ К вечеру', callback_data: 'vecher_klub_' + klub_id }]);
 
     await bezopasnoObnovitSoobshchenie(chatId, messageId, t, {
@@ -16201,6 +16219,7 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
     try {
         const me = await bot.getMe();
         console.log('🤖 @' + (me.username || me.id));
+        await ustanovitKnopkuMenyuPrilozheniya();
         await zapustitPolling();
         console.log('🎴 PrimeMafia бот запущен (polling)');
     } catch (e) {
