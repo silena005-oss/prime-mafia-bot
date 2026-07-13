@@ -16216,9 +16216,8 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
         }
     }, 15 * 60 * 1000);
     try {
-        const me = await bot.getMe();
-        console.log('🤖 @' + (me.username || me.id));
-        await ustanovitKnopkuMenyuPrilozheniya();
+        const me = await bot.getMe().catch(() => null);
+        if (me) console.log('🤖 @' + (me.username || me.id));
         await zapustitPolling();
         console.log('🎴 PrimeMafia бот запущен (polling)');
     } catch (e) {
@@ -16229,4 +16228,6 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
             console.error('❌ Ошибка Telegram (бот на порту ' + PORT + ' жив, polling нет):', e.message || e);
         }
     }
+    // Кнопка меню — необязательный шаг, не должен блокировать/ломать polling
+    ustanovitKnopkuMenyuPrilozheniya().catch(e => console.error('[menu_button]', e?.message || e));
 })();
