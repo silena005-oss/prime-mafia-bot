@@ -276,6 +276,7 @@ function knopkiNastroykiKlubaPanel(klub_nk) {
         ...(reytingOn ? [[{ text: '\uD83D\uDCE5 Импорт рейтинга (CSV)', callback_data: 'reyting_import_' + klub_nk.id }]] : []),
         ...knGr,
         [{ text: '🔗 Приглашение в клуб', callback_data: 'klub_invite_show_' + klub_nk.id }],
+        [{ text: '👑 Передать права собственника', callback_data: 'peredat_vlad_klub_' + klub_nk.id }],
         [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_vladeltsa' }]
     ];
 }
@@ -1292,6 +1293,171 @@ async function uvedomitONaznacheniiVedushchego(igrok_id, klub_id) {
         ).catch(() => {});
     }
     return { igrok, klub };
+}
+
+/** Статистика клуба для собственника */
+async function poluchitAnalitikuKluba(klub_id) {
+    const { count: zapisalis } = await supabase
+        .from('chleny_klubov')
+        .select('*', { count: 'exact', head: true })
+        .eq('klub_id', klub_id);
+
+    const { data: ballyRows } = await supabase
+        .from('bally')
+        .select('igrok_id, kod_igry')
+        .eq('klub_id', klub_id);
+
+    const sygrali = new Set();
+    const igryIzBally = new Set();
+    for (const r of ballyRows || []) {
+        if (r.igrok_id) sygrali.add(r.igrok_id);
+        if (r.kod_igry) igryIzBally.add(String(r.kod_igry));
+    }
+
+    const { data: games } = await supabase
+        .from('aktivnye_igry')
+        .select('kod, igroki, zavershena')
+        .eq('klub_id', klub_id);
+
+    let zaversheno = 0;
+    for (const g of games || []) {
+        if (!g.zavershena) continue;
+        zaversheno += 1;
+        for (const i of (Array.isArray(g.igroki) ? g.igroki : [])) {
+            if (i?.igrok_id) sygrali.add(i.igrok_id);
+        }
+    }
+
+    const { count: vedushchie } = await supabase
+        .from('chleny_klubov')
+        .select('*', { count: 'exact', head: true })
+        .eq('klub_id', klub_id)
+        .in('rol', [ROL_VEDUSHCHIY, 'vedushchii']);
+
+    return {
+        zapisalis_cherez_pm: zapisalis || 0,
+        sygrali_uniq: sygrali.size,
+        igr_zaversheno: Math.max(zaversheno, igryIzBally.size),
+        vedushchih: vedushchie || 0
+    };
+}
+
+function tekstAnalitikiKluba(nazvaniye, st) {
+    let t = '📊 *Аналитика — ' + md(nazvaniye || 'Клуб') + '*\n\n';
+    t += '👥 *Записались через Prime Mafia:* ' + st.zapisalis_cherez_pm + '\n';
+    t += '_Игроки в базе клуба (регистрация в боте)_\n\n';
+    t += '🎲 *Сыграли хотя бы 1 игру:* ' + st.sygrali_uniq + '\n';
+    t += '🏁 *Завершённых игр:* ' + st.igr_zaversheno + '\n';
+    t += '🎤 *Ведущих (не собственник):* ' + st.vedushchih + '\n';
+    return t;
+}
+
+async function pokazatAnalitikuKluba(chatId, messageId, klub_id) {
+    const { data: klub } = await supabase.from('kluby').select('id, nazvaniye').eq('id', klub_id).maybeSingle();
+    if (!klub) {
+        await bot.editMessageText('❌ Клуб не найден.', {
+            chat_id: chatId, message_id: messageId,
+            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+        });
+        return;
+    }
+    const st = await poluchitAnalitikuKluba(klub_id);
+    await bot.editMessageText(tekstAnalitikiKluba(klub.nazvaniye, st), {
+        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            [{ text: '🔄 Обновить', callback_data: 'analitika_klub_' + klub_id }],
+            [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
+            [{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]
+        ] }
+    });
+}
+
+/**
+ * Передать права собственника. Бывший собственник остаётся ведущим.
+ */
+async function peredatVladelcaKluba(klub_id, from_tg_id, new_igrok_id) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, owner_tg_id')
+        .eq('id', klub_id)
+        .maybeSingle();
+    if (!klub) return { ok: false, error: 'no_club' };
+    if (String(klub.owner_tg_id) !== String(from_tg_id)) return { ok: false, error: 'not_owner' };
+
+    const { data: newIgrok } = await supabase
+        .from('igroki')
+        .select('id, tg_id, imya, igrovoy_nik, tg_username')
+        .eq('id', new_igrok_id)
+        .maybeSingle();
+    if (!newIgrok?.tg_id) return { ok: false, error: 'no_player' };
+    if (String(newIgrok.tg_id) === String(from_tg_id)) return { ok: false, error: 'self' };
+
+    const { data: oldIgrok } = await supabase
+        .from('igroki')
+        .select('id, imya, igrovoy_nik')
+        .eq('tg_id', from_tg_id)
+        .maybeSingle();
+
+    const { error: eOwner } = await supabase
+        .from('kluby')
+        .update({ owner_tg_id: newIgrok.tg_id })
+        .eq('id', klub_id);
+    if (eOwner) return { ok: false, error: eOwner.message };
+
+    const { data: newMem } = await supabase
+        .from('chleny_klubov')
+        .select('id')
+        .eq('klub_id', klub_id)
+        .eq('igrok_id', new_igrok_id)
+        .maybeSingle();
+    if (newMem?.id) {
+        const { error } = await supabase.from('chleny_klubov').update({ rol: 'vladyelets' }).eq('id', newMem.id);
+        if (error) return { ok: false, error: error.message };
+    } else {
+        const { error } = await supabase
+            .from('chleny_klubov')
+            .insert({ klub_id, igrok_id: new_igrok_id, rol: 'vladyelets' });
+        if (error) return { ok: false, error: error.message };
+    }
+
+    if (oldIgrok?.id) {
+        const { data: oldMem } = await supabase
+            .from('chleny_klubov')
+            .select('id')
+            .eq('klub_id', klub_id)
+            .eq('igrok_id', oldIgrok.id)
+            .maybeSingle();
+        if (oldMem?.id) {
+            let { error } = await supabase
+                .from('chleny_klubov')
+                .update({ rol: ROL_VEDUSHCHIY })
+                .eq('id', oldMem.id);
+            if (error && String(error.message || '').includes('rol')) {
+                ({ error } = await supabase.from('chleny_klubov').update({ rol: 'vedushchii' }).eq('id', oldMem.id));
+            }
+            if (error) console.error('[peredatVladelca] old→host', error.message);
+        }
+    }
+
+    return { ok: true, klub, newIgrok, oldIgrok };
+}
+
+async function uvedomitOPeredacheKluba(rez, from_tg_id) {
+    const nameKlub = rez.klub?.nazvaniye || 'клуб';
+    if (rez.newIgrok?.tg_id) {
+        bot.sendMessage(rez.newIgrok.tg_id,
+            '👑 *Вам передали клуб!*\n\n🎴 Теперь ты собственник: *' + md(nameKlub) + '*\n\nНапиши /start — откроется меню собственника.',
+            { parse_mode: 'Markdown' }
+        ).catch(() => {});
+    }
+}
+
+function klubIdIzSostoyaniyaPeredachi(tg_id) {
+    const st = sostoyanie[tg_id];
+    if (typeof st === 'string' && st.startsWith('peredat_poisk_')) {
+        return st.replace('peredat_poisk_', '');
+    }
+    return null;
 }
 
 async function klubyVladeltsa(owner_tg_id) {
@@ -2739,6 +2905,7 @@ const menu_vladeltsa_full = {
             [{ text: '👥 База игроков', callback_data: 'baza_igrokov' }],
             [{ text: '🔗 Приглашение в клуб', callback_data: 'klub_priglashenie' }],
             [{ text: '🎤 Назначить ведущего', callback_data: 'naznachit_vedushchego' }],
+            [{ text: '👑 Передать права собственника', callback_data: 'peredat_vladeltsa' }],
             [{ text: '📢 Создать анонс игры', callback_data: 'anons_vybor_kluba' }],
             [{ text: '📋 Мои анонсы', callback_data: 'moi_anonsy_vse' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
@@ -3352,30 +3519,49 @@ bot.onText(/\/me/, async (msg) => {
     const tg_id = msg.from.id;
     const roles = await poluchitRoliPolzovatelya(tg_id);
     const kluby = await poluchitKlubyDlyaIgr(tg_id);
+    const memByKlub = new Map();
+    if (roles.igrok?.id) {
+        const { data: mems } = await supabase
+            .from('chleny_klubov')
+            .select('klub_id, rol')
+            .eq('igrok_id', roles.igrok.id);
+        for (const m of mems || []) memByKlub.set(m.klub_id, m.rol);
+    }
+    // Собственник = может вести игры (отдельная роль vedushchiy не пишется — уникальность клуб+игрок)
+    const mozhetVesti = !!(roles.isOwner || roles.isHost);
     let t = '👤 *Твой доступ*\n\n';
     t += 'TG id: `' + tg_id + '`\n';
     t += 'Зарегистрирован: ' + (roles.registered ? 'да' : 'нет') + '\n';
     t += 'Собственник: ' + (roles.isOwner ? '✅ да' : '❌ нет') + '\n';
-    t += 'Ведущий: ' + (roles.isHost ? '✅ да' : '❌ нет') + '\n';
+    t += 'Может вести игры: ' + (mozhetVesti ? '✅ да' : '❌ нет') + '\n';
     t += 'Админ бота: ' + (isAdmin(tg_id) ? '✅' : 'нет') + '\n\n';
     if (kluby.length) {
         t += '*Клубы (' + kluby.length + '):*\n';
         kluby.forEach(k => {
-            t += '• ' + md(k.nazvaniye || k.id) +
+            const rol = memByKlub.get(k.id);
+            const ownerMatch = String(k.owner_tg_id) === String(tg_id);
+            let mark = '';
+            if (isVladeletsRol(rol) || ownerMatch) mark = ' — 👑 собственник · ведёт игры';
+            else if (isVedushchiy(rol)) mark = ' — 🎤 ведущий';
+            else mark = ' — доступ к играм';
+            t += '• ' + md(k.nazvaniye || k.id) + mark +
                 (klubSkrytIzSpiska(k) ? ' _(тестовое имя)_' : '') + '\n';
         });
+        if (roles.isOwner) {
+            t += '\n_Собственнику отдельная роль «ведущий» в базе не нужна — права вести уже есть._';
+        }
     } else {
         t += '_Нет клубов, где ты собственник или ведущий._\n';
         t += 'Создай клуб: /start → функции игрока → «Открыть клуб», или попроси назначить ведущим.\n';
     }
     if (roles.isOwner) {
-        t += '\nОткрыть: /start → должно быть *Меню собственника*.';
+        t += '\n\nОткрыть: /start → *Меню собственника* → «🎙 Меню ведущего» или «Игровой вечер».';
     }
     bot.sendMessage(msg.chat.id, t, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [
             roles.isOwner ? [{ text: '🏛 Меню собственника', callback_data: 'menu_vladeltsa' }] : [],
-            roles.isHost || roles.isOwner ? [{ text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }] : [],
+            mozhetVesti ? [{ text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }] : [],
             [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
         ].filter(r => r.length) }
     });
@@ -4597,6 +4783,74 @@ bot.on('message', async function(msg) {
         return;
     }
 
+
+    // ===== ПЕРЕДАТЬ СОБСТВЕННИКА: контакт =====
+    if (msg.contact && klubIdIzSostoyaniyaPeredachi(tg_id)) {
+        const klub_id = klubIdIzSostoyaniyaPeredachi(tg_id);
+        const telefon = msg.contact.phone_number.replace(/\D/g, '');
+        const { data: igroki } = await supabase
+            .from('igroki')
+            .select('id, imya, igrovoy_nik, tg_username, telefon')
+            .ilike('telefon', '%' + telefon.slice(-10) + '%')
+            .limit(3);
+        if (!igroki?.length) {
+            bot.sendMessage(chatId, '❌ Игрок с этим номером не найден.\n\nВведи имя или @username:', {
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            });
+            sostoyanie[tg_id] = 'peredat_poisk_' + klub_id;
+            return;
+        }
+        const knopki = igroki.map(i => [{
+            text: formatIgrokDlyaPoiska(i),
+            callback_data: cbBtn('pcfm_', { klub_id, igrok_id: i.id })
+        }]);
+        knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
+        bot.sendMessage(chatId, '✅ Нашёл! Кому передать клуб?', {
+            reply_markup: { inline_keyboard: knopki }
+        });
+        return;
+    }
+
+    // ===== ПЕРЕДАТЬ СОБСТВЕННИКА: поиск =====
+    if (klubIdIzSostoyaniyaPeredachi(tg_id)) {
+        const klub_id = klubIdIzSostoyaniyaPeredachi(tg_id);
+        const query = text.trim();
+        const tolko_cifry = query.replace(/\D/g, '');
+        const poisk_telefon = tolko_cifry.length >= 10 ? tolko_cifry.slice(-10) : null;
+        let igroki;
+        if (poisk_telefon) {
+            const { data } = await supabase
+                .from('igroki')
+                .select('id, imya, igrovoy_nik, tg_username, telefon')
+                .ilike('telefon', '%' + poisk_telefon + '%')
+                .limit(5);
+            igroki = data;
+        } else {
+            const { data } = await supabase
+                .from('igroki')
+                .select('id, imya, igrovoy_nik, tg_username, telefon')
+                .or(`imya.ilike.%${query}%,igrovoy_nik.ilike.%${query}%,tg_username.ilike.%${query}%`)
+                .limit(5);
+            igroki = data;
+        }
+        if (!igroki?.length) {
+            bot.sendMessage(chatId, '❌ Игрок не найден. Попробуй ещё раз:', {
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            });
+            sostoyanie[tg_id] = 'peredat_poisk_' + klub_id;
+            return;
+        }
+        const knopki = igroki.map(i => [{
+            text: formatIgrokDlyaPoiska(i),
+            callback_data: cbBtn('pcfm_', { klub_id, igrok_id: i.id })
+        }]);
+        knopki.push([{ text: '🔍 Искать снова', callback_data: 'peredat_vlad_klub_' + klub_id }]);
+        knopki.push([{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]);
+        bot.sendMessage(chatId, '🔍 Найдено ' + igroki.length + '.\n\nКому передать клуб?', {
+            reply_markup: { inline_keyboard: knopki }
+        });
+        return;
+    }
 
     // ===== НАЗНАЧИТЬ ВЕДУЩЕГО: контакт =====
     if (msg.contact && klubIdIzSostoyaniyaNaznacha(tg_id)) {
@@ -14893,12 +15147,146 @@ bot.on('callback_query', async function(query) {
         );
     }
 
-    // ===== СОБСТВЕННИК: аналитика (заглушка) =====
+    // ===== СОБСТВЕННИК: аналитика =====
     else if (data === 'analitika') {
-        bot.editMessageText('📊 *Аналитика*\n\n_Раздел в разработке_', {
+        const kluby = await klubyVladeltsa(telegram_id);
+        if (!kluby.length) {
+            bot.editMessageText('📊 *Аналитика*\n\n❌ Нет клубов, где ты собственник.', {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+        if (kluby.length === 1) {
+            await pokazatAnalitikuKluba(chatId, messageId, kluby[0].id);
+            return;
+        }
+        const knopki = kluby.map(k => [{ text: '📊 ' + k.nazvaniye, callback_data: 'analitika_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+        bot.editMessageText('📊 *Аналитика*\n\nВыбери клуб:', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            reply_markup: { inline_keyboard: knopki }
         });
+    }
+
+    else if (data.startsWith('analitika_klub_')) {
+        await pokazatAnalitikuKluba(chatId, messageId, data.replace('analitika_klub_', ''));
+    }
+
+    // ===== СОБСТВЕННИК: передать права =====
+    else if (data === 'peredat_vladeltsa') {
+        const kluby = await klubyVladeltsa(telegram_id);
+        if (!kluby.length) {
+            bot.editMessageText('❌ У вас нет клубов.', {
+                chat_id: chatId, message_id: messageId,
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]] }
+            });
+            return;
+        }
+        if (kluby.length === 1) {
+            sostoyanie[telegram_id] = 'peredat_poisk_' + kluby[0].id;
+            bot.editMessageText(
+                '👑 *Передать права собственника*\n\nКлуб: *' + md(kluby[0].nazvaniye) + '*\n\n' +
+                'Найди нового собственника: имя, @username или телефон.\n' +
+                '_Можно переслать контакт._\n\n' +
+                'После передачи ты останешься *ведущим* клуба.',
+                {
+                    chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+                }
+            );
+            return;
+        }
+        const knopki = kluby.map(k => [{ text: '👑 ' + k.nazvaniye, callback_data: 'peredat_vlad_klub_' + k.id }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+        bot.editMessageText('👑 *Передать права собственника*\n\nВыбери клуб:', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('peredat_vlad_klub_')) {
+        const klub_id = data.replace('peredat_vlad_klub_', '');
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye, owner_tg_id').eq('id', klub_id).maybeSingle();
+        if (!klub || String(klub.owner_tg_id) !== String(telegram_id)) {
+            bot.answerCallbackQuery(query.id, { text: 'Только собственник', show_alert: true });
+            return;
+        }
+        sostoyanie[telegram_id] = 'peredat_poisk_' + klub_id;
+        bot.editMessageText(
+            '👑 *Передать права собственника*\n\nКлуб: *' + md(klub.nazvaniye || '') + '*\n\n' +
+            'Найди нового собственника: имя, @username или телефон.\n' +
+            '_Можно переслать контакт._\n\n' +
+            'После передачи ты останешься *ведущим* клуба.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+            }
+        );
+    }
+
+    else if (data.startsWith('pcfm_')) {
+        const p = cbUnpack(data.replace('pcfm_', ''));
+        if (!p?.igrok_id || !p?.klub_id) {
+            bot.answerCallbackQuery(query.id, { text: 'Повтори поиск', show_alert: true });
+            return;
+        }
+        const { data: igrok } = await supabase
+            .from('igroki').select('imya, igrovoy_nik, tg_username, telefon').eq('id', p.igrok_id).maybeSingle();
+        const { data: klub } = await supabase
+            .from('kluby').select('nazvaniye, owner_tg_id').eq('id', p.klub_id).maybeSingle();
+        if (!klub || String(klub.owner_tg_id) !== String(telegram_id)) {
+            bot.answerCallbackQuery(query.id, { text: 'Только собственник', show_alert: true });
+            return;
+        }
+        sostoyanie[telegram_id] = 'peredat_poisk_' + p.klub_id;
+        bot.editMessageText(
+            '👑 *Передать клуб?*\n\n' +
+            'Новый собственник: *' + md(igrok?.igrovoy_nik || igrok?.imya || '') + '*' +
+            (igrok?.tg_username ? '\n@' + igrok.tg_username : '') +
+            '\n\nКлуб: *' + md(klub.nazvaniye || '') + '*\n\n' +
+            '_Ты останешься ведущим. Это действие нельзя отменить одной кнопкой._',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '✅ Да, передать', callback_data: cbBtn('pown_', { klub_id: p.klub_id, igrok_id: p.igrok_id }) }],
+                    [{ text: '🔍 Искать другого', callback_data: 'peredat_vlad_klub_' + p.klub_id }],
+                    [{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]
+                ] }
+            }
+        );
+    }
+
+    else if (data.startsWith('pown_')) {
+        const p = cbUnpack(data.replace('pown_', ''));
+        if (!p?.igrok_id || !p?.klub_id) {
+            bot.answerCallbackQuery(query.id, { text: 'Повтори /start', show_alert: true });
+            return;
+        }
+        const rez = await peredatVladelcaKluba(p.klub_id, telegram_id, p.igrok_id);
+        delete sostoyanie[telegram_id];
+        if (!rez.ok) {
+            const map = {
+                not_owner: 'Только текущий собственник может передать клуб',
+                self: 'Нельзя передать клуб самому себе',
+                no_player: 'Игрок не найден или без Telegram',
+                no_club: 'Клуб не найден'
+            };
+            bot.answerCallbackQuery(query.id, { text: '❌ ' + (map[rez.error] || rez.error || 'Ошибка'), show_alert: true });
+            return;
+        }
+        await uvedomitOPeredacheKluba(rez, telegram_id);
+        const nameNew = rez.newIgrok?.igrovoy_nik || rez.newIgrok?.imya || 'Игрок';
+        bot.editMessageText(
+            '✅ *Клуб передан*\n\n🎴 *' + md(rez.klub?.nazvaniye || '') + '*\n👑 Новый собственник: *' + md(nameNew) + '*\n\nТы остаёшься ведущим. /start — меню ведущего.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }],
+                    [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
+                ] }
+            }
+        );
     }
 
     // ===== СОБСТВЕННИК / ВЕДУЩИЙ: приглашение в клуб =====
@@ -15162,7 +15550,7 @@ bot.on('callback_query', async function(query) {
         const rez = await naznachitVedushchegoVKlube(p.klub_id, p.igrok_id);
         if (!rez.ok) {
             const msg = rez.error === 'owner'
-                ? '❌ Собственника нельзя понизить до ведущего'
+                ? 'Собственник уже может вести — отдельно назначать не нужно'
                 : '❌ ' + (rez.error || 'Ошибка назначения');
             bot.answerCallbackQuery(query.id, { text: msg, show_alert: true });
             return;
@@ -15178,7 +15566,12 @@ bot.on('callback_query', async function(query) {
         const igrok_id = chasti.slice(1).join('_');
         const rez = await naznachitVedushchegoVKlube(klub_id, igrok_id);
         if (!rez.ok) {
-            bot.answerCallbackQuery(query.id, { text: rez.error === 'owner' ? '❌ Это собственник' : '❌ Ошибка', show_alert: true });
+            bot.answerCallbackQuery(query.id, {
+                text: rez.error === 'owner'
+                    ? 'Собственник уже может вести'
+                    : '❌ Ошибка',
+                show_alert: true
+            });
             return;
         }
         if (!rez.already) await uvedomitONaznacheniiVedushchego(igrok_id, klub_id);
@@ -16488,7 +16881,7 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
         .single();
 
     const rol = chlen?.rol || 'igrok';
-    const rol_text = rol === 'vladyelets' ? '👑 Собственник'
+    const rol_text = rol === 'vladyelets' ? '👑 Собственник (может вести игры)'
                     : isVedushchiy(rol) ? '🎤 Ведущий'
                     : '🎴 Игрок';
 
@@ -16511,7 +16904,7 @@ async function pokazat_kartochku_igroka(chatId, messageId, klub_id, igrok_id) {
     const knopki = [];
 
     if (rol === 'vladyelets') {
-        knopki.push([{ text: '⚠️ Это собственник клуба', callback_data: 'baza_noop' }]);
+        knopki.push([{ text: '👑 Собственник уже ведёт игры', callback_data: 'baza_noop' }]);
     } else if (isVedushchiy(rol)) {
         knopki.push([{ text: '↩️ Снять роль ведущего', callback_data: cbBtn('sv_', { klub_id, igrok_id }) }]);
     } else {
