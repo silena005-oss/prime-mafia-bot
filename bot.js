@@ -514,11 +514,16 @@ async function obogatitIgryAvatarami(games, requesterTgId) {
             if (p.telegram_id && (isHost || p.telegram_id === requesterTgId)) tgIds.add(p.telegram_id);
         });
     });
-    const { data: rows } = await supabase
-        .from('igroki')
-        .select('tg_id, avatar_file_id')
-        .in('tg_id', [...tgIds]);
-    const avatars = Object.fromEntries((rows || []).filter(r => r.avatar_file_id).map(r => [r.tg_id, r.avatar_file_id]));
+    let avatars = {};
+    try {
+        const { data: rows, error } = await supabase
+            .from('igroki')
+            .select('tg_id, avatar_file_id')
+            .in('tg_id', [...tgIds]);
+        if (!error) {
+            avatars = Object.fromEntries((rows || []).filter(r => r.avatar_file_id).map(r => [r.tg_id, r.avatar_file_id]));
+        }
+    } catch (_) { /* колонка avatar_file_id может отсутствовать */ }
 
     return games.map(g => {
         const isHost = g.vedushchii_id === requesterTgId;
@@ -703,7 +708,7 @@ async function sostoyanieMiniApp(user) {
 
     const hasAvatar = !!igrok?.avatar_file_id;
 
-    const canManageEvening = (roles.isHost || roles.isOwner) && selectedKlubId;
+    const canManageEvening = (roles.isHost || roles.isOwner || clubs.length > 0) && selectedKlubId;
     const evening = canManageEvening
         ? await sostoyanieVecheraDlyaMiniApp(selectedKlubId, telegram_id).catch(() => null)
         : null;
@@ -846,8 +851,13 @@ async function obrabotatMiniAppAvatar(req, res, url) {
         res.end();
         return;
     }
-    const { data: igrok } = await supabase.from('igroki').select('avatar_file_id').eq('tg_id', targetId).single();
-    await otsylkaAvatara(bot, igrok?.avatar_file_id, res);
+    const { data: igrok } = await supabase.from('igroki').select('avatar_file_id').eq('tg_id', targetId).maybeSingle();
+    if (!igrok?.avatar_file_id) {
+        res.writeHead(404);
+        res.end();
+        return;
+    }
+    await otsylkaAvatara(bot, igrok.avatar_file_id, res);
 }
 
 async function obrabotatMiniAppClubLogo(req, res, url) {
@@ -1159,26 +1169,34 @@ function otfiltrovatSkrytyeTestKluby(kluby, opts = {}) {
 
 async function poluchitRoliPolzovatelya(telegram_id) {
     const tg = Number(telegram_id);
-    const { data: igrok } = await supabase
+    // Без den_rozhdeniya/avatar_file_id: колонок может не быть до миграции add_igroki_profile.sql
+    // (иначе весь select падает → «не зарегистрирован» и нет меню собственника).
+    const { data: igrok, error } = await supabase
         .from('igroki')
-        .select('id, imya, igrovoy_nik, den_rozhdeniya, avatar_file_id')
+        .select('id, imya, igrovoy_nik, tg_id')
         .eq('tg_id', tg)
         .maybeSingle();
+    if (error) console.error('[poluchitRoli]', error.message);
 
     if (!igrok?.id) {
-        // иногда tg_id хранится строкой
         const { data: igrokStr } = await supabase
             .from('igroki')
-            .select('id, imya, igrovoy_nik, den_rozhdeniya, avatar_file_id')
+            .select('id, imya, igrovoy_nik, tg_id')
             .eq('tg_id', String(telegram_id))
             .maybeSingle();
         if (!igrokStr?.id) {
+            const { data: owned } = await supabase
+                .from('kluby')
+                .select('id')
+                .or(`owner_tg_id.eq.${tg},owner_tg_id.eq.${String(telegram_id)}`)
+                .limit(1);
+            const isOwner = !!(owned && owned.length);
             return {
                 registered: false,
                 igrok: null,
-                isOwner: false,
-                isHost: false,
-                menuCallback: 'menu_igroka'
+                isOwner,
+                isHost: isOwner,
+                menuCallback: isOwner ? 'menu_vladeltsa' : 'menu_igroka'
             };
         }
         return poluchitRoliDlyaIgroka(igrokStr, telegram_id);
@@ -4163,6 +4181,49 @@ bot.on('message', async function(msg) {
         const soobsh = await bot.sendMessage(chatId, '✅ Состав вечера сохранён: *' + niki.length + '* игроков.', { parse_mode: 'Markdown' });
         await pokazatIgrovoyVecher(chatId, soobsh.message_id, klub || { id: klub_id, nazvaniye: '' }, tg_id);
         return;
+    }
+
+    // Если забыли нажать «Внести состав» — принимаем список ников как состав вечера
+    if (
+        text &&
+        !text.startsWith('/') &&
+        !sostoyanie[tg_id] &&
+        !ozhidanie_registracii[tg_id]?.shag &&
+        (text.includes(',') || text.includes('\n')) &&
+        razobratSpisokNikov(text).length >= 3
+    ) {
+        const kluby = await poluchitKlubyDlyaIgr(tg_id).catch(() => []);
+        if (kluby.length === 1) {
+            const klub_id = kluby[0].id;
+            const niki = razobratSpisokNikov(text);
+            const igraTemp = { klub_id, igroki: [] };
+            for (let i = 0; i < niki.length; i++) {
+                const igrok = {
+                    telegram_id: null,
+                    name: niki[i],
+                    nomer: i + 1,
+                    status: 'v_igre',
+                    foly: 0,
+                    igrok_id: null
+                };
+                await privyazatIgrokaIzBazy(igraTemp, igrok);
+                igraTemp.igroki.push(igrok);
+            }
+            await sohranitSpisokVecheraKluba(klub_id, igraTemp.igroki);
+            const soobsh = await bot.sendMessage(chatId, '✅ Состав вечера сохранён: *' + niki.length + '* игроков.', { parse_mode: 'Markdown' });
+            await pokazatIgrovoyVecher(chatId, soobsh.message_id, kluby[0], tg_id);
+            return;
+        }
+        if (kluby.length > 1) {
+            bot.sendMessage(chatId,
+                '🌙 Похоже на состав вечера (*' + razobratSpisokNikov(text).length + '* ников).\n\nВыбери клуб — затем снова отправь список:',
+                {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: kluby.map(k => [{ text: '✍️ ' + k.nazvaniye, callback_data: 'vecher_vvod_' + k.id }]) }
+                }
+            );
+            return;
+        }
     }
 
     if (sostoyanie[tg_id]?.startsWith('vecher_add_')) {
@@ -11200,28 +11261,22 @@ bot.on('callback_query', async function(query) {
     // ===== ИГРОК: настройки =====
     else if (data === 'nastroyki_igroka') {
         const { data: igrok } = await supabase
-            .from('igroki').select('imya, gorod, igrovoy_nik, den_rozhdeniya, avatar_file_id, otpis_priglasheniy').eq('tg_id', telegram_id).single();
-
-        const drText = igrok?.den_rozhdeniya ? formatDenRozhdeniya(igrok.den_rozhdeniya) : '_не указан_';
-        const anonsyOn = !igrok?.otpis_priglasheniy;
+            .from('igroki')
+            .select('imya, gorod, igrovoy_nik, tg_id')
+            .eq('tg_id', telegram_id)
+            .maybeSingle();
 
         bot.editMessageText(
             ('⚙️ *Настройки*\n\n' +
             '👤 Имя: ' + (igrok?.imya || '') + '\n' +
             '🎭 Ник: ' + (igrok?.igrovoy_nik || '_не указан_') + '\n' +
-            '📍 Город: ' + (igrok?.gorod || 'не указан') + '\n' +
-            '🎂 День рождения: ' + drText + '\n' +
-            '🖼 Аватар: ' + (igrok?.avatar_file_id ? 'из Telegram' : '_не загружен_') + '\n' +
-            '📢 Анонсы/приглашения: ' + (anonsyOn ? 'вкл.' : 'выкл.')),
+            '📍 Город: ' + (igrok?.gorod || 'не указан')),
             {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '✏️ Изменить имя', callback_data: 'edit_imya' }],
                 [{ text: '🎭 Изменить игровой ник', callback_data: 'edit_nik' }],
                 [{ text: '🏙 Сменить город', callback_data: 'smenit_gorod' }],
-                [{ text: '🎂 День рождения', callback_data: 'edit_den_rozhdeniya' }],
-                [{ text: '🖼 Обновить аватар', callback_data: 'sync_avatar' }],
-                [{ text: anonsyOn ? '🔕 Отписаться от анонсов' : '📢 Подписаться на анонсы', callback_data: anonsyOn ? 'anonsy_soglasie_net' : 'anonsy_soglasie_da' }],
                 [{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]
             ] }
         });
