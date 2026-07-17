@@ -1519,7 +1519,11 @@ const PRODAZH_SKRIPTY = [
         items: [{
             id: 'main',
             title: 'Upsell стилизации',
-            text: 'После тарифа многие клубы берут стилизацию за 5 000 ₽ — один раз, навсегда.\n\nЧто даёт:\n— ваши карты ролей в боте (как бумажная колода);\n— цвета и тема интерфейса под клуб (красная / чёрно-золотая / синяя или своя);\n— игроки видят «ваше» приложение, не общий бот.\n\nВ mini app уже есть рейтинг, лучшая игра и темы — на тесте это хорошо смотрится на iPad.\n\nПодключить вместе с тарифом?'
+            text: tarify.tekstUpsellStilizasii()
+        }, {
+            id: 'ekonom',
+            title: 'Карты 10к vs игры сегодня',
+            text: tarify.tekstEkonomiyaKart()
         }]
     },
     {
@@ -1530,6 +1534,12 @@ const PRODAZH_SKRIPTY = [
                 id: 'dorogo',
                 title: '«Дорого»',
                 text: tarify.tekstVozrazhenieDorogo({ igrokov: 12, vhod: 1000 })
+            },
+            {
+                id: 'karty',
+                title: '«У нас свои карты»',
+                text: tarify.tekstEkonomiyaKart() +
+                    '\n\nВаши макеты можно загрузить в бот — игроки видят ту же колоду на экране. Бумагу можно оставить на стол, цифру — для рейтинга и новых ведущих.'
             },
             {
                 id: 'excel',
@@ -2169,6 +2179,115 @@ async function pokazatAnketyAdmin(chatId, messageId) {
         });
     } else {
         bot.sendMessage(chatId, t + '_Нажми клуб для полной анкеты._', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+}
+
+async function pokazatSpisokKlubovProdazh(chatId, messageId) {
+    const { data: kluby } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, gorod, owner_tg_id, nastroyki')
+        .order('nazvaniye', { ascending: true })
+        .limit(40);
+    if (!kluby?.length) {
+        const t = '🏛 *Клубы для продаж*\n\nПока нет клубов.';
+        if (messageId) bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' });
+        else bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+        return;
+    }
+    const knopki = kluby.map(k => {
+        const st = raschetStatusaTarifa(k.nastroyki || {});
+        const mark = st.tip === 'oplachen' ? '💚' : (st.tip === 'test' || st.tip === 'test_ok' ? '🟡' : '⚪');
+        return [{
+            text: mark + ' ' + (k.nazvaniye || k.id.slice(0, 8)),
+            callback_data: 'admin_sale_' + k.id
+        }];
+    });
+    knopki.push([{ text: '🃏 Письмо: карты 10к', callback_data: 'admin_sale_pitch_ekonom' }]);
+    knopki.push([{ text: '⬅️ Админ', callback_data: 'admin_back' }]);
+    const t = '🏛 *Карточки клубов для продаж* (' + kluby.length + ')\n\n' +
+        '💚 оплачен · 🟡 тест · ⚪ иное\n' +
+        '_Открой клуб — статус, тариф, рейтинг, роли, скрипт._';
+    if (messageId) {
+        bot.editMessageText(t, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    } else {
+        bot.sendMessage(chatId, t, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+}
+
+async function sformirovatKartochkuKlubaProdazh(klub_id) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, gorod, gorod_id, owner_tg_id, nastroyki, sportivniy_rezhim')
+        .eq('id', klub_id)
+        .maybeSingle();
+    if (!klub) return { tekst: '❌ Клуб не найден.', klub: null };
+
+    const n = klub.nastroyki || {};
+    const st = raschetStatusaTarifa(n);
+    const { data: owner } = await supabase
+        .from('igroki')
+        .select('imya, igrovoy_nik, telefon, gorod')
+        .eq('tg_id', klub.owner_tg_id)
+        .maybeSingle();
+    const { count: chlenov } = await supabase
+        .from('chleny_klubov')
+        .select('id', { count: 'exact', head: true })
+        .eq('klub_id', klub_id);
+    const roliCount = Object.keys(roli_foto_klub[klub_id] || {}).length;
+    const anketa = await klubAnketa.poluchitAnketuKluba(klub_id);
+
+    let t = '🏛 *Карточка продаж — ' + md(klub.nazvaniye || 'Клуб') + '*\n\n';
+    t += '🆔 `' + klub.id + '`\n';
+    t += '📍 ' + md(klub.gorod || owner?.gorod || 'город не указан') + '\n';
+    t += '👤 Владелец: ' + md(owner?.igrovoy_nik || owner?.imya || '—') +
+        ' · TG `' + (klub.owner_tg_id || '—') + '`\n';
+    if (owner?.telefon) t += '📱 ' + owner.telefon + '\n';
+    t += '👥 В базе клуба: *' + (chlenov || 0) + '*\n\n';
+
+    t += '💳 *Тариф:* ' + (st.tekst || st.tip || '—').replace(/\*/g, '') + '\n';
+    t += '📦 plan: `' + (n.tarif_plan || n.tarif || '—') + '` · status: `' + (n.tarif_status || '—') + '`\n';
+    if (n.test?.nachalo) {
+        const konets = dataOkonchaniyaTesta(n.test.nachalo, n.test.dney ?? TEST_LIMIT_DNEY);
+        t += '🎁 Тест: ' + (n.test.igry_ispolzovano || 0) + '/' + (n.test.limit_igry || TEST_LIMIT_IGRY) +
+            ' игр · до ' + formatDatyRu(konets) + '\n';
+    }
+    t += '\n🏆 Рейтинг: ' + (klubImeetReyting(n) ? '✅ вкл' : '❌ выкл') + '\n';
+    t += '🏅 Спорт: ' + (klub.sportivniy_rezhim ? '✅' : '—') + '\n';
+    t += '🎨 Стилизация: ' + (n.stilizatsiya_kluba ? '✅' : 'нет') + '\n';
+    t += '🃏 Карт ролей загружено: *' + roliCount + '*\n';
+    t += '📋 Анкета: ' + (anketa ? (anketa.status || 'есть') : 'нет') + '\n\n';
+
+    t += '💡 *Оффер клиенту:*\n';
+    t += 'Бумажные карты ≈ *10 000 ₽* (дизайн + ламинация + печать).\n';
+    t += 'У нас — стилизация *' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽* разово и *игры сегодня* (тест 2 игры).\n';
+
+    return { tekst: t, klub, anketa };
+}
+
+async function pokazatKartochkuKlubaProdazh(chatId, messageId, klub_id) {
+    const { tekst } = await sformirovatKartochkuKlubaProdazh(klub_id);
+    const knopki = [
+        [{ text: '🃏 Скрипт: карты 10к', callback_data: 'admin_sale_send_ekonom_' + klub_id }],
+        [{ text: '📋 Анкета клуба', callback_data: 'admin_anketa_' + klub_id }],
+        [{ text: '🏛 Все клубы', callback_data: 'admin_sales' }],
+        [{ text: '⬅️ Админ', callback_data: 'admin_back' }]
+    ];
+    if (messageId) {
+        bot.editMessageText(tekst, {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    } else {
+        bot.sendMessage(chatId, tekst, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopki }
         });
@@ -3124,10 +3243,19 @@ bot.onText(/\/admin/, async (msg) => {
         '/club\\_cards — выбрать клуб и загрузить карты именно для него\n\n' +
         '📋 /roles\\_status — глобальные роли\n' +
         '📋 /club\\_roles\\_status — роли выбранного клуба\n\n' +
+        '🏛 /sales — карточки клубов для продаж\n' +
         '📝 /scripts — скрипты продаж и отзывов\n' +
         '📋 /ankety — анкеты клубов (Supabase)',
         { parse_mode: 'Markdown' }
     );
+});
+
+bot.onText(/\/sales/, async (msg) => {
+    if (!isAdmin(msg.from.id)) {
+        bot.sendMessage(msg.chat.id, '🏛 Карточки продаж — только администратору.');
+        return;
+    }
+    await pokazatSpisokKlubovProdazh(msg.chat.id);
 });
 
 bot.onText(/\/ankety/, async (msg) => {
@@ -15019,6 +15147,38 @@ bot.on('callback_query', async function(query) {
         await pokazatAnketyAdmin(chatId, messageId);
     }
 
+    else if (data === 'admin_sales') {
+        if (!isAdmin(telegram_id)) return;
+        bot.answerCallbackQuery(query.id);
+        await pokazatSpisokKlubovProdazh(chatId, messageId);
+    }
+
+    else if (data === 'admin_sale_pitch_ekonom') {
+        if (!isAdmin(telegram_id)) return;
+        bot.answerCallbackQuery(query.id, { text: 'Скрипт отправлен ↑' });
+        bot.sendMessage(chatId, '🃏 *Карты 10к vs игры сегодня*\n\n' + tarify.tekstEkonomiyaKart(), {
+            parse_mode: 'Markdown'
+        });
+    }
+
+    else if (data.startsWith('admin_sale_send_ekonom_')) {
+        if (!isAdmin(telegram_id)) return;
+        const klub_id = data.replace('admin_sale_send_ekonom_', '');
+        const { data: klub } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id).maybeSingle();
+        bot.answerCallbackQuery(query.id, { text: 'Скрипт отправлен ↑' });
+        bot.sendMessage(chatId,
+            '🃏 *Для клуба «' + md(klub?.nazvaniye || '') + '»*\n\n' + tarify.tekstEkonomiyaKart(),
+            { parse_mode: 'Markdown' }
+        );
+    }
+
+    else if (data.startsWith('admin_sale_')) {
+        if (!isAdmin(telegram_id)) return;
+        const klub_id = data.replace('admin_sale_', '');
+        bot.answerCallbackQuery(query.id);
+        await pokazatKartochkuKlubaProdazh(chatId, messageId, klub_id);
+    }
+
     else if (data.startsWith('admin_anketa_')) {
         if (!isAdmin(telegram_id)) return;
         const klub_id = data.replace('admin_anketa_', '');
@@ -15026,6 +15186,7 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText(row?.tekst_svodka || 'Анкета не найдена', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
+                [{ text: '🏛 Карточка продаж', callback_data: 'admin_sale_' + klub_id }],
                 [{ text: '📋 Все анкеты', callback_data: 'admin_ankety' }],
                 [{ text: '⬅️ Админ', callback_data: 'admin_back' }]
             ] }
@@ -15036,7 +15197,10 @@ bot.on('callback_query', async function(query) {
         if (!isAdmin(telegram_id)) return;
         bot.answerCallbackQuery(query.id);
         bot.editMessageText(
-            '🔐 *Режим администратора*\n\n📋 /ankety — анкеты клубов',
+            '🔐 *Режим администратора*\n\n' +
+            '🏛 /sales — карточки клубов для продаж\n' +
+            '📋 /ankety — анкеты\n' +
+            '📝 /scripts — скрипты',
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
         );
     }
