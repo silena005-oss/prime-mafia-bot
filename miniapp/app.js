@@ -10,6 +10,10 @@ const state = {
   nominateMode: null,
   foulArmed: false,
   showEvening: false,
+  /** Локальный тик таймера речи (сек), синхронизируется с сервером */
+  localTimerSec: 0,
+  localTimerKod: null,
+  localTimerSpeaking: null,
 };
 
 if (tg) {
@@ -431,9 +435,59 @@ async function loadState(klubId, silent) {
     } else if (!state.selectedGame) {
       state.selectedGame = json.data.games?.[0] || null;
     }
+    syncLocalTimerFromGame(state.selectedGame);
     render();
   } catch (error) {
     if (!silent) renderError(error);
+  }
+}
+
+function syncLocalTimerFromGame(game) {
+  const host = game?.host;
+  const kod = game?.kod ? String(game.kod) : null;
+  const speaking = host?.speaking_nomer || null;
+  const sec = Number(host?.timer_sec) || 0;
+  if (!kod || !speaking || sec <= 0) {
+    state.localTimerSec = 0;
+    state.localTimerKod = null;
+    state.localTimerSpeaking = null;
+    return;
+  }
+  const sameSpeaker = state.localTimerKod === kod && state.localTimerSpeaking === speaking;
+  // Подтягиваем с сервера при смене говорящего или если локальный таймер сильно отстаёт/опережает
+  if (!sameSpeaker || Math.abs(state.localTimerSec - sec) > 2 || state.localTimerSec <= 0) {
+    state.localTimerSec = sec;
+  }
+  state.localTimerKod = kod;
+  state.localTimerSpeaking = speaking;
+}
+
+function tickLocalTimer() {
+  if (state.localTimerSec <= 0) return;
+  state.localTimerSec -= 1;
+  const game = state.selectedGame;
+  if (!game?.host || !el.hostMeta) return;
+  if (String(game.kod) !== String(state.localTimerKod)) return;
+  if (game.host.speaking_nomer !== state.localTimerSpeaking) return;
+  // Обновляем только строку мета, без полной перерисовки кнопок
+  const host = { ...game.host, timer_sec: state.localTimerSec };
+  const parts = [];
+  if (host.can_submit_roster) parts.push(`Состав: ${host.roster_count}/${host.roster_needed}`);
+  if (host.intro?.phase === 'roles') {
+    parts.push(`Ночь знакомства ${(host.intro.idx ?? 0) + 1}/${host.intro.total}: ${host.intro.label}`);
+  } else if (host.intro?.phase === 'mirny') {
+    parts.push(`Мирные: осталось ${host.intro.remaining}`);
+  }
+  if (host.speaking_nomer) {
+    parts.push(`Говорит №${host.speaking_nomer}${host.timer_sec > 0 ? ' · ⏱ ' + host.timer_sec + 'с' : ''}`);
+  }
+  if (host.nominees?.length && (game.faza === 'opravdanie' || game.faza === 'golosovanie')) {
+    parts.push(`На голосовании: ${host.nominees.map((n) => '№' + n.nomer).join(', ')}`);
+  }
+  el.hostMeta.textContent = parts.join(' · ') || 'Управляй игрой здесь — бот не нужен';
+  if (state.localTimerSec <= 0) {
+    // Сервер уже переключит ход — подтянем состояние
+    loadState(state.selectedKlubId, true);
   }
 }
 
@@ -987,7 +1041,10 @@ function renderHostPanel(game) {
     parts.push(`Мирные: осталось ${host.intro.remaining}`);
   }
   if (host.speaking_nomer) {
-    parts.push(`Говорит №${host.speaking_nomer}${host.timer_sec ? ' · ⏱ ' + host.timer_sec + 'с' : ''}`);
+    const sec = (state.localTimerKod === String(game.kod) && state.localTimerSpeaking === host.speaking_nomer)
+      ? state.localTimerSec
+      : (host.timer_sec || 0);
+    parts.push(`Говорит №${host.speaking_nomer}${sec > 0 ? ' · ⏱ ' + sec + 'с' : ''}`);
   }
   if (host.speech_hint && host.speaking_nomer) {
     parts.push(host.speech_hint);
@@ -1259,3 +1316,4 @@ loadState();
 setInterval(() => {
   if (tg?.initData) loadState(state.selectedKlubId, true);
 }, 12000);
+setInterval(tickLocalTimer, 1000);
