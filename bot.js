@@ -270,7 +270,7 @@ function knopkiNastroykiKlubaPanel(klub_nk) {
         [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
         [{ text: n.logo_file_id ? '🎨 Заменить логотип' : '🎨 Загрузить логотип', callback_data: 'brend_klub_' + klub_nk.id }],
         ...(n.logo_file_id ? [[{ text: '🗑 Удалить логотип', callback_data: 'brend_klub_del_' + klub_nk.id }]] : []),
-        [{ text: '\uD83C\uDFA8 Стилизация клуба — 5000₽ навсегда', callback_data: 'stil_klub_' + klub_nk.id }],
+        [{ text: '\uD83C\uDFA8 Свой брендбук — 5000₽', callback_data: 'stil_klub_' + klub_nk.id }],
         [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
         ...(reytingOn ? [[{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }]] : []),
         ...(reytingOn ? [[{ text: '\uD83D\uDCE5 Импорт рейтинга (CSV)', callback_data: 'reyting_import_' + klub_nk.id }]] : []),
@@ -1453,7 +1453,7 @@ const PRODAZH_SKRIPTY = [
         items: [{
             id: 'main',
             title: 'Шпаргалка',
-            text: '🎁 Тест — 0 ₽: 2 игры / ' + TEST_LIMIT_DNEY + ' дней\n\n' + tarify.tekstTarifovKratko() + '\n\n🎨 Стилизация клуба — ' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽ один раз'
+            text: '🎁 Тест — 0 ₽: 2 игры / ' + TEST_LIMIT_DNEY + ' дней\n\n' + tarify.tekstTarifovKratko() + '\n\n🃏 Карты Prime Mafia — бесплатно\n🎨 Свой брендбук клуба — ' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽ один раз'
         }]
     },
     {
@@ -1492,7 +1492,7 @@ const PRODAZH_SKRIPTY = [
         items: [{
             id: 'main',
             title: 'Описание продукта',
-            text: 'Prime Mafia — Telegram-бот + приложение для мафия-клуба.\n\nДля ведущего:\n— игровой вечер и создание игры за минуту;\n— таймеры, фазы, голосование, ночь;\n— меньше ошибок в правилах.\n\nДля клуба:\n— рейтинг и история автоматически;\n— свои правила из папки clubs/ по названию клуба;\n— база игроков и анонсы.\n\nТест: 2 игры бесплатно, ' + TEST_LIMIT_DNEY + ' дней. Потом Mini от ' + tarify.formatRub(tarify.planPoId('mini').price) + ' ₽ или Start 7 900 ₽/мес.'
+            text: 'Prime Mafia — бренд и клуб. Продукт для других клубов: *Maf Assist by Prime Mafia* — Telegram-бот + приложение.\n\nДля ведущего:\n— игровой вечер и создание игры за минуту;\n— таймеры, фазы, голосование, ночь;\n— меньше ошибок в правилах.\n\nДля клуба:\n— рейтинг и история автоматически;\n— карты Prime Mafia бесплатно (свои — по желанию);\n— свои правила, база игроков и анонсы.\n\nТест: 2 игры бесплатно, ' + TEST_LIMIT_DNEY + ' дней. Потом Mini от ' + tarify.formatRub(tarify.planPoId('mini').price) + ' ₽ или Start 7 900 ₽/мес.'
         }]
     },
     {
@@ -1510,7 +1510,7 @@ const PRODAZH_SKRIPTY = [
         items: [{
             id: 'main',
             title: 'Предложение тарифа',
-            text: 'Привет! Как прошли тестовые игры?\n\n' + tarify.tekstTarifovKratko() + '\n\n🎨 Стилизация (карты + интерфейс клуба): +' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽ один раз.\n\nКакой формат ближе? Оформим заявку в Telegram.'
+            text: 'Привет! Как прошли тестовые игры?\n\n' + tarify.tekstTarifovKratko() + '\n\n🃏 Карты и стиль Prime Mafia — уже в тарифе, бесплатно.\n🎨 Свой брендбук (ваши карты + цвета) — +' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽ один раз, по желанию.\n\nКакой формат ближе? Оформим заявку в Telegram.'
         }]
     },
     {
@@ -1569,7 +1569,7 @@ const PRODAZH_SKRIPTY = [
         items: [{
             id: 'main',
             title: 'Закрытие сделки',
-            text: 'Итого:\n\n📦 Club — 12 900 ₽/мес\n🎨 Стилизация — 5 000 ₽ (один раз)\n📅 Срок — [1 / 3 / 6 мес]\n\nДальше:\n1. Подтверждаете пакет\n2. Счёт / ссылка [СБП / карта / рассрочка]\n3. Настройка правил и карт — 1–2 дня\n4. Первый вечер — я на связи\n\nПодтверждаем?'
+            text: 'Итого:\n\n📦 Club — 12 900 ₽/мес\n🃏 Карты Prime Mafia — бесплатно\n🎨 Свой брендбук — 5 000 ₽ (по желанию, один раз)\n📅 Срок — [1 / 3 / 6 мес]\n\nДальше:\n1. Подтверждаете пакет\n2. Счёт / ссылка [СБП / карта / рассрочка]\n3. Настройка правил — 1–2 дня\n4. Первый вечер — я на связи\n\nПодтверждаем?'
         }]
     },
     {
@@ -2141,7 +2141,7 @@ async function zavershitAnketuKluba(chatId, tg_id, d, status) {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '🎁 Тестовая неделя', callback_data: 'tarif_klub_' + klub_id }],
-                [{ text: '🎨 Стилизация 5000₽', callback_data: 'stil_klub_' + klub_id }],
+                [{ text: '🎨 Свой брендбук 5000₽', callback_data: 'stil_klub_' + klub_id }],
                 ...dopolnitMiniAppKnopkami(menu_vladeltsa).reply_markup.inline_keyboard
             ] }
         }
@@ -2267,8 +2267,9 @@ async function sformirovatKartochkuKlubaProdazh(klub_id) {
     t += '📋 Анкета: ' + (anketa ? (anketa.status || 'есть') : 'нет') + '\n\n';
 
     t += '💡 *Оффер клиенту:*\n';
-    t += 'Бумажные карты ≈ *10 000 ₽* (дизайн + ламинация + печать).\n';
-    t += 'У нас — стилизация *' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽* разово и *игры сегодня* (тест 2 игры).\n';
+    t += 'Бумажные карты ≈ *10 000 ₽*. Карты *Prime Mafia* в приложении — *бесплатно*, игры сегодня.\n';
+    t += 'Свой брендбук клуба — *' + tarify.formatRub(tarify.STILIZATSIYA_PRICE) + ' ₽* разово, по желанию.\n';
+    t += '_Продукт для клубов: Maf Assist by Prime Mafia._\n';
 
     return { tekst: t, klub, anketa };
 }
@@ -2863,14 +2864,15 @@ async function pokazatBlokStartaIgry(chatId, messageId, query, rez) {
 }
 
 function tekstStilizatsiiKluba(nazvanieKluba = 'клуб') {
-    return '🎨 *Стилизация приложения под клуб*\n\n' +
+    return '🎨 *Свой брендбук клуба*\n\n' +
         'Клуб: *' + md(nazvanieKluba) + '*\n\n' +
-        'Можно оформить интерфейс Prime Mafia в стиле вашего клуба:\n' +
-        '— цвета и визуальный стиль клуба;\n' +
-        '— клубная подача экранов и кнопок;\n' +
-        '— ощущение собственного приложения для игроков и ведущих.\n\n' +
-        'Стоимость: *5000₽ один раз, навсегда*.\n\n' +
-        '_После подключения игроки и ведущие видят интерфейс, стилизованный под ваш клуб._';
+        'Карты и стиль *Prime Mafia* уже в приложении — *бесплатно*.\n\n' +
+        'Если нужны *ваши* карты и цвета:\n' +
+        '— загружаем карты ролей клуба;\n' +
+        '— цвета и визуальный стиль под брендбук;\n' +
+        '— игроки видят «своё» приложение.\n\n' +
+        'Стоимость своей стилизации: *5000₽ один раз, навсегда*.\n\n' +
+        '_Бумажный тираж (дизайн + ламинация + печать) ≈ 10 000 ₽ — здесь дешевле и можно играть сегодня._';
 }
 
 // ============================================
@@ -14234,7 +14236,7 @@ bot.on('callback_query', async function(query) {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
                 [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + klub_id_tar }],
-                [{ text: '🎨 Стилизация клуба — 5000₽', callback_data: 'stil_klub_' + klub_id_tar }],
+                [{ text: '🎨 Свой брендбук — 5000₽', callback_data: 'stil_klub_' + klub_id_tar }],
                 [{ text: '⬅️ В настройки клуба', callback_data: 'nastroyki_kluba_v' }]
             ] }
         });
