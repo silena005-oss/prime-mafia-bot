@@ -2158,7 +2158,7 @@ const roli_opisaniya = {
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
     'Камикадзе': '\uD83D\uDFE2 *Камикадзе*\n\nКаждую ночь идёшь к игроку. Пошёл к мафии — вы оба выбываете. К мирному/маньяку — ничего.',
     'Бессмертный': '\uD83D\uDFE2 *Бессмертный — Мирный житель*\n\nПросыпаешься только в первую ночь для знакомства с ведущим.\n\n\uD83D\uDEE1\uFE0F Не умирает от выстрела мафии и стрелка.\n\u274C Умирает от: эскортницы (если угадали роль), выстрела маньяка, голосования днём.\n\n\uD83C\uDFAF Задача: притягивай выстрелы мафии на себя.',
-    'Шахид': '\uD83D\uDFE2 *Шахид*\n\nПри выбывании забираешь с собой случайных игроков.',
+    'Шахид': '\uD83D\uDFE2 *Шахид*\n\nВ Н1–Н2 минируешь 30% стола.\n\nЕсли выбываешь с минами — заминированные уходят с тобой.\nЕсли *выголосовали* и 30% не заминировано — с тобой уходят соседи слева и справа.',
     'Затычка': '\uD83D\uDFE2 *Затычка — Мирный житель*\n\nКаждую ночь просыпаешься и выбираешь одного игрока.\n\n\uD83D\uDD07 Заблокированный игрок:\n— лишается своей минуты речи на дне\n— не может голосовать\n— но может быть выставлен на голосование другими\n\n\uD83C\uDFAF Задача: найди мафию и лишай её голоса.\n\u2B50 За правильный ход: *+0.5 балла*',
     'Любовница': '\uD83D\uDFE2 *Любовница*\n\nМожешь заблокировать роль одного игрока на голосовании.',
     'Ведьма': '\uD83D\uDFE2 *Ведьма*\n\nОдин раз за игру можешь воскресить выбывшего игрока. Просыпаешься каждую ночь до воскрешения. Если выбываешь до — вскрой карту и остаёшься за столом.',
@@ -4292,10 +4292,16 @@ bot.on('message', async function(msg) {
         }
         igra_gc.golosa_dnya = igra_gc.golosa_dnya || {};
         igra_gc.golosa_dnya[nomer_gc] = count;
+        const auto = avtozapolnitOstatokGolosov(igra_gc);
         delete sostoyanie[tg_id];
         await sohranit_igru(kod_gc);
         const igrok_gc = igra_gc.igroki.find(i => i.nomer === nomer_gc);
-        await bot.sendMessage(chatId, '\u2705 За \u2116' + nomer_gc + ' ' + (igrok_gc?.name || '') + ': *' + count + '* голос(ов)', {
+        let t = '\u2705 За \u2116' + nomer_gc + ' ' + (igrok_gc?.name || '') + ': *' + count + '* голос(ов)';
+        if (auto) {
+            t += '\n\u267B\uFE0F Остаток за \u2116' + auto.nomer + ' ' + auto.name + ': *' + auto.count + '*';
+            t += '\n_(голосующих ' + auto.vsego + ', уже внесено ' + auto.uzhe + ')_';
+        }
+        await bot.sendMessage(chatId, t, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra_gc, kod_gc) }
         });
@@ -8469,18 +8475,25 @@ function primenitSmertShahida(igra, shahid, prichina, ubitye) {
     if (!igra || !shahid || shahid.rol !== 'Шахид') return '';
     let tekst = '';
 
-    if (prichina === 'golosovanie' && (igra.den || 1) === 1) {
+    const miny = Array.isArray(igra.shahid_miny) ? igra.shahid_miny : [];
+    const zaStolom = (igra.igroki || []).filter(i =>
+        i.status === 'v_igre' || i.nomer === shahid.nomer
+    ).length;
+    const nuzhnoMin = Math.max(1, Math.ceil(zaStolom * 0.3));
+    const nedominiroval = miny.length < nuzhnoMin;
+
+    // Если выголосовали и не заминировал 30% стола — уходят соседи слева и справа
+    if (prichina === 'golosovanie' && nedominiroval) {
         const sosedi = sosediShahida(igra, shahid);
         sosedi.forEach(sosed => {
             if (sosed.status === 'v_igre') {
                 sosed.status = 'vybyl';
                 dobavitUnikalnoPoNomeru(ubitye, sosed);
-                tekst += '\uD83D\uDCA5 Шахида выголосовали в День 1 — сосед \u2116' + sosed.nomer + ' *' + sosed.name + '* (' + sosed.rol + ') покидает игру\n';
+                tekst += '\uD83D\uDCA5 Шахид не заминировал 30% стола — сосед \u2116' + sosed.nomer + ' *' + sosed.name + '* (' + sosed.rol + ') покидает игру\n';
             }
         });
     }
 
-    const miny = Array.isArray(igra.shahid_miny) ? igra.shahid_miny : [];
     miny.forEach(nomer => {
         const zamin = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
         if (zamin) {
@@ -8999,11 +9012,9 @@ function sbrositImmunitetPosleNochi(igra) {
 }
 
 function primeniImmunitetyPosleNochi(igra, mishni) {
+    // Спасение доктором / выживание после выстрела НЕ даёт иммунитет на день.
+    // Иммунитет — вручную ведущим, бонус игрока вечера, первый/последний в круге.
     sbrositImmunitetPosleNochi(igra);
-    for (const n of mishni || []) {
-        const igrok = igra.igroki.find(i => i.nomer === n && i.status === 'v_igre');
-        if (igrok) igrok.immunitet_posle_nochi = true;
-    }
 }
 
 function tekstImmunitetaPosleNochi(igra) {
@@ -9091,9 +9102,9 @@ async function pokazatPanelImmuniteta(chatId, messageId, kod) {
         });
     }
     t += '\n_Правила:_\n';
-    t += '• Бонус игрока вечера — после ночи знакомства\n';
+    t += '• Бонус игрока вечера — на следующую игру\n';
     t += '• Первый и последний в круге — иммунитет с 1-го дня\n';
-    t += '• Выжившие после ночного выстрела — на следующий день\n';
+    t += '• Спасение доктором иммунитет *не* даёт\n';
     t += '\n_Игроков с \uD83D\uDEE1 нельзя выставить на голосование._';
 
     const knopki = [[{ text: '\uD83D\uDD04 Обновить бонусы', callback_data: 'panel_immunitet_' + kod }]];
@@ -9337,11 +9348,37 @@ async function vypolnitVystavlenieNaGolos(chatId, igra, kod, igrok_vg, telegram_
     return true;
 }
 
+function chisloGolosuyushchihZaStolom(igra) {
+    return (igra?.igroki || []).filter(i =>
+        i.status === 'v_igre' && i.nomer !== igra.zablokirovan_nomer
+    ).length;
+}
+
+/** Если остался один выставленный без голосов — дописываем остаток автоматически */
+function avtozapolnitOstatokGolosov(igra) {
+    const naznacheny = nominirovannyePoPoryadku(igra);
+    if (naznacheny.length < 2) return null;
+    igra.golosa_dnya = igra.golosa_dnya || {};
+    const bezGolosov = naznacheny.filter(i => !Number.isFinite(igra.golosa_dnya[i.nomer]));
+    if (bezGolosov.length !== 1) return null;
+
+    const uzhe = naznacheny
+        .filter(i => Number.isFinite(igra.golosa_dnya[i.nomer]))
+        .reduce((s, i) => s + (igra.golosa_dnya[i.nomer] || 0), 0);
+    const vsego = chisloGolosuyushchihZaStolom(igra);
+    const ostatok = Math.max(0, vsego - uzhe);
+    const last = bezGolosov[0];
+    igra.golosa_dnya[last.nomer] = ostatok;
+    return { nomer: last.nomer, name: last.name, count: ostatok, vsego, uzhe };
+}
+
 function tekstGolosovaniyaSPodschetom(igra, kod) {
     const golosa = igra.golosa_dnya || {};
     const naznacheny = nominirovannyePoPoryadku(igra);
+    const vsego = chisloGolosuyushchihZaStolom(igra);
     let t = '\uD83D\uDDF3 *Голосование* — Игра \u2116' + kod + '\n\n';
-    t += 'Внеси количество голосов за каждого выставленного игрока.\n\n';
+    t += 'Внеси голоса за выставленных. Голосующих за столом: *' + vsego + '*.\n';
+    t += '_У последнего можно не вводить — остаток посчитается сам._\n\n';
     if (naznacheny.length === 0) {
         t += '_Список на голосование пуст._';
     } else {
@@ -10003,8 +10040,11 @@ async function miniAppHostAction(tg_id, user, body) {
         }
         igra.golosa_dnya = igra.golosa_dnya || {};
         igra.golosa_dnya[nomer] = count;
+        const auto = avtozapolnitOstatokGolosov(igra);
         await sohranit_igru(kod);
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Голоса за №' + nomer + ': ' + count);
+        let msg = 'Голоса за №' + nomer + ': ' + count;
+        if (auto) msg += '. Остаток за №' + auto.nomer + ' ' + auto.name + ': ' + auto.count;
+        return otvetMiniAppPosleDeystviya(tg_id, user, msg);
     }
     if (sub === 'vote_finish') {
         const rez = await primeniItogGolosovaniyaMiniApp(igra, kod);
