@@ -1136,49 +1136,84 @@ const ROL_VEDUSHCHIY = 'vedushchiy';
 function isVedushchiy(rol) {
     return rol === ROL_VEDUSHCHIY || rol === 'vedushchii';
 }
+function isVladeletsRol(rol) {
+    const r = String(rol || '').toLowerCase().trim();
+    return r === 'vladyelets' || r === 'vladelets' || r === 'owner' || r === 'собственник';
+}
 
 function klubSkrytIzSpiska(klub) {
     const name = String(klub?.nazvaniye || '').toLowerCase();
     return /prime\s*mafia|прайм\s*мафия/.test(name);
 }
 
-function otfiltrovatSkrytyeTestKluby(kluby) {
-    return (kluby || []).filter(k => !klubSkrytIzSpiska(k));
+function otfiltrovatSkrytyeTestKluby(kluby, opts = {}) {
+    // Раньше прятали клубы «Prime Mafia*» из списков — из‑за этого у тестового
+    // клуба разработчика пропадали клубы в выборе и казалось, что нет меню собственника.
+    // Свои клубы (уже отфильтрованные по членству) больше не скрываем.
+    if (opts.tolkoChuzhie) {
+        return (kluby || []).filter(k => !klubSkrytIzSpiska(k));
+    }
+    return kluby || [];
 }
 
 async function poluchitRoliPolzovatelya(telegram_id) {
+    const tg = Number(telegram_id);
     const { data: igrok } = await supabase
         .from('igroki')
         .select('id, imya, igrovoy_nik, den_rozhdeniya, avatar_file_id')
-        .eq('tg_id', telegram_id)
+        .eq('tg_id', tg)
         .maybeSingle();
 
     if (!igrok?.id) {
-        return {
-            registered: false,
-            igrok: null,
-            isOwner: false,
-            isHost: false,
-            menuCallback: 'menu_igroka'
-        };
+        // иногда tg_id хранится строкой
+        const { data: igrokStr } = await supabase
+            .from('igroki')
+            .select('id, imya, igrovoy_nik, den_rozhdeniya, avatar_file_id')
+            .eq('tg_id', String(telegram_id))
+            .maybeSingle();
+        if (!igrokStr?.id) {
+            return {
+                registered: false,
+                igrok: null,
+                isOwner: false,
+                isHost: false,
+                menuCallback: 'menu_igroka'
+            };
+        }
+        return poluchitRoliDlyaIgroka(igrokStr, telegram_id);
     }
+    return poluchitRoliDlyaIgroka(igrok, telegram_id);
+}
 
+async function poluchitRoliDlyaIgroka(igrok, telegram_id) {
+    const tg = Number(telegram_id);
     const { data: memberships } = await supabase
         .from('chleny_klubov')
-        .select('rol')
+        .select('rol, klub_id')
         .eq('igrok_id', igrok.id);
 
-    let isOwner = (memberships || []).some(m => m.rol === 'vladyelets');
+    let isOwner = (memberships || []).some(m => isVladeletsRol(m.rol));
     const isHost = (memberships || []).some(m => isVedushchiy(m.rol));
 
     if (!isOwner) {
-        const { data: ownedKluby } = await supabase
+        const { data: ownedByNum } = await supabase
             .from('kluby')
-            .select('id')
-            .eq('owner_tg_id', telegram_id)
-            .limit(1);
-        if (ownedKluby?.length) isOwner = true;
+            .select('id, owner_tg_id')
+            .eq('owner_tg_id', tg)
+            .limit(5);
+        const { data: ownedByStr } = await supabase
+            .from('kluby')
+            .select('id, owner_tg_id')
+            .eq('owner_tg_id', String(telegram_id))
+            .limit(5);
+        const owned = [...(ownedByNum || []), ...(ownedByStr || [])];
+        if (owned.some(k => String(k.owner_tg_id) === String(tg) || String(k.owner_tg_id) === String(telegram_id))) {
+            isOwner = true;
+        }
     }
+
+    // Админ бота тоже видит меню собственника, если владеет клубом ИЛИ есть клубы в системе
+    // (не подменяем роль без клуба — только если isOwner уже true)
 
     const menuCallback = isOwner ? 'menu_vladeltsa' : isHost ? 'menu_vedushchego' : 'menu_igroka';
 
@@ -1186,7 +1221,7 @@ async function poluchitRoliPolzovatelya(telegram_id) {
         registered: true,
         igrok,
         isOwner,
-        isHost,
+        isHost: isHost || isOwner,
         menuCallback
     };
 }
@@ -2665,8 +2700,24 @@ const menu_vladeltsa = {
             ...knopkiMiniApp(),
             [{ text: '📋 Все функции клуба', callback_data: 'menu_more_vladeltsa' }],
             [
-                { text: '🏆 Рейтинг игроков', callback_data: 'reyting_vybor_kluba' },
+                { text: '🌙 Игровой вечер', callback_data: 'igrovoy_vecher' },
+                { text: '🎲 Создать игру', callback_data: 'sozdat_igru' }
+            ],
+            [
+                { text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' },
+                { text: '👥 База игроков', callback_data: 'baza_igrokov' }
+            ],
+            [
+                { text: '🔗 Приглашение', callback_data: 'klub_priglashenie' },
+                { text: '📢 Анонс', callback_data: 'anons_vybor_kluba' }
+            ],
+            [
+                { text: '🏆 Рейтинг', callback_data: 'reyting_vybor_kluba' },
                 { text: '📊 Аналитика', callback_data: 'analitika' }
+            ],
+            [
+                { text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' },
+                { text: '🎴 Меню игрока', callback_data: 'menu_igroka' }
             ],
             [
                 { text: '📖 Как пользоваться', callback_data: 'pomoshch' },
@@ -2767,7 +2818,10 @@ bot.setMyCommands([
 async function pokazatBystryeKnopkiVedushchego(chatId, opts = {}) {
     if (!opts.force && klaviaturaVedushchegoPokazana.has(chatId)) return;
     klaviaturaVedushchegoPokazana.add(chatId);
-    await bot.sendMessage(chatId, '⌨️ Панель ведущего — кнопки под полем ввода', {
+    const podpis = opts.isOwner
+        ? '⌨️ Панель клуба — «🏠 Меню» откроет меню собственника'
+        : '⌨️ Панель ведущего — кнопки под полем ввода';
+    await bot.sendMessage(chatId, podpis, {
         ...bystrayaKlaviaturaVedushchego,
         disable_notification: true
     }).catch(() => {});
@@ -2779,20 +2833,55 @@ async function mozhetUpravlyatIgrami(tg_id, roles) {
     return kluby.length > 0;
 }
 
+/** forceMenu: 'vladeltsa' | 'vedushchego' | 'igroka' — явное меню (для переключения ролей) */
 async function otkrytMenyuPoRolyam(chatId, tg_id, opts = {}) {
     const roles = await poluchitRoliPolzovatelya(tg_id);
     const canManage = await mozhetUpravlyatIgrami(tg_id, roles);
+    let rezhim = opts.forceMenu || null;
+    if (!rezhim) {
+        if (roles.isOwner) rezhim = 'vladeltsa';
+        else if (canManage) rezhim = 'vedushchego';
+        else rezhim = 'igroka';
+    }
+    // Не даём чужое меню: собственник может всё; ведущий — ведущий/игрок; игрок — только игрок
+    if (rezhim === 'vladeltsa' && !roles.isOwner) {
+        rezhim = canManage ? 'vedushchego' : 'igroka';
+    }
+    if (rezhim === 'vedushchego' && !canManage && !roles.isOwner) {
+        rezhim = 'igroka';
+    }
+
     let text;
     let menuOpts;
-    if (roles.isOwner) {
-        text = '🏛 *Меню собственника*\n\nЧто хочешь сделать?';
+    if (rezhim === 'vladeltsa') {
+        text = '🏛 *Меню собственника*\n\nУправление клубом, тарифом, базой и играми.';
         menuOpts = dopolnitMiniAppKnopkami(menu_vladeltsa);
-    } else if (canManage) {
+    } else if (rezhim === 'vedushchego') {
         text = '🎙 *Меню ведущего*\n\nЧто хочешь сделать?';
         menuOpts = dopolnitMiniAppKnopkami(menu_vedushchego);
+        if (roles.isOwner) {
+            menuOpts = {
+                reply_markup: {
+                    inline_keyboard: [
+                        ...menuOpts.reply_markup.inline_keyboard,
+                        [{ text: '🏛 Меню собственника', callback_data: 'menu_vladeltsa' }]
+                    ]
+                }
+            };
+        }
     } else {
         text = '🎴 *Меню игрока*\n\nЧто хочешь сделать?';
         menuOpts = dopolnitMiniAppKnopkami(menu_igroka);
+        const dop = [];
+        if (roles.isOwner) dop.push([{ text: '🏛 Меню собственника', callback_data: 'menu_vladeltsa' }]);
+        if (canManage) dop.push([{ text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }]);
+        if (dop.length) {
+            menuOpts = {
+                reply_markup: {
+                    inline_keyboard: [...menuOpts.reply_markup.inline_keyboard, ...dop]
+                }
+            };
+        }
     }
     const payload = { parse_mode: 'Markdown', ...menuOpts };
     if (opts.preferNew || !opts.messageId) {
@@ -2802,8 +2891,8 @@ async function otkrytMenyuPoRolyam(chatId, tg_id, opts = {}) {
             .then(() => true).catch(() => false);
         if (!ok) await bot.sendMessage(chatId, text, payload).catch(() => {});
     }
-    if (canManage) await pokazatBystryeKnopkiVedushchego(chatId);
-    return { roles, canManage };
+    if (canManage) await pokazatBystryeKnopkiVedushchego(chatId, { isOwner: roles.isOwner });
+    return { roles, canManage, rezhim };
 }
 
 async function bezopasnoObnovitSoobshchenie(chatId, messageId, text, opts = {}) {
@@ -3035,16 +3124,15 @@ async function obrabotatStart(msg, match) {
         const roles = await poluchitRoliPolzovatelya(tg_id);
 
         if (roles.isOwner) {
-            const dop = roles.isHost
-                ? '\n\n_Ты собственник и ведущий — доступны и управление клубом, и ведение игр._'
-                : '\n\n_Как собственник, ты можешь вести игры сам или назначить отдельного ведущего._';
+            const dop = '\n\n_Ты собственник — меню клуба ниже. Можно переключиться в меню ведущего или игрока._';
             bot.sendMessage(chatId,
                 '🏛 *Привет, ' + md(igrok.imya) + '!*\n\n' +
-                'Всё управление клубом и играми теперь в приложении — нажми *«🃏 Открыть приложение»*.\n\n' +
-                '_Остальные функции — под кнопкой «Все функции клуба»._' + dop,
+                '*Меню собственника* — настройки, база, анонсы, приглашения.\n' +
+                'Игры удобнее вести в приложении — *«🃏 Открыть приложение»*.\n\n' +
+                '_Все функции клуба — отдельной кнопкой._' + dop,
                 { parse_mode: 'Markdown', ...dopolnitMiniAppKnopkami(menu_vladeltsa) }
             );
-            await pokazatBystryeKnopkiVedushchego(chatId);
+            await pokazatBystryeKnopkiVedushchego(chatId, { isOwner: true, force: true });
         } else if (roles.isHost) {
             bot.sendMessage(chatId,
                 '🎭 *Привет, ' + md(igrok.imya) + '!*\n\n' +
@@ -3258,6 +3346,39 @@ bot.onText(/\/sales/, async (msg) => {
         return;
     }
     await pokazatSpisokKlubovProdazh(msg.chat.id);
+});
+
+bot.onText(/\/me/, async (msg) => {
+    const tg_id = msg.from.id;
+    const roles = await poluchitRoliPolzovatelya(tg_id);
+    const kluby = await poluchitKlubyDlyaIgr(tg_id);
+    let t = '👤 *Твой доступ*\n\n';
+    t += 'TG id: `' + tg_id + '`\n';
+    t += 'Зарегистрирован: ' + (roles.registered ? 'да' : 'нет') + '\n';
+    t += 'Собственник: ' + (roles.isOwner ? '✅ да' : '❌ нет') + '\n';
+    t += 'Ведущий: ' + (roles.isHost ? '✅ да' : '❌ нет') + '\n';
+    t += 'Админ бота: ' + (isAdmin(tg_id) ? '✅' : 'нет') + '\n\n';
+    if (kluby.length) {
+        t += '*Клубы (' + kluby.length + '):*\n';
+        kluby.forEach(k => {
+            t += '• ' + md(k.nazvaniye || k.id) +
+                (klubSkrytIzSpiska(k) ? ' _(тестовое имя)_' : '') + '\n';
+        });
+    } else {
+        t += '_Нет клубов, где ты собственник или ведущий._\n';
+        t += 'Создай клуб: /start → функции игрока → «Открыть клуб», или попроси назначить ведущим.\n';
+    }
+    if (roles.isOwner) {
+        t += '\nОткрыть: /start → должно быть *Меню собственника*.';
+    }
+    bot.sendMessage(msg.chat.id, t, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+            roles.isOwner ? [{ text: '🏛 Меню собственника', callback_data: 'menu_vladeltsa' }] : [],
+            roles.isHost || roles.isOwner ? [{ text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }] : [],
+            [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
+        ].filter(r => r.length) }
+    });
 });
 
 bot.onText(/\/ankety/, async (msg) => {
@@ -7269,10 +7390,11 @@ function aktivnyeIgryKluba(klub_id) {
 }
 
 async function poluchitKlubyDlyaIgr(telegram_id) {
+    const tg = Number(telegram_id);
     const { data: igrok } = await supabase
         .from('igroki')
         .select('id')
-        .eq('tg_id', telegram_id)
+        .eq('tg_id', tg)
         .maybeSingle();
 
     const byId = new Map();
@@ -7280,19 +7402,23 @@ async function poluchitKlubyDlyaIgr(telegram_id) {
     if (igrok?.id) {
         const { data: chleny } = await supabase
             .from('chleny_klubov')
-            .select('klub_id, rol, kluby(id, nazvaniye)')
+            .select('klub_id, rol, kluby(id, nazvaniye, owner_tg_id)')
             .eq('igrok_id', igrok.id)
-            .in('rol', ['vladyelets', ROL_VEDUSHCHIY, 'vedushchii']);
+            .in('rol', ['vladyelets', 'vladelets', ROL_VEDUSHCHIY, 'vedushchii']);
         for (const c of chleny || []) {
             if (c.kluby) byId.set(c.kluby.id, c.kluby);
         }
     }
 
-    const { data: owned } = await supabase
+    const { data: ownedNum } = await supabase
         .from('kluby')
-        .select('id, nazvaniye')
-        .eq('owner_tg_id', telegram_id);
-    for (const k of owned || []) {
+        .select('id, nazvaniye, owner_tg_id')
+        .eq('owner_tg_id', tg);
+    const { data: ownedStr } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, owner_tg_id')
+        .eq('owner_tg_id', String(telegram_id));
+    for (const k of [...(ownedNum || []), ...(ownedStr || [])]) {
         byId.set(k.id, k);
     }
 
@@ -9822,9 +9948,12 @@ bot.on('callback_query', async function(query) {
 
     bot.answerCallbackQuery(query.id).catch(() => {});
 
-    // ===== ВОЗВРАТ В МЕНЮ =====
+    // ===== ВОЗВРАТ В МЕНЮ (уважаем выбранную роль) =====
     if (data === 'menu_vedushchego' || data === 'menu_vladeltsa' || data === 'menu_igroka') {
-        await otkrytMenyuPoRolyam(chatId, telegram_id, { preferNew: true });
+        const forceMenu = data === 'menu_vladeltsa' ? 'vladeltsa'
+            : data === 'menu_vedushchego' ? 'vedushchego'
+            : 'igroka';
+        await otkrytMenyuPoRolyam(chatId, telegram_id, { preferNew: true, forceMenu });
         return;
     }
 
