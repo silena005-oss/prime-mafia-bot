@@ -992,6 +992,11 @@ function otpravitMiniAppFile(res, url) {
 
 http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
+    if (url.pathname === '/health' || url.pathname === '/health/') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, service: 'prime-mafia', ts: new Date().toISOString() }));
+        return;
+    }
     if (url.pathname.startsWith('/api/miniapp/')) {
         obrabotatMiniAppApi(req, res, url).catch(e => {
             console.error('[miniapp api]', e.message || e);
@@ -1004,9 +1009,9 @@ http.createServer((req, res) => {
         return;
     }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('PrimeMafia bot OK\nMini app: ' + MINI_APP_PATH + '\n');
+    res.end('PrimeMafia bot OK\nHealth: /health\nMini app: ' + MINI_APP_PATH + '\n');
 }).listen(PORT, '0.0.0.0', () => {
-    console.log('🌐 Health check слушает порт', PORT);
+    console.log('🌐 Health check слушает порт', PORT, '→ /health');
 });
 
 const bot = new TelegramBot(token, { polling: false });
