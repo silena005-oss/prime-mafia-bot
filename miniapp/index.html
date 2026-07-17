@@ -110,10 +110,13 @@
             <button type="button" class="button primary" id="submitRosterBtn">Сохранить состав</button>
           </div>
           <div class="host-mirny hidden" id="hostMirny">
-            <label class="host-roster-label">Мирные — списком или по одному кликом
+            <p class="muted" id="mirnyCandidates"></p>
+            <button type="button" class="button primary" id="confirmMirnyBtn">Да, все мирные</button>
+            <label class="host-roster-label hidden" id="mirnyEditWrap">Если нужно поправить — ники списком или клик по месту
               <textarea id="mirnyInput" rows="5" placeholder="Оставшиеся мирные — каждый с новой строки"></textarea>
             </label>
-            <button type="button" class="button primary" id="submitMirnyBtn">Внести мирных списком</button>
+            <button type="button" class="button" id="editMirnyBtn">Редактировать</button>
+            <button type="button" class="button hidden" id="submitMirnyBtn">Внести мирных списком</button>
           </div>
           <div class="host-night hidden" id="hostNight">
             <p class="muted" id="nightStepLabel"></p>

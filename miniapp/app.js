@@ -79,7 +79,11 @@ const el = {
   myRoleCard: document.getElementById('myRoleCard'),
   myRoleName: document.getElementById('myRoleName'),
   hostMirny: document.getElementById('hostMirny'),
+  mirnyCandidates: document.getElementById('mirnyCandidates'),
   mirnyInput: document.getElementById('mirnyInput'),
+  mirnyEditWrap: document.getElementById('mirnyEditWrap'),
+  confirmMirnyBtn: document.getElementById('confirmMirnyBtn'),
+  editMirnyBtn: document.getElementById('editMirnyBtn'),
   submitMirnyBtn: document.getElementById('submitMirnyBtn'),
   hostSummary: document.getElementById('hostSummary'),
   hostSummaryText: document.getElementById('hostSummaryText'),
@@ -199,6 +203,20 @@ if (el.celebrationClose) {
 if (el.posterRender) el.posterRender.addEventListener('click', renderPosterCanvas);
 if (el.submitRosterBtn) el.submitRosterBtn.addEventListener('click', submitRoster);
 if (el.submitMirnyBtn) el.submitMirnyBtn.addEventListener('click', submitMirnyList);
+if (el.confirmMirnyBtn) {
+  el.confirmMirnyBtn.addEventListener('click', async () => {
+    await hostAction('intro_mirny', { confirm_all: true });
+  });
+}
+if (el.editMirnyBtn) {
+  el.editMirnyBtn.addEventListener('click', () => {
+    el.mirnyEditWrap?.classList.remove('hidden');
+    el.submitMirnyBtn?.classList.remove('hidden');
+    el.confirmMirnyBtn?.classList.add('hidden');
+    el.editMirnyBtn?.classList.add('hidden');
+    showToast('Кликни место за столом или введи ники списком');
+  });
+}
 if (el.createGameConfirm) el.createGameConfirm.addEventListener('click', confirmCreateGame);
 if (el.createGameCancel) el.createGameCancel.addEventListener('click', () => el.createGameDialog?.close());
 
@@ -1099,8 +1117,25 @@ function renderHostPanel(game) {
     });
   }
   if (host.can_start_voting) addBtn('🗳 Голосование', () => hostAction('start_voting'), true);
-  if (host.intro?.phase === 'mirny' && el.mirnyInput && !el.mirnyInput.value) {
-    el.mirnyInput.placeholder = Array.from({ length: host.intro.remaining || 0 }, (_, i) => 'Мирный ' + (i + 1)).join('\n');
+  if (host.intro?.phase === 'mirny') {
+    const cands = host.intro.candidates || [];
+    if (el.mirnyCandidates) {
+      el.mirnyCandidates.textContent = cands.length
+        ? ('Остались без роли:\n' + cands.map((p) => '№' + p.nomer + ' ' + p.name).join('\n') + '\n\nЭто мирные жители?')
+        : 'Все роли уже назначены.';
+    }
+    const canConfirm = !!host.intro.can_confirm_all;
+    el.confirmMirnyBtn?.classList.toggle('hidden', !canConfirm);
+    el.editMirnyBtn?.classList.toggle('hidden', false);
+    if (canConfirm) {
+      el.mirnyEditWrap?.classList.add('hidden');
+      el.submitMirnyBtn?.classList.add('hidden');
+    }
+    if (el.mirnyInput && !el.mirnyInput.value) {
+      el.mirnyInput.placeholder = Array.from({ length: host.intro.remaining || 0 }, (_, i) => 'Мирный ' + (i + 1)).join('\n');
+    }
+  } else if (el.mirnyCandidates) {
+    el.mirnyCandidates.textContent = '';
   }
 
   if (host.can_start_intro) addBtn('🌙 Ночь знакомства', () => hostAction('intro_start'), true);

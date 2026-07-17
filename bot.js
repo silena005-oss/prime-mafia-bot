@@ -352,6 +352,10 @@ function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
 function shagIntroNochi(igra) {
     if (!igra?._miniapp_intro) return null;
     const intro = igra._miniapp_intro;
+    const candidates = igrokiBezRoliDlyaMirnyh(igra).map(i => ({
+        nomer: i.nomer,
+        name: i.name
+    }));
     if (intro.phase === 'mirny') {
         const remaining = mirnyeOstalosVnesti(igra);
         return {
@@ -359,13 +363,23 @@ function shagIntroNochi(igra) {
             label: 'Мирные без роли',
             remaining,
             total: mirnyePoSostavu(igra),
-            done: remaining <= 0
+            done: remaining <= 0,
+            candidates,
+            can_confirm_all: candidates.length > 0 && candidates.length === remaining
         };
     }
     const roles = poryadokRoleyDlyaNochi(igra);
     const idx = intro.idx || 0;
     if (idx >= roles.length) {
-        return { phase: 'mirny', label: 'Мирные без роли', remaining: mirnyeOstalosVnesti(igra), total: mirnyePoSostavu(igra) };
+        const remaining = mirnyeOstalosVnesti(igra);
+        return {
+            phase: 'mirny',
+            label: 'Мирные без роли',
+            remaining,
+            total: mirnyePoSostavu(igra),
+            candidates,
+            can_confirm_all: candidates.length > 0 && candidates.length === remaining
+        };
     }
     const rol = roles[idx];
     const takihDo = roles.slice(0, idx + 1).filter(r => r === rol).length;
@@ -6062,40 +6076,91 @@ async function sozdatRuchnuyuIgruIzDrafta(draft, telegram_id) {
     return { kod, igra };
 }
 
+function igrokiBezRoliDlyaMirnyh(igra) {
+    return (igra.igroki || []).filter(i => i.status === 'v_igre' && mirnySlotBezRoli(i.rol));
+}
+
 function tekstVvodaSpiskaMirnyh(igra, kod) {
     const nuzhno = mirnyeOstalosVnesti(igra);
+    const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
+    const sRolyami = (igra.igroki || []).filter(i => i.rol && i.rol !== 'Мирный');
+
     let t = '\uD83D\uDFE2 *Мирные жители* — Игра \u2116' + kod + '\n\n';
     if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n\n';
-    t += 'Активные роли уже внесены.\n\n';
-    t += 'Осталось мирных: *' + nuzhno + '*\n\n';
-    t += 'Добавляй *по одному* — номер или ник:\n_`7` или `Аня`_\n\n';
-    t += 'Или отправь *списком* — через запятую или каждый ник с новой строки:\n';
-    t += '_`Аня, Оля, Катя`_\n\n';
-    t += '_Если игрок есть в боте — привяжем к рейтингу автоматически._\n';
-    const sRolyami = (igra.igroki || []).filter(i => i.rol && i.rol !== 'Мирный');
-    const uzheMirnye = (igra.igroki || []).filter(i => i.rol === 'Мирный');
-    if (sRolyami.length > 0) {
-        t += '\nУже с ролями: ' + sRolyami.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
+    t += 'Активные роли уже внесены';
+    if (sRolyami.length) {
+        t += ':\n' + sRolyami.map(i => '• \u2116' + i.nomer + ' ' + i.name + ' — ' + i.rol).join('\n');
     }
-    if (uzheMirnye.length > 0) {
-        t += 'Уже мирные: ' + uzheMirnye.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
+    t += '\n\n';
+
+    if (bezRoli.length === 0) {
+        t += 'Все роли уже назначены. Можно завершить ночь.';
+        return t;
+    }
+
+    t += 'Остались без роли (*' + bezRoli.length + '*):\n';
+    t += bezRoli.map(i => '• \u2116' + i.nomer + ' *' + md(i.name) + '*').join('\n');
+    t += '\n\n';
+
+    if (bezRoli.length === nuzhno) {
+        t += 'Это *мирные жители*?\n\n';
+        t += '_Нажми «Да» — всем им поставим роль Мирный. Или «Редактировать», если кто-то с активной ролью._';
+    } else {
+        t += '\u26A0\uFE0F По составу мирных нужно *' + nuzhno + '*, без роли сейчас *' + bezRoli.length + '*.\n';
+        t += 'Проверь активные роли через «Редактировать».';
     }
     return t;
 }
 
-function knopkiMirnyhVvoda(igra, kod) {
+function knopkiMirnyhVvoda(igra, kod, rezhim) {
     const knopki = [];
-    const bezRoli = (igra.igroki || []).filter(i => i.status === 'v_igre' && mirnySlotBezRoli(i.rol));
-    bezRoli.forEach(i => {
-        knopki.push([{ text: '\uD83D\uDFE2 \u2116' + i.nomer + ' ' + i.name + ' — мирный', callback_data: 'mirny_igrok_' + kod + '_' + i.nomer }]);
-    });
-    if (mirnyeOstalosVnesti(igra) > 0) {
+    const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
+    const nuzhno = mirnyeOstalosVnesti(igra);
+
+    if (rezhim === 'edit') {
+        bezRoli.forEach(i => {
+            knopki.push([{ text: '\uD83D\uDFE2 \u2116' + i.nomer + ' ' + i.name + ' — мирный', callback_data: 'mirny_igrok_' + kod + '_' + i.nomer }]);
+        });
         knopki.push([{ text: '\u270D\uFE0F Ввести мирных списком', callback_data: 'mirny_vvod_' + kod }]);
+        knopki.push([{ text: '\u270F\uFE0F Исправить активные роли', callback_data: 'nz_restart_' + kod }]);
+        knopki.push([{ text: '\u2B05\uFE0F Назад к подтверждению', callback_data: 'mirny_podtv_' + kod }]);
+        return { inline_keyboard: knopki };
     }
-    if (mirnyeOstalosVnesti(igra) <= 0) {
+
+    if (bezRoli.length > 0 && bezRoli.length === nuzhno) {
+        knopki.push([{ text: '\u2705 Да, все мирные', callback_data: 'mirny_da_' + kod }]);
+    }
+    knopki.push([{ text: '\u270F\uFE0F Редактировать роли', callback_data: 'mirny_edit_' + kod }]);
+    if (nuzhno <= 0) {
         knopki.push([{ text: '\u2705 Завершить ночь', callback_data: 'mirny_done_' + kod }]);
     }
     return { inline_keyboard: knopki };
+}
+
+async function podtverditVsehMirnyh(chatId, igra, kod) {
+    const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
+    const nuzhno = mirnyeOstalosVnesti(igra);
+    if (bezRoli.length === 0 || nuzhno <= 0) {
+        await zavershitNochZnakomstva(chatId, kod);
+        return { ok: true };
+    }
+    if (bezRoli.length !== nuzhno) {
+        return {
+            ok: false,
+            error: 'count',
+            message: 'Без роли ' + bezRoli.length + ', а мирных по составу нужно ' + nuzhno + '. Отредактируй роли.'
+        };
+    }
+    for (const igrok of bezRoli) {
+        igrok.rol = 'Мирный';
+        igrok.status = 'v_igre';
+        igrok.foly = igrok.foly || 0;
+        await privyazatIgrokaIzBazy(igra, igrok);
+    }
+    await sohranit_igru(kod);
+    if (igra.vedushchii_id) delete sostoyanie[igra.vedushchii_id];
+    await zavershitNochZnakomstva(chatId, kod);
+    return { ok: true, count: bezRoli.length };
 }
 
 async function dobavitMirnogoVIgru(chatId, igra, kod, igrok) {
@@ -6124,7 +6189,7 @@ async function soobshitMirnogoDobavlen(chatId, igra, kod, igrok, ostalos) {
     if (ostalos > 0) t += '\n\nОсталось мирных: *' + ostalos + '*';
     await bot.sendMessage(chatId, t, {
         parse_mode: 'Markdown',
-        reply_markup: knopkiMirnyhVvoda(igra, kod)
+        reply_markup: knopkiMirnyhVvoda(igra, kod, ostalos > 0 ? 'edit' : null)
     });
 }
 
@@ -6244,7 +6309,8 @@ async function nachatVvodMirnyhRuchnoy(chatId, kod) {
         return;
     }
 
-    if (igra.vedushchii_id) sostoyanie[igra.vedushchii_id] = 'noch_mirnye_' + kod;
+    // Ждём подтверждение кнопкой, не текстовый ввод
+    if (igra.vedushchii_id) delete sostoyanie[igra.vedushchii_id];
     await sohranit_igru(kod);
     await bot.sendMessage(chatId, tekstVvodaSpiskaMirnyh(igra, kod), {
         parse_mode: 'Markdown',
@@ -9615,6 +9681,34 @@ async function primeniIntroRol(igra, kod, nomer) {
     return { ok: true, message: '№' + igrok.nomer + ' — ' + step.rol, next };
 }
 
+async function primeniIntroMirnyhVseh(igra, kod) {
+    const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
+    const nuzhno = mirnyeOstalosVnesti(igra);
+    if (bezRoli.length === 0 || nuzhno <= 0) {
+        const fin = await zavershitNochZnakomstva(null, kod, { silent: true });
+        return { ok: fin?.ok !== false, message: fin?.message || 'Готово', done: true };
+    }
+    if (bezRoli.length !== nuzhno) {
+        return {
+            ok: false,
+            message: 'Без роли ' + bezRoli.length + ', мирных по составу нужно ' + nuzhno + '. Исправь активные роли.'
+        };
+    }
+    for (const igrok of bezRoli) {
+        igrok.rol = 'Мирный';
+        igrok.status = 'v_igre';
+        igrok.foly = igrok.foly || 0;
+        await privyazatIgrokaIzBazy(igra, igrok);
+    }
+    await sohranit_igru(kod);
+    const fin = await zavershitNochZnakomstva(null, kod, { silent: true });
+    return {
+        ok: fin?.ok !== false,
+        message: 'Мирные подтверждены (' + bezRoli.length + '). Ночь знакомства завершена.',
+        done: true
+    };
+}
+
 async function primeniIntroMirnogo(igra, kod, nomer) {
     if (mirnyeOstalosVnesti(igra) <= 0) {
         const rez = await zavershitNochZnakomstva(null, kod, { silent: true });
@@ -9838,6 +9932,10 @@ async function miniAppHostAction(tg_id, user, body) {
         return otvetMiniAppPosleDeystviya(tg_id, user, rez.message);
     }
     if (sub === 'intro_mirny') {
+        if (body.confirm_all) {
+            const rez = await primeniIntroMirnyhVseh(igra, kod);
+            return otvetMiniAppPosleDeystviya(tg_id, user, rez.message);
+        }
         if (body.text) {
             const rez = await primeniIntroMirnyhSpiskom(igra, kod, body.text);
             return otvetMiniAppPosleDeystviya(tg_id, user, rez.message);
@@ -12119,6 +12217,23 @@ bot.on('callback_query', async function(query) {
         await pokazatShagNochiZnakomstva(chatId, kod, parsed?.idx ?? 0, telegram_id);
     }
 
+    else if (data.startsWith('nz_restart_')) {
+        const kod = data.replace('nz_restart_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        igra.rezhim_rolei = 'karty';
+        igra.den = 1;
+        igra.igroki.forEach(i => { delete i.rol; });
+        delete sostoyanie[telegram_id];
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Ночь знакомства заново' });
+        await bot.editMessageText(
+            '\uD83C\uDF19 *Исправляем роли*\n\nСнова по очереди внеси *активные* роли. Потом подтвердим мирных одним нажатием.',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+        );
+        await pokazatShagNochiZnakomstva(chatId, kod, 0, telegram_id);
+    }
+
     else if (data.startsWith('noch_znakomstvo_')) {
         const kod = data.replace('noch_znakomstvo_', '');
         const igra = igry[kod];
@@ -12712,6 +12827,56 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    else if (data.startsWith('mirny_podtv_')) {
+        const kod = data.replace('mirny_podtv_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        delete sostoyanie[telegram_id];
+        bot.answerCallbackQuery(query.id);
+        bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: knopkiMirnyhVvoda(igra, kod)
+        });
+    }
+
+    else if (data.startsWith('mirny_da_')) {
+        const kod = data.replace('mirny_da_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const rez = await podtverditVsehMirnyh(chatId, igra, kod);
+        if (!rez.ok) {
+            bot.answerCallbackQuery(query.id, { text: rez.message || 'Ошибка', show_alert: true });
+            bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod), {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
+            });
+            return;
+        }
+        bot.answerCallbackQuery(query.id, { text: 'Мирные подтверждены' });
+        try {
+            await bot.editMessageText(
+                '\u2705 *Мирные жители подтверждены*\n\nВсем оставшимся без роли поставлена роль Мирный.',
+                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+            );
+        } catch (_) {}
+    }
+
+    else if (data.startsWith('mirny_edit_')) {
+        const kod = data.replace('mirny_edit_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        sostoyanie[telegram_id] = 'noch_mirnye_' + kod;
+        bot.answerCallbackQuery(query.id);
+        bot.editMessageText(
+            tekstVvodaSpiskaMirnyh(igra, kod) +
+            '\n\n_Редактирование: отметь мирных по одному, введи списком или вернись к ночи знакомства._',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
+            }
+        );
+    }
+
     else if (data.startsWith('mirny_igrok_')) {
         const parts_mi = data.replace('mirny_igrok_', '').split('_');
         const kod = parts_mi[0];
@@ -12737,9 +12902,9 @@ bot.on('callback_query', async function(query) {
             });
             return;
         }
-        bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod), {
+        bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod) + '\n\n_Режим редактирования_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: knopkiMirnyhVvoda(igra, kod)
+            reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
         });
     }
 
@@ -12748,12 +12913,12 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         sostoyanie[telegram_id] = 'noch_mirnye_' + kod;
-        bot.answerCallbackQuery(query.id, { text: 'Отправь номер или ник' });
+        bot.answerCallbackQuery(query.id, { text: 'Отправь список ников' });
         bot.sendMessage(chatId,
-            '\u270D\uFE0F Отправь *номер / ник* одного игрока без роли или список мирных через запятую.\n\n' +
+            '\u270D\uFE0F Отправь список мирных через запятую или каждый с новой строки.\n\n' +
             'Пример: `Аня, Оля, Катя`\n\n' +
             'Осталось мирных: *' + mirnyeOstalosVnesti(igra) + '*',
-            { parse_mode: 'Markdown', reply_markup: knopkiMirnyhVvoda(igra, kod) }
+            { parse_mode: 'Markdown', reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit') }
         );
     }
 
