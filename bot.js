@@ -14200,17 +14200,18 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: 'Заявка отправлена', show_alert: true });
         if (ADMIN_TG_ID) {
             bot.sendMessage(ADMIN_TG_ID,
-                '🎨 *Заявка на стилизацию клуба*\n\n' +
+                '🎨 *Заявка на свой брендбук клуба*\n\n' +
                 'Клуб: *' + (klub_sz?.nazvaniye || klub_id_sz) + '*\n' +
                 'TG ведущего/собственника: `' + telegram_id + '`\n' +
-                'Стоимость: 5000₽ навсегда',
+                'Стоимость: 5000₽ (карты/стиль клуба; карты Prime Mafia — бесплатно)',
                 { parse_mode: 'Markdown' }
             ).catch(() => {});
         }
         bot.editMessageText(
             '✅ *Заявка принята!*\n\n' +
-            'Мы свяжемся с тобой и согласуем цвета, стиль и детали интерфейса клуба.\n\n' +
-            'Стоимость стилизации: *5000₽ один раз, навсегда*.',
+            'Карты Prime Mafia уже доступны бесплатно.\n' +
+            'Свяжемся и согласуем *ваш* брендбук: карты, цвета, детали.\n\n' +
+            'Стоимость своей стилизации: *5000₽ один раз, навсегда*.',
             {
                 chat_id: chatId,
                 message_id: messageId,

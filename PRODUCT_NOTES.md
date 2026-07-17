@@ -3,6 +3,8 @@
 ## Monetization
 
 - Product name for clubs: Maf Assist by Prime Mafia.
+- Brand: Prime Mafia (club, community, default beautiful role cards — included free).
+- Club personalization: one-time 5000 RUB only when a club uploads its own brand book / role cards / colors. Default Prime Mafia styling and cards are free.
 - Trial: first 7 days free for a new club, limited to 2 games.
 - One-off game: minimum 1,000 RUB. It can remain as a support/manual option, not the main offer.
 - Start package: 7,900 RUB/month for a beginning club.
