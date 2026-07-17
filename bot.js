@@ -19,6 +19,7 @@ const tarify = require('./lib/tarify');
 const publikaciya = require('./lib/publikaciya');
 const rassylka = require('./lib/rassylka');
 const klubAnketa = require('./lib/klub-anketa');
+const klubLid = require('./lib/klub-lid');
 const bonusy = require('./lib/bonusy');
 const gorodaUi = require('./lib/goroda-ui');
 const vecherReyting = require('./lib/vecher-reyting');
@@ -1994,10 +1995,12 @@ function tekstInstrukciiIgroka() {
         'В mini app — рейтинг, лучшая игра, топ клуба.\n\n' +
         '*4. Анонсы*\n' +
         '«📢 Анонсы игр» — ближайшие игры в твоём городе, запись одной кнопкой.\n\n' +
-        '*5. Приглашения*\n' +
+        '*5. Играть с друзьями*\n' +
+        '«🎮 Играть с друзьями» — бесплатная игра без клуба и рейтинга. После игры можно включить анонсы города.\n\n' +
+        '*6. Приглашения*\n' +
         'Клуб может прислать приглашение на игру (тариф Start+). Отписаться: /stop или «стоп». Снова подписаться: /subscribe или «подписаться».\n\n' +
-        '*6. Создать клуб*\n' +
-        'Если ты собственник — «➕ Создать клуб», дальше бот подскажет шаги.\n\n' +
+        '*7. Открыть клуб*\n' +
+        '«🏢 Открыть клуб в своём городе» — 3 коротких вопроса, затем создание клуба.\n\n' +
         '_Команды: /start — меню, /help — эта справка, /stop — отписаться от приглашений._';
 }
 
@@ -2027,7 +2030,7 @@ function tekstInstrukciiVedushchego() {
 function tekstInstrukciiVladeltsa() {
     return '📖 *Как пользоваться — собственник клуба*\n\n' +
         '*1. Создать клуб*\n' +
-        '«➕ Создать клуб» → название и город. Доступна *тестовая неделя*: 2 игры за ' + TEST_LIMIT_DNEY + ' дней.\n\n' +
+        '«🏢 Открыть клуб в своём городе» → 3 вопроса → город и название. Доступна *тестовая неделя*: 2 игры за ' + TEST_LIMIT_DNEY + ' дней.\n\n' +
         '*2. Настроить клуб*\n' +
         '«⚙️ Настройки клуба» — правила, баллы, штрафы, стилизация.\n' +
         '«🎭 Управление ролями» — состав и карты ролей.\n\n' +
@@ -2065,9 +2068,45 @@ function tekstInstrukciiPosleRegistracii() {
         'Ты зарегистрирован как *игрок*. Основное:\n\n' +
         '🎮 *Войти в игру* — код от ведущего\n' +
         '📢 *Анонсы* — игры в твоём городе\n' +
+        '🎮 *Играть с друзьями* — бесплатно, без клуба\n' +
         '🏆 *Рейтинг* — баллы после игр\n' +
-        '➕ *Создать клуб* — если ты собственник клуба мафии\n\n' +
+        '🏢 *Открыть клуб* — если хочешь свой клуб мафии\n\n' +
         'Полная справка — кнопка «📖 Как пользоваться» или команда /help';
+}
+
+async function uvedomitAdminaOLide(tg_id, otvety) {
+    if (!ADMIN_TG_ID) return;
+    const { data: igrok } = await supabase
+        .from('igroki')
+        .select('imya, igrovoy_nik, gorod, tg_id, telefon')
+        .eq('tg_id', tg_id)
+        .maybeSingle();
+    const tekst = klubLid.sformirovatSvodku(otvety || {}, igrok || { tg_id });
+    bot.sendMessage(ADMIN_TG_ID, tekst, { parse_mode: 'Markdown' }).catch(() => {});
+}
+
+async function otpravitDruzyaVoronkuPosleIgry(igra) {
+    if (!igra?._druzya_rezhim) return;
+    const ids = new Set();
+    if (igra.vedushchii_id) ids.add(Number(igra.vedushchii_id));
+    for (const i of igra.igroki || []) {
+        if (i.telegram_id) ids.add(Number(i.telegram_id));
+    }
+    const tekst =
+        '🎮 *Спасибо за игру с друзьями!*\n\n' +
+        'Можно получать анонсы игр клубов в *твоём городе* — с согласия, отписка: /stop.\n\n' +
+        'А если хочешь свой клуб — ответь на 3 коротких вопроса.';
+    const knopki = {
+        inline_keyboard: [
+            [{ text: '📢 Хочу анонсы в моём городе', callback_data: 'anonsy_soglasie_da' }],
+            [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
+            [{ text: '🎮 Ещё игра с друзьями', callback_data: 'druzya_menu' }]
+        ]
+    };
+    for (const tg of ids) {
+        if (!tg) continue;
+        bot.sendMessage(tg, tekst, { parse_mode: 'Markdown', reply_markup: knopki }).catch(() => {});
+    }
 }
 
 async function zavershitAnketuKluba(chatId, tg_id, d, status) {
@@ -2487,7 +2526,7 @@ const menu_igroka_full = {
             [{ text: '📢 Анонсы игр', callback_data: 'anonsy_goroda' }],
             [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
             [{ text: '🏆 Мой рейтинг', callback_data: 'moy_reyting' }],
-            [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+            [{ text: '🏢 Открыть клуб в своём городе', callback_data: 'otkryt_klub_lid' }],
             [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }],
             [{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }],
             [{ text: '📄 Оферта и конфиденциальность', callback_data: 'legal_menu' }],
@@ -2531,7 +2570,7 @@ const menu_vladeltsa_full = {
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' }],
             [{ text: '📋 Анкета клуба', callback_data: 'anketa_klub_prosmotr' }],
-            [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+            [{ text: '➕ Создать ещё клуб', callback_data: 'sozdat_klub' }],
             [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }],
             [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
             [{ text: '⬅️ Короткое меню', callback_data: 'menu_vladeltsa' }]
@@ -4547,7 +4586,8 @@ bot.on('message', async function(msg) {
             reply_markup: { inline_keyboard: [
                 [{ text: '📖 Полная инструкция', callback_data: 'pomoshch' }],
                 [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
-                [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+                [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
+                [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
                 [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
             ] }
         });
@@ -5372,7 +5412,17 @@ function tekstItogaRuchnoyIgry(igra, kod) {
     return t;
 }
 
-function knopkiPosleItogaIgry(kod, klub_id) {
+function knopkiPosleItogaIgry(kod, klub_id, opts = {}) {
+    if (opts.druzya) {
+        return {
+            inline_keyboard: [
+                [{ text: '🎮 Ещё игра с друзьями', callback_data: 'druzya_menu' }],
+                [{ text: '📢 Анонсы в моём городе', callback_data: 'anonsy_soglasie_da' }],
+                [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
+                [{ text: '🏠 В меню', callback_data: 'menu_igroka' }]
+            ]
+        };
+    }
     const rows = [
         [{ text: '📢 Отправить победу в чат клуба', callback_data: 'publish_gruppa_' + kod }],
         [{ text: '📣 Полный текст для публикации', callback_data: 'publish_itog_' + kod }]
@@ -10516,7 +10566,8 @@ bot.on('callback_query', async function(query) {
             reply_markup: { inline_keyboard: [
                 [{ text: '📖 Полная инструкция', callback_data: 'pomoshch' }],
                 [{ text: '🎮 Войти в игру', callback_data: 'voiti_v_igru' }],
-                [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+                [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
+                [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
                 [{ text: '🎴 Меню игрока', callback_data: 'menu_igroka' }]
             ] }
         });
@@ -10564,9 +10615,17 @@ bot.on('callback_query', async function(query) {
         }).slice(0, 10);
 
         if (filtr.length === 0) {
-            bot.editMessageText('📢 *Анонсы игр в ' + igrok.gorod + '*\n\n_Пока нет запланированных игр._', {
+            bot.editMessageText(
+                '📢 *Анонсы игр в ' + igrok.gorod + '*\n\n' +
+                '_Пока нет запланированных игр._\n\n' +
+                'Можно сыграть с друзьями бесплатно или открыть свой клуб в городе.',
+                {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]] }
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
+                    [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
+                    [{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]
+                ] }
             });
             return;
         }
@@ -10594,9 +10653,10 @@ bot.on('callback_query', async function(query) {
     // ===== ИГРОК: настройки =====
     else if (data === 'nastroyki_igroka') {
         const { data: igrok } = await supabase
-            .from('igroki').select('imya, gorod, igrovoy_nik, den_rozhdeniya, avatar_file_id').eq('tg_id', telegram_id).single();
+            .from('igroki').select('imya, gorod, igrovoy_nik, den_rozhdeniya, avatar_file_id, otpis_priglasheniy').eq('tg_id', telegram_id).single();
 
         const drText = igrok?.den_rozhdeniya ? formatDenRozhdeniya(igrok.den_rozhdeniya) : '_не указан_';
+        const anonsyOn = !igrok?.otpis_priglasheniy;
 
         bot.editMessageText(
             ('⚙️ *Настройки*\n\n' +
@@ -10604,7 +10664,8 @@ bot.on('callback_query', async function(query) {
             '🎭 Ник: ' + (igrok?.igrovoy_nik || '_не указан_') + '\n' +
             '📍 Город: ' + (igrok?.gorod || 'не указан') + '\n' +
             '🎂 День рождения: ' + drText + '\n' +
-            '🖼 Аватар: ' + (igrok?.avatar_file_id ? 'из Telegram' : '_не загружен_')),
+            '🖼 Аватар: ' + (igrok?.avatar_file_id ? 'из Telegram' : '_не загружен_') + '\n' +
+            '📢 Анонсы/приглашения: ' + (anonsyOn ? 'вкл.' : 'выкл.')),
             {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
@@ -10613,6 +10674,7 @@ bot.on('callback_query', async function(query) {
                 [{ text: '🏙 Сменить город', callback_data: 'smenit_gorod' }],
                 [{ text: '🎂 День рождения', callback_data: 'edit_den_rozhdeniya' }],
                 [{ text: '🖼 Обновить аватар', callback_data: 'sync_avatar' }],
+                [{ text: anonsyOn ? '🔕 Отписаться от анонсов' : '📢 Подписаться на анонсы', callback_data: anonsyOn ? 'anonsy_soglasie_net' : 'anonsy_soglasie_da' }],
                 [{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]
             ] }
         });
@@ -10752,7 +10814,7 @@ bot.on('callback_query', async function(query) {
             bot.editMessageText('❌ У вас нет клубов.\n\nСоздай клуб или попроси собственника назначить тебя ведущим.', {
                 chat_id: chatId, message_id: messageId,
                 reply_markup: { inline_keyboard: [
-                    [{ text: '➕ Создать клуб', callback_data: 'sozdat_klub' }],
+                    [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
                     [nazad]
                 ] }
             });
@@ -12309,14 +12371,27 @@ bot.on('callback_query', async function(query) {
         svodka += '_Нажми «📢 Отправить победу в чат клуба» — игроки увидят итог в группе._';
 
         igry['archive_' + kod] = { ...igra, _final_text: pubTextFull, _chat_text: chatText };
+        const druzyaRezhim = !!igra._druzya_rezhim;
         delete igry[kod];
         await zavershit_igru_v_db(kod);
         maybeOtpravitAvtoOtzyvPosleIgry(igra, chatId).catch(() => {});
         maybeAvtoPublikovatItog(igry['archive_' + kod], kod).catch(() => {});
+        otpravitDruzyaVoronkuPosleIgry(igra).catch(() => {});
+
+        if (druzyaRezhim) {
+            svodka = '🎮 *Игра с друзьями завершена*\n\n' +
+                'Победитель: ' + pobeditel_text + '\n\n' +
+                '*Состав:*\n';
+            igra.igroki.forEach(i => {
+                const em = i.status === 'v_igre' ? '\u2705' : '\uD83D\uDC80';
+                svodka += em + ' \u2116' + i.nomer + ' ' + i.name + ' — ' + i.rol + '\n';
+            });
+            svodka += '\n_Без рейтинга клуба — это дружеская партия._';
+        }
 
         bot.editMessageText(svodka, {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: knopkiPosleItogaIgry(kod, igra.klub_id)
+            reply_markup: knopkiPosleItogaIgry(kod, igra.klub_id, { druzya: druzyaRezhim })
         });
     }
 
@@ -14147,15 +14222,15 @@ bot.on('callback_query', async function(query) {
     else if (data === 'druzya_menu') {
         bot.editMessageText(
             '\uD83C\uDFAE *Играть с друзьями*\n\n' +
-            'Личная игра без клуба и без рейтинга: создаёшь код, друзья подключаются, бот раздаёт роли.\n\n' +
+            'Личная игра *бесплатно*: без клуба и без рейтинга. Создаёшь код, друзья подключаются, бот раздаёт роли.\n\n' +
             '\uD83C\uDFC6 *Спортивная* — классика на 10 ролей\n' +
             '\uD83C\uDF06 *Городская* — любительская игра на 8–20 ролей\n\n' +
-            '\uD83D\uDCB0 *Стоимость: 99 ₽ за игру*\n' +
-            '_Оплата — при создании игры_', {
+            '_После игры можно включить анонсы клубов в твоём городе и при желании открыть свой клуб._', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\uD83C\uDFB2 Создать игру (99 ₽)', callback_data: 'druzya_sozdat' }],
+                [{ text: '\uD83C\uDFB2 Создать игру бесплатно', callback_data: 'druzya_sozdat' }],
                 [{ text: '\uD83D\uDD11 Войти по коду', callback_data: 'druzya_voiti' }],
+                [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'menu_igroka' }]
             ]}
         });
@@ -14204,26 +14279,24 @@ bot.on('callback_query', async function(query) {
 
         bot.editMessageText(
             preview_dk.text + '\n\n' +
-            '\uD83D\uDCB0 *Стоимость: 99 ₽*\n' +
-            '_Нажми "Оплатить и создать" для запуска_', {
+            '✅ *Бесплатно*\n' +
+            '_Нажми «Создать игру» — код и ссылка появятся сразу_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '\uD83D\uDCB3 Оплатить и создать (99 ₽)', callback_data: 'druzya_oplata_' + tip_dk + '_' + kol_dk }],
+                [{ text: '✅ Создать игру', callback_data: 'druzya_create_' + tip_dk + '_' + kol_dk }],
                 [{ text: '\u270F\uFE0F Изменить количество ролей', callback_data: 'druzya_tip_' + tip_dk }],
                 [{ text: '\u2B05\uFE0F Назад', callback_data: 'druzya_tip_' + tip_dk }]
             ]}
         });
     }
 
-    // ===== ДРУЗЬЯ: "оплата" (заглушка) → создать игру =====
-    else if (data.startsWith('druzya_oplata_')) {
-        const parts_op = data.replace('druzya_oplata_', '').split('_');
+    // ===== ДРУЗЬЯ: создать игру (бесплатно; druzya_oplata_ — старый callback) =====
+    else if (data.startsWith('druzya_create_') || data.startsWith('druzya_oplata_')) {
+        const parts_op = data.replace(/^druzya_(create|oplata)_/, '').split('_');
         const tip_op = parts_op[0];
         const kol_op = parseInt(parts_op[1]);
         const sostav_tip_op = tip_op === 'sportivniy' ? 'sportivniy' : 'paskal';
 
-        // ЗАГЛУШКА ОПЛАТЫ — в будущем подключить ЮKassa/Telegram Stars
-        // Пока создаём игру бесплатно для тестирования
         const kod = sgenerirovat_kod();
         const preview_op = pokazat_sostav_preview(kol_op, sostav_tip_op, {});
 
@@ -14391,6 +14464,130 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu_igroka' }]] }
         });
+    }
+
+    // ===== ЛИД: открыть клуб (короткая анкета, не поддержка) =====
+    else if (data === 'otkryt_klub_lid') {
+        ozhidanie_registracii[telegram_id] = {
+            shag: 'lid_klub',
+            lid_shag: 0,
+            otvety: {}
+        };
+        bot.editMessageText(klubLid.tekstShaga(0), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: klubLid.knopkiShaga(0) }
+        });
+    }
+
+    else if (data.startsWith('lid_btn_')) {
+        const m = data.match(/^lid_btn_(\d+)_(\d+)$/);
+        if (!m) return;
+        const shag = parseInt(m[1], 10);
+        const idx = parseInt(m[2], 10);
+        let d = ozhidanie_registracii[telegram_id];
+        if (!d || d.shag !== 'lid_klub') {
+            d = { shag: 'lid_klub', lid_shag: shag, otvety: {} };
+            ozhidanie_registracii[telegram_id] = d;
+        }
+        const pole = klubLid.SHAGI[shag];
+        const variant = pole?.varianty?.[idx];
+        if (!pole || !variant) return;
+        d.otvety[pole.key] = variant.value;
+        d.lid_shag = shag + 1;
+
+        if (d.lid_shag < klubLid.SHAGI.length) {
+            bot.editMessageText(klubLid.tekstShaga(d.lid_shag), {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: klubLid.knopkiShaga(d.lid_shag) }
+            });
+            return;
+        }
+
+        const otvety = { ...d.otvety };
+        const marshrut = klubLid.marshrutPosleLida(otvety.interes);
+        delete ozhidanie_registracii[telegram_id];
+        uvedomitAdminaOLide(telegram_id, otvety).catch(() => {});
+
+        if (marshrut === 'druzya') {
+            bot.editMessageText(
+                '✅ *Спасибо!*\n\n' +
+                'Игра с друзьями — *бесплатно*. Создай партию и пригласи компанию.\n\n' +
+                '_Когда будешь готов открыть клуб — кнопка ниже._',
+                {
+                    chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: '🎮 Играть с друзьями', callback_data: 'druzya_menu' }],
+                        [{ text: '🏢 Всё же открыть клуб', callback_data: 'sozdat_klub' }],
+                        [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+                    ] }
+                }
+            );
+            return;
+        }
+
+        bot.editMessageText(
+            '✅ *Отлично!*\n\n' +
+            'Дальше выбери страну и город — создадим клуб и включим тестовую неделю.\n\n' +
+            '_После названия — подробная анкета клуба (можно пропустить)._',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '📍 Выбрать город и создать клуб', callback_data: 'sozdat_klub' }],
+                    [{ text: '🎮 Сначала сыграть с друзьями', callback_data: 'druzya_menu' }],
+                    [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+                ] }
+            }
+        );
+    }
+
+    else if (data === 'anonsy_soglasie_da') {
+        await ustanovitOtpisPriglasheniy(telegram_id, false);
+        const { data: igrok } = await supabase
+            .from('igroki')
+            .select('gorod, gorod_id')
+            .eq('tg_id', telegram_id)
+            .maybeSingle();
+
+        if (!igrok?.gorod) {
+            bot.editMessageText(
+                '📢 *Анонсы города*\n\n' +
+                'Согласие сохранено ✅\n\n' +
+                'Укажи город в настройках — тогда увидишь игры клубов рядом и сможешь получать приглашения.',
+                {
+                    chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: '🏙 Указать город', callback_data: 'smenit_gorod' }],
+                        [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+                    ] }
+                }
+            );
+            return;
+        }
+
+        bot.editMessageText(
+            '📢 *Готово!*\n\n' +
+            'Будем присылать анонсы и приглашения по городу *' + md(igrok.gorod) + '*.\n\n' +
+            'Отписаться: /stop или «стоп».',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '📢 Смотреть анонсы сейчас', callback_data: 'anonsy_goroda' }],
+                    [{ text: '🏢 Открыть клуб в городе', callback_data: 'otkryt_klub_lid' }],
+                    [{ text: '⬅️ В меню', callback_data: 'menu_igroka' }]
+                ] }
+            }
+        );
+    }
+
+    else if (data === 'anonsy_soglasie_net') {
+        await ustanovitOtpisPriglasheniy(telegram_id, true);
+        bot.editMessageText(
+            '✅ Вы *отписались* от анонсов и приглашений.\n\nСнова включить: в настройках или /subscribe.',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '⬅️ В настройки', callback_data: 'nastroyki_igroka' }]] }
+            }
+        );
     }
 
     // ===== СОБСТВЕННИК: аналитика (заглушка) =====
