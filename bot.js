@@ -2297,8 +2297,7 @@ function tekstInstrukciiVladeltsa() {
         '3) после игры — «📢 Отправить в группу» или автопубликация в настройках.\n\n' +
         '*7. Тариф*\n' +
         'После теста — «💳 Подключить тариф». Mini — *3 999 ₽*, до 10 игр.\n\n' +
-        '_Безопасность: docs/BEZOPASNOST.md · резервный админ: BACKUP_ADMIN_TG_IDS в Railway._\n' +
-        '_Команды: /start — меню, /help — справка. Поддержка — «💬 Поддержка»._';
+        '_Команды: /start — меню, /help — справка. Вопросы — «💬 Поддержка»._';
 }
 
 function tekstPrivetNezaregistrirovannomu() {
