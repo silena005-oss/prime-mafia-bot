@@ -1161,6 +1161,10 @@ function renderSeats(players, hostMeta) {
   const rectPad = 12;
   const total = Math.max(players.length, 1);
   const clickMode = hostClickMode(hostMeta);
+  // На узких экранах (телефон) и при большом столе круговая раскладка сбивается —
+  // используем аккуратную сетку мест.
+  const listMode = (typeof window !== 'undefined' && window.innerWidth <= 760) || total > 12;
+  el.table.classList.toggle('table-list', listMode);
 
   players.forEach((player, index) => {
     const angle = (Math.PI * 2 * index / total) - Math.PI / 2;
@@ -1171,9 +1175,11 @@ function renderSeats(players, hostMeta) {
       !(clickMode === 'intro_assign' && player.role);
     const seat = document.createElement('button');
     seat.type = 'button';
-    seat.className = `seat ${player.status === 'v_igre' ? '' : 'dead'}${player.speaking ? ' speaking' : ''}${clickable ? ' host-target' : ''}`;
-    seat.style.left = `clamp(${rectPad}px, ${x}%, calc(100% - 148px))`;
-    seat.style.top = `clamp(${rectPad}px, ${y}%, calc(100% - 86px))`;
+    seat.className = `seat ${listMode ? 'seat-flow ' : ''}${player.status === 'v_igre' ? '' : 'dead'}${player.speaking ? ' speaking' : ''}${clickable ? ' host-target' : ''}`;
+    if (!listMode) {
+      seat.style.left = `clamp(${rectPad}px, ${x}%, calc(100% - 148px))`;
+      seat.style.top = `clamp(${rectPad}px, ${y}%, calc(100% - 86px))`;
+    }
     const roleLine = player.role ? `<div class="seat-role">${escapeHtml(player.role)}</div>` : '';
     seat.innerHTML = `
       <div class="seat-num">№${escapeHtml(player.nomer || index + 1)}</div>

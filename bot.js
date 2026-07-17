@@ -2305,6 +2305,7 @@ const ruchnyeRezultaty = {}; // черновики ручного внесени
 async function sohranit_igru(kod) {
     const igra = igry[kod];
     if (!igra || igra._ne_sohranyat) return;
+    igra._aktivnost_ts = Date.now();
     try {
         const nastroyki = {
             ...(igra._nastroyki || {}),
@@ -16234,9 +16235,69 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
     });
 }
 
+async function avtoOstanovkaNeaktivnyhIgr() {
+    const POROG = 60 * 60 * 1000; // 1 час без активности ведущего
+    const now = Date.now();
+    for (const [kod, igra] of Object.entries(igry)) {
+        if (String(kod).startsWith('archive_')) continue;
+        if (!igra || igra._ne_sohranyat || igra.ostanovlena) continue;
+        if (!igra._aktivnost_ts) { igra._aktivnost_ts = now; continue; } // грейс после перезапуска
+        if (now - igra._aktivnost_ts < POROG) continue;
+
+        try {
+            stopTimer(kod);
+            igra.ostanovlena = true;
+            if (igra.vedushchii_id && sostoyanie[igra.vedushchii_id] && String(sostoyanie[igra.vedushchii_id]).includes(kod)) {
+                delete sostoyanie[igra.vedushchii_id];
+            }
+            await sohranit_igru(kod);
+            if (igra.vedushchii_id) {
+                bot.sendMessage(igra.vedushchii_id,
+                    '\u23F8 *Игра \u2116' + kod + ' остановлена автоматически*\n\n' +
+                    'Не было активности ведущего больше 1 часа. Таймеры остановлены.\n' +
+                    'Можно возобновить игру или удалить её.',
+                    {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [
+                            [{ text: '\u25B6\uFE0F Возобновить', callback_data: 'resume_igra_' + kod }],
+                            [{ text: '\uD83D\uDDD1 Удалить игру', callback_data: 'delete_igra_' + kod }]
+                        ] }
+                    }
+                ).catch(() => {});
+            }
+        } catch (e) {
+            console.error('[avto-stop]', kod, e?.message || e);
+        }
+    }
+}
+
+async function napomnitObOplateRailway() {
+    const den_oplaty = parseInt(process.env.RAILWAY_OPLATA_DEN || '25', 10);
+    const denMsk = parseInt(new Date().toLocaleDateString('en-US', { timeZone: 'Europe/Moscow', day: 'numeric' }), 10);
+    const dniNapominaniya = [den_oplaty - 3, den_oplaty - 1, den_oplaty].filter(d => d >= 1);
+    if (!dniNapominaniya.includes(denMsk)) return;
+
+    const poluchateli = [ADMIN_TG_ID, ...BACKUP_ADMIN_TG_IDS].filter(Boolean);
+    if (!poluchateli.length) return;
+
+    const zaranee = denMsk < den_oplaty;
+    const t = '💳 *Напоминание: оплата Railway*\n\n' +
+        (zaranee
+            ? 'Через ' + (den_oplaty - denMsk) + ' дн. (примерно ' + den_oplaty + '-го числа) нужно пополнить/оплатить Railway.\n\n'
+            : 'Сегодня день оплаты Railway — пополни баланс, чтобы бот не отключился.\n\n') +
+        '• Railway → проект → Billing / Usage\n' +
+        '• Проверь баланс и способ оплаты\n\n' +
+        '_Если бот перестанет отвечать — почти всегда причина в неоплаченном Railway._';
+
+    for (const id of poluchateli) {
+        bot.sendMessage(id, t, { parse_mode: 'Markdown' }).catch(() => {});
+    }
+}
+
 (async function initTelegram() {
     console.log('Запуск Telegram polling...');
     let lastBirthdayRun = '';
+    let lastRailwayRun = '';
     setInterval(() => {
         const moscowNow = new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow', hour: 'numeric', hour12: false });
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
@@ -16244,6 +16305,11 @@ async function pokazat_kartochku_anонса(chatId, messageId, anons_id) {
             lastBirthdayRun = today;
             pozdravitSbirthday(bot).catch(e => console.error('[birthday cron]', e.message || e));
         }
+        if (parseInt(moscowNow, 10) === 11 && lastRailwayRun !== today) {
+            lastRailwayRun = today;
+            napomnitObOplateRailway().catch(e => console.error('[railway reminder]', e.message || e));
+        }
+        avtoOstanovkaNeaktivnyhIgr().catch(e => console.error('[avto-stop cron]', e.message || e));
     }, 15 * 60 * 1000);
     try {
         const me = await bot.getMe().catch(() => null);
