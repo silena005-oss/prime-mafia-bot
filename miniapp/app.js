@@ -9,6 +9,7 @@ const state = {
   nominateArmed: false,
   nominateMode: null,
   foulArmed: false,
+  immunityArmed: false,
   showEvening: false,
   /** Локальный тик таймера речи (сек), синхронизируется с сервером */
   localTimerSec: 0,
@@ -425,6 +426,7 @@ function hostClickMode(host) {
   if (state.nominateArmed && state.nominateMode === 'to_vote') return 'to_vote';
   if (host?.can_nominate && state.nominateArmed) return 'nominate';
   if (host?.can_foul && state.foulArmed) return 'foul';
+  if (host?.can_view_immunity && state.immunityArmed) return 'immunity';
   if (host?.night?.guided && !host?.night?.done) return 'night_pick';
   return null;
 }
@@ -1164,13 +1166,37 @@ function renderHostPanel(game) {
     }
   }
   if (host.can_undo_nominate) addBtn('❌ Отменить выставление', () => hostAction('undo_nominate'));
-  if (host.can_edit_nominees) addBtn('✏️ Редактировать список', () => showToast('На панели речи: «✏️ Редактировать список»'));
+  if (host.can_add_nominee) addBtn('➕ Добавить пропущенного', () => {
+    state.nominateArmed = true;
+    state.nominateMode = 'to_vote';
+    state.foulArmed = false;
+    state.immunityArmed = false;
+    renderGame(game);
+    showToast('Нажми игрока — добавить в список (таймер речи не стопается)');
+  });
+  if (host.can_edit_nominees) addBtn('✏️ Редактировать список', () => showToast('В боте: «✏️ Редактировать список» или «➕ Добавить пропущенного»'));
   if (host.can_foul) addBtn('⚠️ Фол / замечание', () => {
     state.foulArmed = true;
+    state.immunityArmed = false;
     renderGame(game);
     showToast('Нажми на место игрока для фола');
   });
-  if (host.can_view_immunity) addBtn('🛡 Иммунитет', () => hostAction('immunity'));
+  if (host.can_view_immunity) {
+    if (state.immunityArmed) {
+      addBtn('✕ Отмена иммунитета', () => {
+        state.immunityArmed = false;
+        renderGame(game);
+      });
+    } else {
+      addBtn('🛡 Иммунитет — правка', () => {
+        state.immunityArmed = true;
+        state.foulArmed = false;
+        state.nominateArmed = false;
+        renderGame(game);
+        showToast('Нажми игрока — поставить или снять щит');
+      });
+    }
+  }
   if (host.can_skip_krug) addBtn('⏭ ' + (host.skip_krug_label || 'Пропустить круг'), () => hostAction('skip_krug'));
   if (host.can_night) addBtn('🌙 Ночь', () => hostAction('night'), true);
   if (host.can_finish_night) addBtn('🌟 Итоги ночи', () => hostAction('night_finish'), true);
@@ -1307,6 +1333,9 @@ function renderSeats(players, hostMeta) {
         else if (clickMode === 'foul') {
           state.foulArmed = false;
           hostAction('give_foul', { nomer: player.nomer });
+        }
+        else if (clickMode === 'immunity') {
+          hostAction('immunity_toggle', { nomer: player.nomer });
         }
         else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
       });
