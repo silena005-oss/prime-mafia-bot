@@ -3662,6 +3662,7 @@ bot.onText(/\/me/, async (msg) => {
 });
 
 bot.onText(/\/ankety/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     if (!isAdmin(msg.from.id)) {
         bot.sendMessage(msg.chat.id, '📋 Анкеты клубов доступны администратору Prime Mafia.\n\nСобственник: «📋 Анкета клуба» в меню.');
         return;
@@ -3670,6 +3671,7 @@ bot.onText(/\/ankety/, async (msg) => {
 });
 
 bot.onText(/\/scripts/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) {
         bot.sendMessage(msg.chat.id,
@@ -3682,6 +3684,7 @@ bot.onText(/\/scripts/, async (msg) => {
 });
 
 bot.onText(/\/club_cards/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) return;
     const { data: kluby, error } = await supabase
@@ -3706,6 +3709,7 @@ bot.onText(/\/club_cards/, async (msg) => {
 });
 
 bot.onText(/\/roles_status/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) return;
 
@@ -3732,6 +3736,7 @@ bot.onText(/\/roles_status/, async (msg) => {
 });
 
 bot.onText(/\/club_roles_status/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) return;
     const klub_id = typeof sostoyanie[tg_id] === 'string' && sostoyanie[tg_id].startsWith('admin_cards_')
@@ -10560,7 +10565,7 @@ bot.on('callback_query', async function(query) {
     try {
     if (!etoLichnyyChat(query.message)) {
         bot.answerCallbackQuery(query.id, {
-            text: 'Открой @' + ((await bot.getMe().catch(() => null))?.username || 'бота') + ' в личных сообщениях',
+            text: 'Открой бота в личных сообщениях',
             show_alert: true
         }).catch(() => {});
         return;
