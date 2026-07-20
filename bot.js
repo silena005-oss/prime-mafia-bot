@@ -1634,6 +1634,12 @@ function isAdmin(tg_id) {
     return (ADMIN_TG_ID > 0 && tg_id === ADMIN_TG_ID) || BACKUP_ADMIN_TG_IDS.includes(tg_id);
 }
 
+/** Весь UI бота — только в личке. В группах бот молчит (итоги шлёт сам через API). */
+function etoLichnyyChat(msgOrChat) {
+    const type = msgOrChat?.chat?.type || msgOrChat?.type;
+    return type === 'private';
+}
+
 async function ustanovitOtpisPriglasheniy(tg_id, otpis) {
     await supabase.from('igroki').update({ otpis_priglasheniy: !!otpis }).eq('tg_id', tg_id);
 }
@@ -3215,6 +3221,7 @@ function tekstStilizatsiiKluba(nazvanieKluba = 'клуб') {
 // ============================================
 
 bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
+    if (!etoLichnyyChat(msg)) return;
     try {
     await obrabotatStart(msg, match);
     } catch (e) {
@@ -3224,6 +3231,7 @@ bot.onText(/\/start(?:\s+(.+))?/, async function(msg, match) {
 });
 
 bot.onText(/\/help/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     try {
         await pokazatInstrukciyu(msg.chat.id, msg.from.id);
     } catch (e) {
@@ -3233,6 +3241,7 @@ bot.onText(/\/help/, async (msg) => {
 });
 
 bot.onText(/\/(stop|unsubscribe)$/i, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     await ustanovitOtpisPriglasheniy(tg_id, true);
     bot.sendMessage(msg.chat.id,
@@ -3244,6 +3253,7 @@ bot.onText(/\/(stop|unsubscribe)$/i, async (msg) => {
 });
 
 bot.onText(/\/subscribe$/i, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     await ustanovitOtpisPriglasheniy(tg_id, false);
     bot.sendMessage(msg.chat.id,
@@ -3504,6 +3514,7 @@ async function sohranitFotoRoli(msg, file_id) {
 }
 
 bot.on('photo', async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const file_id = msg.photo[msg.photo.length - 1].file_id;
     const tg_id = msg.from.id;
     const st = sostoyanie[tg_id];
@@ -3530,6 +3541,7 @@ bot.on('photo', async (msg) => {
 });
 
 bot.on('document', async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const doc = msg.document;
     const mime = doc?.mime_type || '';
     if (!mime.startsWith('image/')) return;
@@ -3556,6 +3568,7 @@ bot.on('document', async (msg) => {
 
 // Команда /roles_status — показать какие роли загружены
 bot.onText(/\/admin/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     if (!isAdmin(tg_id)) {
         bot.sendMessage(msg.chat.id,
@@ -3587,6 +3600,7 @@ bot.onText(/\/admin/, async (msg) => {
 });
 
 bot.onText(/\/sales/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     if (!isAdmin(msg.from.id)) {
         bot.sendMessage(msg.chat.id, '🏛 Карточки продаж — только администратору.');
         return;
@@ -3595,6 +3609,7 @@ bot.onText(/\/sales/, async (msg) => {
 });
 
 bot.onText(/\/me/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     const roles = await poluchitRoliPolzovatelya(tg_id);
     const kluby = await poluchitKlubyDlyaIgr(tg_id);
@@ -3887,6 +3902,9 @@ async function obrabotatMiniAppData(msg) {
 }
 
 bot.on('message', async function(msg) {
+    // В группе/канале не отвечаем на чат клуба — иначе сыпятся «админ», «игровой вечер» и т.п.
+    if (!etoLichnyyChat(msg)) return;
+
     const chatId = msg.chat.id;
     const tg_id = msg.from.id;
     const text = (msg.text || '').trim();
@@ -10540,6 +10558,13 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba, nazvani
 
 bot.on('callback_query', async function(query) {
     try {
+    if (!etoLichnyyChat(query.message)) {
+        bot.answerCallbackQuery(query.id, {
+            text: 'Открой @' + ((await bot.getMe().catch(() => null))?.username || 'бота') + ' в личных сообщениях',
+            show_alert: true
+        }).catch(() => {});
+        return;
+    }
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
     const telegram_id = query.from.id;
