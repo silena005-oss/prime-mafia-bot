@@ -237,6 +237,7 @@ function tekstNastroykiKlubaPanel(klub_nk) {
         t += '\uD83D\uDFE1 Выжил: +' + (b.vyzhil ?? 1) + '\n';
         t += '\uD83D\uDD34 Дон победил: +' + (b.bonus_don_pobedil ?? 2) + '\n';
         t += '\uD83C\uDFAF Маньяк победил: +' + (b.bonus_manyak_pobedil ?? 5) + '\n';
+        t += '\uD83C\uDFC6 Лучший ход: 4 мафии — 2/3/4 → 0.5/1/1.5; от 5 мафий — с 3 угаданных\n';
         t += '⚙️ Тех. труп: ' + (b.shtraf_teh_trup ?? -2) + '\n';
     } else {
         t += '_Рейтинг выключен — баллы после игры не начисляются, в mini app блоки рейтинга скрыты._\n';
@@ -2190,7 +2191,12 @@ const BALLY_DEFAULT = {
     porazhenie: 0,
     vyzhil: 0.25,
     ubit_v_pervuyu_noch: 0,
-    luchshiy_hod_za_mafiyu: 1,
+    // Лучший ход: порог зависит от числа мафии за столом (см. ballyLuchshegoHoda)
+    luchshiy_hod_za_mafiyu: 0.5, // устаревший fallback, если пороги не заданы
+    luchshiy_hod_baza: 0.5,
+    luchshiy_hod_shag: 0.5,
+    luchshiy_hod_min_do_4: 2,   // при ≤4 мафий: от 2 угаданных
+    luchshiy_hod_min_ot_5: 3,   // при ≥5 мафий: от 3 угаданных
     bonus_sheriff_nashel_maf: 0.5,
     bonus_doctor_spas: 0.5,
     bonus_bessmertnyy_prinyal_vystrel: 0.5,
@@ -2205,6 +2211,45 @@ const BALLY_DEFAULT = {
     bonus_manyak_pobedil: 5,
     bonus_pravilnyy_otstrel_mafii: 0.5
 };
+
+/**
+ * Лучший ход (Pascal):
+ * 4 мафии: 2→0.5, 3→1, 4→1.5
+ * 5 мафий: 3→0.5, 4→1, 5→1.5
+ * 6 мафий: от 3: 3→0.5, 4→1, 5→1.5, 6→2
+ */
+function ballyLuchshegoHoda(ugadanoMaf, mafZaStolom, ballyConfig = BALLY_DEFAULT) {
+    const ugadano = Math.max(0, parseInt(ugadanoMaf, 10) || 0);
+    const maf = Math.max(0, parseInt(mafZaStolom, 10) || 0);
+    if (ugadano <= 0 || maf <= 0) return 0;
+
+    const minPorog = maf >= 5
+        ? (ballyConfig.luchshiy_hod_min_ot_5 ?? 3)
+        : (ballyConfig.luchshiy_hod_min_do_4 ?? 2);
+    if (ugadano < minPorog) return 0;
+
+    const baza = ballyConfig.luchshiy_hod_baza ?? 0.5;
+    const shag = ballyConfig.luchshiy_hod_shag ?? 0.5;
+    return baza + (ugadano - minPorog) * shag;
+}
+
+function kolichestvoMafiiZaStolom(igra) {
+    return (igra?.igroki || []).filter(i => isMafiaRole(i.rol)).length;
+}
+
+function tekstShkalyLuchshegoHoda(mafZaStolom, ballyConfig = BALLY_DEFAULT) {
+    const maf = Math.max(0, parseInt(mafZaStolom, 10) || 0);
+    if (maf <= 0) return '_После раздачи ролей бот покажет шкалу._';
+    const minPorog = maf >= 5
+        ? (ballyConfig.luchshiy_hod_min_ot_5 ?? 3)
+        : (ballyConfig.luchshiy_hod_min_do_4 ?? 2);
+    const parts = [];
+    for (let u = minPorog; u <= maf; u++) {
+        parts.push(u + ' → +' + ballyLuchshegoHoda(u, maf, ballyConfig));
+    }
+    return 'Мафий за столом: *' + maf + '*. Баллы: ' + parts.join(', ') +
+        (minPorog > 1 ? '. Меньше ' + minPorog + ' — 0.' : '.');
+}
 
 const SOGLASIE_VERSIYA = '2026-05-29';
 
@@ -8545,10 +8590,12 @@ async function pokazatLuchshiyHod(chatId, messageId, kod, nomer, source, next) {
     const igrok = igra.igroki.find(i => i.nomer === nomer);
     if (!igrok) return;
     const hod = poluchitLuchshiyHod(igra, nomer, source);
+    const maf = kolichestvoMafiiZaStolom(igra);
+    const ballyCfg = { ...BALLY_DEFAULT, ...(igra._nastroyki?.bally || {}) };
     let t = '\uD83C\uDFC6 *Лучший ход*\n\n';
     t += '\u2116' + igrok.nomer + ' *' + igrok.name + '* — ' + hod.prichina + '\n\n';
     t += 'Отметь игроков, которых он назвал мафией на последнем слове.\n';
-    t += 'Бот после игры сам сверит реальные роли и начислит баллы.\n\n';
+    t += tekstShkalyLuchshegoHoda(maf, ballyCfg) + '\n\n';
     t += 'Выбрано: ' + (hod.nazvannye.length ? hod.nazvannye.map(n => '\u2116' + n).join(', ') : '_никого_');
     await bot.editMessageText(t, {
         chat_id: chatId,
@@ -10357,13 +10404,16 @@ async function zapisat_bally(igra, kod) {
                 const named = igra.igroki.find(x => x.nomer === nomer);
                 return named && isMafiaRole(named.rol);
             });
-            const ptsLuchshiyHod = ugadany.length * (ballyConfig.luchshiy_hod_za_mafiyu ?? 1);
+            const mafZaStolom = kolichestvoMafiiZaStolom(igra);
+            const ptsLuchshiyHod = ballyLuchshegoHoda(ugadany.length, mafZaStolom, ballyConfig);
             if (ptsLuchshiyHod > 0) bl += ptsLuchshiyHod;
             bonus_info.luchshiy_hod = {
                 pts: ptsLuchshiyHod,
                 prichina: luchshiyHod.prichina,
                 nazvannye: luchshiyHod.nazvannye || [],
-                ugadany
+                ugadany,
+                maf_za_stolom: mafZaStolom,
+                ugadano: ugadany.length
             };
         }
 
