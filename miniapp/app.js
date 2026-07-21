@@ -1238,9 +1238,11 @@ function renderHostPanel(game) {
     el.hostVoting.classList.remove('hidden');
     el.votingNominees.innerHTML = (host.voting_nominees || []).map((n) => `
       <div class="vote-row">
-        <span>№${escapeHtml(n.nomer)} ${escapeHtml(n.name)}</span>
-        <input type="number" min="0" class="vote-input" data-nomer="${escapeAttr(n.nomer)}" value="${n.votes ?? ''}" />
-        <button type="button" class="button vote-save" data-nomer="${escapeAttr(n.nomer)}">OK</button>
+        <span>№${escapeHtml(n.nomer)} ${escapeHtml(n.name)}${n.immunity ? ' 🛡' : ''}</span>
+        ${n.immunity
+          ? '<span class="vote-immune">иммунитет — не голосуем</span>'
+          : `<input type="number" min="0" class="vote-input" data-nomer="${escapeAttr(n.nomer)}" value="${n.votes ?? ''}" />
+        <button type="button" class="button vote-save" data-nomer="${escapeAttr(n.nomer)}">OK</button>`}
       </div>
     `).join('');
     el.votingNominees.querySelectorAll('.vote-save').forEach((btn) => {

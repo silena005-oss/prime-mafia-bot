@@ -864,6 +864,11 @@ p {
   color: inherit;
 }
 
+.vote-immune {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .inspector-import textarea {
   width: 100%;
   margin: 8px 0;
