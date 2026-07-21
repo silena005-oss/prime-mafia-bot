@@ -776,7 +776,7 @@ function render() {
   renderThemes(data.themes);
 
   el.profileName.textContent = user.name;
-  const metaParts = [user.registered ? 'Telegram подтверждён' : 'Профиль ещё не зарегистрирован'];
+  const metaParts = [user.registered ? 'Telegram подтверждён' : 'Нужно приглашение клуба — зарегистрируйся в боте по коду'];
   if (user.birthday) metaParts.push('🎂 ' + user.birthday);
   el.profileMeta.textContent = metaParts.join(' · ');
   renderAvatar(el.avatar, user.name, user.avatar_url);

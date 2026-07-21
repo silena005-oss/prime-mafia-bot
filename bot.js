@@ -2367,10 +2367,14 @@ function tekstInstrukciiVladeltsa() {
 
 function tekstPrivetNezaregistrirovannomu() {
     return '👋 *Prime Mafia*\n\n' +
-        'Бот и mini app для *клубов мафии*: автоматизируем игру, рейтинг, анонсы и стол ведущего.\n\n' +
-        'Регистрация: *город → код клуба от ведущего → игровой ник* (и телефон).\n' +
-        '_Или открой персональную ссылку-приглашение от клуба._\n\n' +
-        'Нажми *«▶️ Начать регистрацию»* — откроется экран с офертой и политикой конфиденциальности.';
+        'Бот для *клубов мафии*: стол ведущего, рейтинг, анонсы.\n\n' +
+        '🔒 *Доступ по приглашению*\n' +
+        'Без кода или ссылки от клуба зарегистрироваться нельзя — клубы не видны в открытом списке.\n\n' +
+        'Как войти:\n' +
+        '1. Попроси у ведущего *код клуба* или ссылку-приглашение\n' +
+        '2. Нажми *«▶️ Начать регистрацию»* и введи код\n' +
+        '   _или открой ссылку вида_ `t.me/бот?start=club_КОД`\n\n' +
+        'Хочешь открыть *свой* клуб — напиши в поддержку после контакта с командой.';
 }
 
 function tekstInstrukciiPosleRegistracii() {
@@ -2378,10 +2382,76 @@ function tekstInstrukciiPosleRegistracii() {
         'Ты зарегистрирован как *игрок*. Основное:\n\n' +
         '🎮 *Войти в игру* — код от ведущего\n' +
         '📢 *Анонсы* — игры в твоём городе\n' +
-        '🎮 *Играть с друзьями* — бесплатно, без клуба\n' +
         '🏆 *Рейтинг* — баллы после игр\n' +
-        '🏢 *Открыть клуб* — если хочешь свой клуб мафии\n\n' +
+        '🔗 *Приглашение в клуб* — только у ведущего/собственника\n\n' +
         'Полная справка — кнопка «📖 Как пользоваться» или команда /help';
+}
+
+async function sohranitPendingJoinPosleRegistracii(telegram_id, dannye) {
+    if (!dannye?.pending_join_kod) return;
+    const kod = String(dannye.pending_join_kod);
+    const igra = igry[kod];
+    if (!igra) return;
+    if (igra.igroki.find(i => i.telegram_id === telegram_id)) return;
+    if (igra.igroki.length >= igra.kolichestvo) return;
+    const { data: igrok } = await supabase
+        .from('igroki')
+        .select('id, imya, igrovoy_nik')
+        .eq('tg_id', telegram_id)
+        .maybeSingle();
+    if (!igrok?.id) return;
+    const name = igrok.igrovoy_nik || igrok.imya || 'Игрок';
+    const nomer = igra.igroki.length + 1;
+    igra.igroki.push({
+        telegram_id,
+        name,
+        nomer,
+        status: 'v_igre',
+        foly: 0,
+        igrok_id: igrok.id
+    });
+    if (igra.klub_id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, igrok.id);
+    await sohranit_igru(kod);
+    bot.sendMessage(telegram_id,
+        '✅ После регистрации ты сразу в игре!\n\n' +
+        '👤 *№' + nomer + ' ' + name + '*\n' +
+        '🎴 Игра *' + kod + '*\n' +
+        '👥 ' + igra.igroki.length + '/' + igra.kolichestvo + '\n\n' +
+        '_Ожидай — ведущий скоро начнёт._',
+        { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    if (igra.vedushchii_id) {
+        bot.sendMessage(igra.vedushchii_id,
+            '👋 *' + name + '* вошёл после регистрации! ' + igra.igroki.length + '/' + igra.kolichestvo,
+            { parse_mode: 'Markdown' }
+        ).catch(() => {});
+    }
+}
+
+async function napravitNezaregistrirovannogoNaInvite(chatId, tg_id, opts = {}) {
+    const cur = ozhidanie_registracii[tg_id] || {};
+    ozhidanie_registracii[tg_id] = {
+        ...cur,
+        shag: 'soglasie',
+        pending_join_kod: opts.pending_join_kod || cur.pending_join_kod || null,
+        pending_anons_id: opts.pending_anons_id || cur.pending_anons_id || null,
+        klub_id: opts.klub_id || cur.klub_id || null,
+        klub_name: opts.klub_name || cur.klub_name || null,
+        klub_kod: opts.klub_kod || cur.klub_kod || null,
+        pending_klub_from_link: !!(opts.klub_id || cur.pending_klub_from_link || cur.klub_id)
+    };
+    let t = '🔒 *Сначала регистрация по приглашению*\n\n';
+    if (opts.klub_name) {
+        t += 'Клуб: *' + md(opts.klub_name) + '* — уже выбран.\n';
+        t += 'Осталось принять оферту, указать город, ник и телефон.\n\n';
+    } else {
+        t += 'Нужен *код или ссылка клуба* от ведущего. Без них в боте нельзя зарегистрироваться.\n\n';
+    }
+    if (opts.pending_join_kod) {
+        t += '_После регистрации сразу подключим тебя к игре №' + opts.pending_join_kod + '._\n\n';
+    }
+    await bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+    return pokazatEkranSoglasiya(chatId);
 }
 
 async function uvedomitAdminaOLide(tg_id, otvety) {
@@ -2658,7 +2728,7 @@ async function pokazatEkranSoglasiya(chatId, messageId) {
 async function prodolzhitRegistraciyu(chatId, tg_id, dannye) {
     const shag = dannye?.shag;
     if (shag === 'klub_kod') {
-        await pokazatShagKodaKluba(chatId, null, dannye.gorod_name, dannye);
+        await pokazatShagKodaKluba(chatId, null, dannye.gorod_name, dannye, tg_id);
         return;
     }
     if (shag === 'igrovoy_nik') {
@@ -3345,11 +3415,27 @@ async function obrabotatStart(msg, match) {
         if (igra_join.igroki.length >= igra_join.kolichestvo) {
             bot.sendMessage(msg.chat.id, '\u274C Все места заняты'); return;
         }
-        const { data: igrok_j } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', tg_id_j).single();
-        const name_j = igrok_j?.igrovoy_nik || igrok_j?.imya || msg.from.first_name || 'Игрок';
+        const { data: igrok_j } = await supabase.from('igroki').select('id, imya, igrovoy_nik').eq('tg_id', tg_id_j).maybeSingle();
+        if (!igrok_j?.id) {
+            const optsInvite = { pending_join_kod: kod_join };
+            if (igra_join.klub_id) {
+                const { data: klub_j } = await supabase
+                    .from('kluby')
+                    .select('id, nazvaniye, nastroyki')
+                    .eq('id', igra_join.klub_id)
+                    .maybeSingle();
+                if (klub_j) {
+                    optsInvite.klub_id = klub_j.id;
+                    optsInvite.klub_name = klub_j.nazvaniye;
+                    optsInvite.klub_kod = klub_j.nastroyki?.kod_registracii || null;
+                }
+            }
+            return napravitNezaregistrirovannogoNaInvite(msg.chat.id, tg_id_j, optsInvite);
+        }
+        const name_j = igrok_j.igrovoy_nik || igrok_j.imya || msg.from.first_name || 'Игрок';
         const nomer_j = igra_join.igroki.length + 1;
-        igra_join.igroki.push({ telegram_id: tg_id_j, name: name_j, nomer: nomer_j, status: 'v_igre', foly: 0, igrok_id: igrok_j?.id || null });
-        if (igra_join.klub_id && igrok_j?.id) await dobavitChlenaKlubaEsliNuzhno(igra_join.klub_id, igrok_j.id);
+        igra_join.igroki.push({ telegram_id: tg_id_j, name: name_j, nomer: nomer_j, status: 'v_igre', foly: 0, igrok_id: igrok_j.id });
+        if (igra_join.klub_id) await dobavitChlenaKlubaEsliNuzhno(igra_join.klub_id, igrok_j.id);
         await sohranit_igru(kod_join);
         bot.sendMessage(msg.chat.id, '\u2705 Ты в игре! *\u2116' + nomer_j + ' ' + name_j + '*\n\n\uD83C\uDFB4 Игра: *' + kod_join + '*\n\uD83D\uDC65 ' + igra_join.igroki.length + '/' + igra_join.kolichestvo + '\n\n_Ожидай — ведущий скоро начнёт_', { parse_mode: 'Markdown' });
         if (igra_join.vedushchii_id) bot.sendMessage(igra_join.vedushchii_id, '\uD83D\uDC4B *' + name_j + '* вошёл! ' + igra_join.igroki.length + '/' + igra_join.kolichestvo, { parse_mode: 'Markdown' }).catch(() => {});
@@ -5291,6 +5377,31 @@ bot.on('message', async function(msg) {
             return;
         }
 
+        const { data: igrok_vhod } = await supabase
+            .from('igroki')
+            .select('id, imya, igrovoy_nik')
+            .eq('tg_id', tg_id)
+            .maybeSingle();
+        if (!igrok_vhod?.id) {
+            delete sostoyanie[tg_id];
+            const igraPend = igry[kod];
+            const optsInvite = { pending_join_kod: kod };
+            if (igraPend?.klub_id) {
+                const { data: klubPend } = await supabase
+                    .from('kluby')
+                    .select('id, nazvaniye, nastroyki')
+                    .eq('id', igraPend.klub_id)
+                    .maybeSingle();
+                if (klubPend) {
+                    optsInvite.klub_id = klubPend.id;
+                    optsInvite.klub_name = klubPend.nazvaniye;
+                    optsInvite.klub_kod = klubPend.nastroyki?.kod_registracii || null;
+                }
+            }
+            await napravitNezaregistrirovannogoNaInvite(chatId, tg_id, optsInvite);
+            return;
+        }
+
         const igra = igry[kod];
         if (!igra) {
             bot.sendMessage(chatId, '❌ Игра с кодом *' + kod + '* не найдена.\n\nПроверь код у ведущего.', {
@@ -5318,16 +5429,11 @@ bot.on('message', async function(msg) {
             return;
         }
 
-        const { data: igrok_vhod } = await supabase
-            .from('igroki')
-            .select('id, imya, igrovoy_nik')
-            .eq('tg_id', tg_id)
-            .single();
         const nomer = igra.igroki.length + 1;
-        const name = igrok_vhod?.igrovoy_nik || igrok_vhod?.imya || msg.from.first_name || 'Игрок ' + nomer;
+        const name = igrok_vhod.igrovoy_nik || igrok_vhod.imya || msg.from.first_name || 'Игрок ' + nomer;
 
-        igra.igroki.push({ telegram_id: tg_id, name: name, nomer: nomer, status: 'v_igre', foly: 0, igrok_id: igrok_vhod?.id || null });
-        if (igra.klub_id && igrok_vhod?.id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, igrok_vhod.id);
+        igra.igroki.push({ telegram_id: tg_id, name: name, nomer: nomer, status: 'v_igre', foly: 0, igrok_id: igrok_vhod.id });
+        if (igra.klub_id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, igrok_vhod.id);
         delete sostoyanie[tg_id];
         await sohranit_igru(kod);
 
@@ -6787,22 +6893,27 @@ function knopkiVyboraStranyReg() {
     ];
 }
 
-async function pokazatShagKodaKluba(chatId, messageId, gorod_name, dannye) {
+async function pokazatShagKodaKluba(chatId, messageId, gorod_name, dannye, telegram_id) {
     let text = '🎴 *Шаг 2 — клуб* — ' + md(gorod_name || '') + '\n\n';
     if (dannye?.klub_name) {
         text += '✅ Клуб уже выбран: *' + md(dannye.klub_name) + '*\n\n';
+        text += '_Можно продолжить или ввести другой код сообщением._';
     } else {
-        text += 'Клубы *не показываются* в открытом списке — это приватность клуба.\n\n' +
-            '🔑 *Код от ведущего:* напиши его сообщением (например `AB12CD`).\n' +
-            '_Или открой персональную ссылку-приглашение от клуба._\n\n';
+        text += '🔒 *Регистрация только по приглашению.*\n\n' +
+            'Клубы *не показываются* в открытом списке.\n\n' +
+            '🔑 Напиши *код от ведущего* сообщением (например `AB12CD`).\n' +
+            '_Или открой персональную ссылку_ `t.me/бот?start=club_КОД`.\n\n' +
+            '_Без кода клуба зарегистрироваться нельзя._';
     }
-    text += '_Можно продолжить без клуба — войти в игру по коду от ведущего._';
 
     const knopki = [];
     if (dannye?.klub_id) {
         knopki.push([{ text: '✅ Продолжить с этим клубом', callback_data: 'reg_klub_gotov' }]);
     }
-    knopki.push([{ text: '🎮 Пока без клуба', callback_data: 'reg_bez_kluba' }]);
+    if (telegram_id && isAdmin(telegram_id)) {
+        knopki.push([{ text: '🛠 Админ: без клуба', callback_data: 'reg_bez_kluba' }]);
+    }
+    knopki.push([{ text: '🏢 Хочу открыть свой клуб', callback_data: 'reg_hocu_klub' }]);
     knopki.push([{ text: '⬅️ Другой город', callback_data: 'reg_nazad_strana' }]);
 
     const opts = {
@@ -6828,7 +6939,7 @@ async function posleVyboraGorodaRegistracii(chatId, messageId, telegram_id, dann
         return;
     }
     dannye.shag = 'klub_kod';
-    await pokazatShagKodaKluba(chatId, messageId, dannye.gorod_name, dannye);
+    await pokazatShagKodaKluba(chatId, messageId, dannye.gorod_name, dannye, telegram_id);
 }
 
 async function primenitKlubPoKoduRegistracii(chatId, telegram_id, kod_raw, replyOpts = {}) {
@@ -6909,6 +7020,17 @@ async function pokazatPriglashenieVKlub(chatId, messageId, klub_id, telegram_id)
 }
 
 async function zavershitRegistraciyuInsert(chatId, telegram_id, dannye, tg_username) {
+    if (!dannye?.klub_id && !(isAdmin(telegram_id) && dannye?.razreshit_bez_kluba)) {
+        dannye.shag = 'klub_kod';
+        await bot.sendMessage(chatId,
+            '🔒 Без *кода клуба* регистрация недоступна.\n\n' +
+            'Попроси код или ссылку у ведущего и введи код сообщением.',
+            { parse_mode: 'Markdown' }
+        );
+        await pokazatShagKodaKluba(chatId, null, dannye.gorod_name, dannye, telegram_id);
+        return { ok: false, need_club: true };
+    }
+
     const insertPayload = {
         tg_id: telegram_id,
         tg_username: tg_username || '',
@@ -6960,9 +7082,13 @@ async function zavershitRegistraciyuInsert(chatId, telegram_id, dannye, tg_usern
 
     obnovitAvatarIzTelegram(bot, telegram_id).catch(() => {});
 
+    const pendingAnons = dannye.pending_anons_id || null;
+    await sohranitPendingJoinPosleRegistracii(telegram_id, dannye);
+
     ozhidanie_registracii[telegram_id] = {
         shag: 'den_rozhdeniya',
-        pending_anons_id: ozhidanie_registracii[telegram_id]?.pending_anons_id || null
+        pending_anons_id: pendingAnons,
+        pending_join_kod: null
     };
 
     let clubLine = '';
@@ -11421,7 +11547,12 @@ bot.on('callback_query', async function(query) {
         }
         ozhidanie_registracii[telegram_id] = {
             shag: 'soglasie',
-            pending_anons_id: ozhidanie_registracii[telegram_id]?.pending_anons_id || null
+            pending_anons_id: ozhidanie_registracii[telegram_id]?.pending_anons_id || null,
+            pending_join_kod: ozhidanie_registracii[telegram_id]?.pending_join_kod || null,
+            klub_id: ozhidanie_registracii[telegram_id]?.klub_id || null,
+            klub_name: ozhidanie_registracii[telegram_id]?.klub_name || null,
+            klub_kod: ozhidanie_registracii[telegram_id]?.klub_kod || null,
+            pending_klub_from_link: !!ozhidanie_registracii[telegram_id]?.pending_klub_from_link
         };
         await pokazatEkranSoglasiya(chatId, messageId);
     }
@@ -11450,6 +11581,7 @@ bot.on('callback_query', async function(query) {
             ozhidanie_registracii[telegram_id] = {
                 shag: 'soglasie',
                 pending_anons_id: dannye_s?.pending_anons_id || null,
+                pending_join_kod: dannye_s?.pending_join_kod || null,
                 klub_id: dannye_s?.klub_id || null,
                 klub_name: dannye_s?.klub_name || null,
                 klub_kod: dannye_s?.klub_kod || null,
@@ -11463,6 +11595,7 @@ bot.on('callback_query', async function(query) {
             soglasie_versiya: SOGLASIE_VERSIYA,
             soglasie_data: new Date().toISOString(),
             pending_anons_id: prev_reg.pending_anons_id || null,
+            pending_join_kod: prev_reg.pending_join_kod || null,
             klub_id: prev_reg.klub_id || null,
             klub_name: prev_reg.klub_name || null,
             klub_kod: prev_reg.klub_kod || null,
@@ -11576,19 +11709,54 @@ bot.on('callback_query', async function(query) {
     }
 
     else if (data === 'reg_bez_kluba') {
+        if (!isAdmin(telegram_id)) {
+            bot.answerCallbackQuery(query.id, {
+                text: 'Регистрация только по коду клуба от ведущего',
+                show_alert: true
+            });
+            return;
+        }
         const dannye = ozhidanie_registracii[telegram_id];
         if (!dannye || dannye.shag !== 'klub_kod') return;
         dannye.klub_id = null;
         dannye.klub_name = null;
         dannye.klub_kod = null;
+        dannye.razreshit_bez_kluba = true;
         dannye.shag = 'igrovoy_nik';
         bot.editMessageText(
+            '🛠 *Админ: регистрация без клуба*\n\n' +
             '🎭 *Шаг 3 — игровой ник:*\n\n' +
-            'Как тебя будут видеть за столом?\n' +
-            '_Например: Madame X, Доктор, Рыжая, Арчи_\n\n' +
-            '_Клуб можно присоединить позже — по коду или ссылке от ведущего, либо при входе в игру._',
+            'Как тебя будут видеть за столом?',
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
         );
+    }
+
+    else if (data === 'reg_hocu_klub') {
+        bot.answerCallbackQuery(query.id);
+        bot.editMessageText(
+            '🏢 *Открыть свой клуб*\n\n' +
+            'Регистрация игроков — только по приглашению существующего клуба.\n\n' +
+            'Чтобы открыть *новый* клуб в боте, напиши в поддержку — подключим и выдадим доступ:\n\n' +
+            '💬 Telegram: @prime\\_mafia\\_sochi\n' +
+            '📧 silena005@gmail.com\n\n' +
+            '_Если тебя уже пригласили в клуб — вернись и введи код._',
+            {
+                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🔑 У меня есть код клуба', callback_data: 'reg_nazad_k_kodu' }],
+                    [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
+                    [{ text: '⬅️ Другой город', callback_data: 'reg_nazad_strana' }]
+                ] }
+            }
+        );
+    }
+
+    else if (data === 'reg_nazad_k_kodu') {
+        const dannye = ozhidanie_registracii[telegram_id];
+        if (!dannye) return;
+        dannye.shag = 'klub_kod';
+        bot.answerCallbackQuery(query.id);
+        await pokazatShagKodaKluba(chatId, messageId, dannye.gorod_name, dannye, telegram_id);
     }
 
     else if (data === 'reg_dr_skip') {
@@ -15464,6 +15632,15 @@ bot.on('callback_query', async function(query) {
 
     // ===== РЕЖИМ "ИГРАТЬ С ДРУЗЬЯМИ" =====
     else if (data === 'druzya_menu') {
+        const rolesDruzya = await poluchitRoliPolzovatelya(telegram_id);
+        if (!rolesDruzya.registered) {
+            bot.answerCallbackQuery(query.id, {
+                text: 'Сначала регистрация по приглашению клуба',
+                show_alert: true
+            });
+            await napravitNezaregistrirovannogoNaInvite(chatId, telegram_id, {});
+            return;
+        }
         bot.editMessageText(
             '\uD83C\uDFAE *Играть с друзьями*\n\n' +
             'Личная игра *бесплатно*: без клуба и без рейтинга. Создаёшь код, друзья подключаются, бот раздаёт роли.\n\n' +
@@ -15688,6 +15865,12 @@ bot.on('callback_query', async function(query) {
 
     // ===== ИГРОК: войти в игру =====
     else if (data === 'voiti_v_igru') {
+        const rolesVhod = await poluchitRoliPolzovatelya(telegram_id);
+        if (!rolesVhod.registered) {
+            bot.answerCallbackQuery(query.id, { text: 'Сначала регистрация по коду клуба', show_alert: true });
+            await napravitNezaregistrirovannogoNaInvite(chatId, telegram_id, {});
+            return;
+        }
         sostoyanie[telegram_id] = 'vvodit_kod';
         bot.editMessageText('🎮 *Введи код игры*\n\n_4 цифры от ведущего:_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
