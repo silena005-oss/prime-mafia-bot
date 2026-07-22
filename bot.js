@@ -7223,8 +7223,8 @@ async function pokazatItogiVechera(chatId, messageId, klub_id, itogi, sostav, te
     const mesyachny = await vecherReyting.poluchitMesyachnyReyting(supabase, klub_id, now.getFullYear(), now.getMonth() + 1);
 
     let t = '🏁 *Игровой вечер завершён*\n\n';
-    t += '📊 *Итоги вечера:*\n';
     t += vecherReyting.formatStatistikuPobed(stat) + '\n\n';
+    t += vecherReyting.formatLideraVechera(reyting) + '\n\n';
     t += vecherReyting.formatReytingSpiska(reyting, '🌆 Рейтинг вечера (городской)', 12);
     if (poeImya) {
         t += '\n\n⭐ *Игрок вечера:* ' + md(poeImya);
@@ -7390,7 +7390,8 @@ async function sostoyanieVecheraDlyaMiniApp(klub_id, tg_id) {
     };
 }
 
-async function ochistitLobbyVedushchegoBezRoley(telegram_id) {
+async function ochistitLobbyVedushchegoBezRoley(telegram_id, opts = {}) {
+    const tolkoPustye = !!opts.tolkoPustye;
     const kody = Object.keys(igry).filter(kod => {
         if (String(kod).startsWith('archive_') || String(kod).startsWith('preview_')) return false;
         const igra = igry[kod];
@@ -7399,6 +7400,10 @@ async function ochistitLobbyVedushchegoBezRoley(telegram_id) {
         const faza = igra.faza || 'ozhidanie';
         // Не трогаем уже начатую ночь знакомства / день / ночь / голосование
         if (['den', 'noch', 'golosovanie', 'opravdanie', 'znakomstvo', 'noch_znakomstvo'].includes(faza)) return false;
+        if (tolkoPustye) {
+            const n = (igra.igroki || []).length;
+            if (n > 0 && !igra.ostanovlena) return false;
+        }
         return true;
     });
     for (const kod of kody) {
@@ -8153,23 +8158,28 @@ async function pokazatRezultatyVechera(chatId, messageId, klub_id, telegram_id) 
     const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
 
     let t = '📋 *Результаты — игровой вечер*\n\n';
-    t += 'Дата: *' + today + '*\n';
-    if (stat?.vsego) {
-        t += '\n' + vecherReyting.formatStatistikuPobed(stat) + '\n';
-    }
+    t += 'Дата: *' + today + '*\n\n';
+    t += vecherReyting.formatStatistikuPobed(stat) + '\n\n';
+    t += vecherReyting.formatLideraVechera(reyting) + '\n';
     if (reyting?.length) {
-        t += '\n' + vecherReyting.formatReytingSpiska(reyting, '📊 Текущий рейтинг вечера', 5) + '\n';
+        t += '\n' + vecherReyting.formatReytingSpiska(reyting, '📊 Рейтинг вечера', 8) + '\n';
     }
     t += '\n_Каждая завершённая игра автоматически попадает в рейтинг вечера._';
 
     const knopki = [];
     if (aktivnye.length) {
-        t += '\n\n*Активные игры:*\n';
+        t += '\n\n*Активные игры / лобби:*\n';
         aktivnye.forEach(({ kod, igra }) => {
             const v_igre = (igra.igroki || []).filter(i => i.status === 'v_igre').length;
-            t += '🎮 №' + kod + ' — день ' + (igra.den || 1) + ', ' + v_igre + ' живых\n';
-            knopki.push([{ text: '🏁 Завершить игру №' + kod, callback_data: 'konec_' + kod }]);
+            const status = igra.roli_razdany ? ('день ' + (igra.den || 1)) : 'лобби';
+            t += '🎮 №' + kod + ' — ' + status + ', ' + v_igre + ' живых\n';
+            if (igra.roli_razdany) {
+                knopki.push([{ text: '🏁 Завершить игру №' + kod, callback_data: 'konec_' + kod }]);
+            } else {
+                knopki.push([{ text: '🗑 Удалить лобби №' + kod, callback_data: 'delete_igra_' + kod }]);
+            }
         });
+        knopki.push([{ text: '🧹 Очистить все пустые лобби', callback_data: 'ochistit_lobby' }]);
     }
     knopki.push([{ text: '✍️ Внести сыгранную игру', callback_data: 'vecher_rez_manual_' + klub_id }]);
     const { spisok } = await poluchitDannyeVecheraKluba(klub_id);
@@ -8316,15 +8326,15 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
     }
     if (zavershen) {
         const stat = await vecherReyting.poluchitStatistikuPobedVechera(supabase, klubInfo.id, today);
-        if (stat?.vsego) {
-            t += '\n📊 *Побед за вечер:*\n';
-            t += vecherReyting.formatStatistikuPobed(stat) + '\n';
+        t += '\n' + vecherReyting.formatStatistikuPobed(stat) + '\n';
+        if (itogiVechera?.reyting_vechera?.length) {
+            t += '\n' + vecherReyting.formatLideraVechera(itogiVechera.reyting_vechera) + '\n';
         }
     } else if (liveStat?.vsego) {
-        t += '\n📊 *Побед за вечер:*\n';
-        t += vecherReyting.formatStatistikuPobed(liveStat) + '\n';
+        t += '\n' + vecherReyting.formatStatistikuPobed(liveStat) + '\n';
     }
     if (!zavershen && liveReyting?.length) {
+        t += '\n' + vecherReyting.formatLideraVechera(liveReyting) + '\n';
         t += '\n' + vecherReyting.formatReytingSpiska(liveReyting, '📊 Рейтинг вечера (пока идёт)', 5) + '\n';
     }
     t += '\n';
@@ -8833,11 +8843,24 @@ function primenitSmertShahida(igra, shahid, prichina, ubitye) {
 }
 
 function mozhetBytLuchshiyHod(igrok) {
-    return igrok && !isMafiaRole(igrok.rol) && igrok.rol !== 'Маньяк';
+    // Лучший ход: выголосован в День 1 или убит в Ночь 1.
+    // Мафия не делает лучший ход; маньяк — делает.
+    return !!(igrok && !isMafiaRole(igrok.rol));
 }
 
 function prichinaLuchshegoHoda(source) {
     return source === 'den1' ? 'Выголосован в День 1' : 'Убит в Ночь 1';
+}
+
+function postavitOcheredLuchshihHodov(igra, kandidaty, source, next) {
+    if (!igra || !kandidaty?.length) return null;
+    const pervyj = kandidaty[0];
+    igra._lh_ochered = kandidaty.slice(1).map(i => ({
+        nomer: i.nomer,
+        source,
+        next
+    }));
+    return pervyj;
 }
 
 function poluchitLuchshiyHod(igra, nomer, source) {
@@ -8887,6 +8910,15 @@ async function pokazatLuchshiyHod(chatId, messageId, kod, nomer, source, next) {
 async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
     const igra = igry[kod];
     if (!igra) return;
+
+    const ochered = igra._lh_ochered || [];
+    if (ochered.length) {
+        const sled = ochered.shift();
+        await sohranit_igru(kod);
+        await pokazatLuchshiyHod(chatId, messageId, kod, sled.nomer, sled.source, sled.next || next);
+        return;
+    }
+
     const pobeditel = opredelitPobeditelya(igra);
     if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
 
@@ -13813,8 +13845,10 @@ bot.on('callback_query', async function(query) {
 
         igry['archive_' + kod] = { ...igra, _final_text: pubTextFull, _chat_text: chatText };
         const druzyaRezhim = !!igra._druzya_rezhim;
+        const hostId = igra.vedushchii_id;
         delete igry[kod];
         await zavershit_igru_v_db(kod);
+        if (hostId) await ochistitLobbyVedushchegoBezRoley(hostId, { tolkoPustye: true }).catch(() => {});
         maybeOtpravitAvtoOtzyvPosleIgry(igra, chatId).catch(() => {});
         maybeAvtoPublikovatItog(igry['archive_' + kod], kod).catch(() => {});
         otpravitDruzyaVoronkuPosleIgry(igra).catch(() => {});
@@ -15203,18 +15237,12 @@ bot.on('callback_query', async function(query) {
         ubity_t.forEach(i => { bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); });
         zapisatIstoriyuDoktora(igra, doc_t);
         igra.noch_deystviya = {};
-        const kandidatLuchshegoHoda = (igra.den || 1) === 1 ? ubity_t.find(mozhetBytLuchshiyHod) : null;
-        if (kandidatLuchshegoHoda) {
+        const kandidatyLh = (igra.den || 1) === 1 ? ubity_t.filter(mozhetBytLuchshiyHod) : [];
+        if (kandidatyLh.length) {
+            const pervyj = postavitOcheredLuchshihHodov(igra, kandidatyLh, 'night1', 'day');
             await sohranit_igru(kod);
-            await bot.editMessageText(itog_t + '\n\n\uD83D\uDDE3 Последнее слово: можно зафиксировать лучший ход.', {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [
-                    [{ text: '\uD83C\uDFC6 Лучший ход \u2116' + kandidatLuchshegoHoda.nomer, callback_data: 'lh_start_' + kod + '_' + kandidatLuchshegoHoda.nomer + '_night1_day' }],
-                    [{ text: '\u23ED\uFE0F Без лучшего хода', callback_data: 'lh_skip_' + kod + '_' + kandidatLuchshegoHoda.nomer + '_night1_day' }]
-                ] }
-            });
+            await bot.sendMessage(chatId, itog_t, { parse_mode: 'Markdown' }).catch(() => {});
+            await pokazatLuchshiyHod(chatId, messageId, kod, pervyj.nomer, 'night1', 'day');
             return;
         }
         const pobeditel = opredelitPobeditelya(igra);
@@ -15246,7 +15274,7 @@ bot.on('callback_query', async function(query) {
         if (!igra) return;
         const igrok_lh = igra.igroki.find(i => i.nomer === nomer_lh);
         if (!mozhetBytLuchshiyHod(igrok_lh)) {
-            bot.answerCallbackQuery(query.id, { text: 'Лучший ход доступен только мирному игроку.', show_alert: true });
+            bot.answerCallbackQuery(query.id, { text: 'Лучший ход недоступен мафии.', show_alert: true });
             return;
         }
         bot.answerCallbackQuery(query.id, { text: '\uD83C\uDFC6 Лучший ход' });
