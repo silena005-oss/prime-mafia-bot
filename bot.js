@@ -4,7 +4,7 @@
 // ============================================
 
 require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+const { TelegramBot } = require('node-telegram-bot-api');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -31,6 +31,8 @@ const {
     orIlikeIgrokiTochno,
     orOwnerTgId,
     urlTelegramFile,
+    proveritTelegramImageUpload,
+    etoRazreshennyyImageMime,
     proveritRateLimit,
     securityHeadersDlyaOtvetov,
     securityHeadersDlyaMiniAppHtml
@@ -1126,7 +1128,9 @@ http.createServer((req, res) => {
 const bot = new TelegramBot(token, { polling: false });
 
 function etoOshibkaMarkdown(err) {
-    const msg = String(err?.message || err?.response?.body?.description || '');
+    const body = err?.response?.body;
+    const desc = (body && typeof body === 'object' && body.description) || body;
+    const msg = String(err?.message || desc || '');
     return /parse entities|can't parse|entity/i.test(msg);
 }
 
@@ -1186,7 +1190,8 @@ let konflikt409Popytki = 0;
 const MAX_409_POVTOROV = 8;
 
 function etoOshibka409(err) {
-    return err?.response?.statusCode === 409
+    const status = err?.response?.statusCode ?? err?.response?.status;
+    return status === 409
         || (err?.message && String(err.message).includes('409'));
 }
 
@@ -3753,6 +3758,7 @@ async function sohranitFotoRoli(msg, file_id) {
 bot.on('photo', async (msg) => {
     if (!etoLichnyyChat(msg)) return;
     const file_id = msg.photo[msg.photo.length - 1].file_id;
+    const file_size = msg.photo[msg.photo.length - 1].file_size;
     const tg_id = msg.from.id;
     const st = sostoyanie[tg_id];
     if (typeof st === 'string' && st.startsWith('brend_klub_')) {
@@ -3760,6 +3766,12 @@ bot.on('photo', async (msg) => {
         if (!(await klubBrend.mozhnoUpravlyatBrendomKluba(tg_id, klub_id))) {
             delete sostoyanie[tg_id];
             bot.sendMessage(msg.chat.id, '❌ Нет доступа к бренду этого клуба.');
+            return;
+        }
+        const chk = await proveritTelegramImageUpload(bot, token, file_id, { fileSize: file_size, mimeType: 'image/jpeg' });
+        if (!chk.ok) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(msg.chat.id, '❌ Нужно обычное изображение (JPEG/PNG/WEBP), до 5 МБ.');
             return;
         }
         const { error } = await klubBrend.sohranitLogoKluba(klub_id, file_id);
@@ -3774,6 +3786,11 @@ bot.on('photo', async (msg) => {
         );
         return;
     }
+    const chkRole = await proveritTelegramImageUpload(bot, token, file_id, { fileSize: file_size, mimeType: 'image/jpeg' });
+    if (!chkRole.ok) {
+        if (msg.caption) bot.sendMessage(msg.chat.id, '❌ Нужно обычное изображение (JPEG/PNG/WEBP), до 5 МБ.');
+        return;
+    }
     await sohranitFotoRoli(msg, file_id);
 });
 
@@ -3781,7 +3798,7 @@ bot.on('document', async (msg) => {
     if (!etoLichnyyChat(msg)) return;
     const doc = msg.document;
     const mime = doc?.mime_type || '';
-    if (!mime.startsWith('image/')) return;
+    if (!etoRazreshennyyImageMime(mime)) return;
     const tg_id = msg.from.id;
     const st = sostoyanie[tg_id];
     if (typeof st === 'string' && st.startsWith('brend_klub_')) {
@@ -3791,6 +3808,15 @@ bot.on('document', async (msg) => {
             bot.sendMessage(msg.chat.id, '❌ Нет доступа к бренду этого клуба.');
             return;
         }
+        const chk = await proveritTelegramImageUpload(bot, token, doc.file_id, {
+            fileSize: doc.file_size,
+            mimeType: mime
+        });
+        if (!chk.ok) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(msg.chat.id, '❌ Нужно обычное изображение (JPEG/PNG/WEBP), до 5 МБ.');
+            return;
+        }
         const { error } = await klubBrend.sohranitLogoKluba(klub_id, doc.file_id);
         delete sostoyanie[tg_id];
         if (error) {
@@ -3798,6 +3824,14 @@ bot.on('document', async (msg) => {
             return;
         }
         bot.sendMessage(msg.chat.id, '✅ *Логотип клуба сохранён!*', { parse_mode: 'Markdown' });
+        return;
+    }
+    const chkRole = await proveritTelegramImageUpload(bot, token, doc.file_id, {
+        fileSize: doc.file_size,
+        mimeType: mime
+    });
+    if (!chkRole.ok) {
+        if (msg.caption) bot.sendMessage(msg.chat.id, '❌ Нужно обычное изображение (JPEG/PNG/WEBP), до 5 МБ.');
         return;
     }
     await sohranitFotoRoli(msg, doc.file_id);
@@ -5072,6 +5106,11 @@ bot.on('message', async function(msg) {
         const parts = sostoyanie[tg_id].replace('anons_upd_', '').split('_');
         const pole = parts[0]; // data, vremya, adres, komment
         const anons_id = parts.slice(1).join('_');
+        if (!(await mozhnoUpravlyatAnonsom(tg_id, anons_id))) {
+            delete sostoyanie[tg_id];
+            bot.sendMessage(chatId, '❌ Нет доступа к этому анонсу.');
+            return;
+        }
         delete sostoyanie[tg_id];
 
         const update = {};
@@ -8359,6 +8398,20 @@ async function poluchitKlubyDlyaIgr(telegram_id) {
     }
 
     return [...byId.values()];
+}
+
+/** Владелец / ведущий клуба анонса — иначе IDOR по anons_id. */
+async function mozhnoUpravlyatAnonsom(telegram_id, anons_id) {
+    if (!anons_id) return false;
+    const { data: anons } = await supabase
+        .from('anonsy')
+        .select('id, klub_id')
+        .eq('id', anons_id)
+        .maybeSingle();
+    if (!anons?.klub_id) return false;
+    if (isAdmin(telegram_id)) return true;
+    const kluby = await poluchitKlubyDlyaIgr(telegram_id).catch(() => []);
+    return kluby.some(k => String(k.id) === String(anons.klub_id));
 }
 
 async function pokazatRezultatyVechera(chatId, messageId, klub_id, telegram_id) {
@@ -17354,12 +17407,20 @@ bot.on('callback_query', async function(query) {
     // ===== КАРТОЧКА АНОНСА =====
     else if (data.startsWith('anons_card_')) {
         const anons_id = data.replace('anons_card_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         await pokazat_kartochku_anонса(chatId, messageId, anons_id);
     }
 
     // ===== УДАЛИТЬ АНОНС: подтверждение =====
     else if (data.startsWith('anons_delete_confirm_')) {
         const anons_id = data.replace('anons_delete_confirm_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         bot.editMessageText('🗑 *Удалить анонс?*\n\nЭто действие нельзя отменить. Все записи на этот анонс также будут удалены.', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
@@ -17371,6 +17432,10 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('anons_delete_')) {
         const anons_id = data.replace('anons_delete_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         const { error } = await supabase.from('anonsy').delete().eq('id', anons_id);
 
         if (error) {
@@ -17387,23 +17452,13 @@ bot.on('callback_query', async function(query) {
         });
     }
 
-    // ===== РЕДАКТИРОВАТЬ АНОНС =====
-    else if (data.startsWith('anons_edit_')) {
-        const anons_id = data.replace('anons_edit_', '');
-        bot.editMessageText('✏️ *Редактирование анонса*\n\nЧто хочешь изменить?', {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: '📅 Дата', callback_data: 'anons_edit_data_' + anons_id }],
-                [{ text: '🕐 Время', callback_data: 'anons_edit_vremya_' + anons_id }],
-                [{ text: '📍 Место проведения', callback_data: 'anons_edit_adres_' + anons_id }],
-                [{ text: '💬 Комментарий', callback_data: 'anons_edit_komment_' + anons_id }],
-                [{ text: '⬅️ Назад', callback_data: 'anons_card_' + anons_id }]
-            ]}
-        });
-    }
-
+    // ===== РЕДАКТИРОВАТЬ АНОНС (сначала конкретные поля — иначе anons_edit_ перехватит) =====
     else if (data.startsWith('anons_edit_data_')) {
         const anons_id = data.replace('anons_edit_data_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         sostoyanie[telegram_id] = 'anons_upd_data_' + anons_id;
         bot.editMessageText('📅 Введи новую дату:\n_Пример: 15 мая или 15.05.2026_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -17413,6 +17468,10 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('anons_edit_vremya_')) {
         const anons_id = data.replace('anons_edit_vremya_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         sostoyanie[telegram_id] = 'anons_upd_vremya_' + anons_id;
         bot.editMessageText('🕐 Введи новое время:\n_Пример: 19:00_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -17422,6 +17481,10 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('anons_edit_adres_')) {
         const anons_id = data.replace('anons_edit_adres_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         sostoyanie[telegram_id] = 'anons_upd_adres_' + anons_id;
         bot.editMessageText('📍 Введи новое место проведения:\n_Пример: Ресторан Паскаль, ул. Воровского 19_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -17431,10 +17494,32 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('anons_edit_komment_')) {
         const anons_id = data.replace('anons_edit_komment_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
         sostoyanie[telegram_id] = 'anons_upd_komment_' + anons_id;
         bot.editMessageText('💬 Введи новый комментарий:\n_Пример: Играем 3 игры, стоимость 1000₽_', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'anons_edit_' + anons_id }]] }
+        });
+    }
+
+    else if (data.startsWith('anons_edit_')) {
+        const anons_id = data.replace('anons_edit_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
+        bot.editMessageText('✏️ *Редактирование анонса*\n\nЧто хочешь изменить?', {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📅 Дата', callback_data: 'anons_edit_data_' + anons_id }],
+                [{ text: '🕐 Время', callback_data: 'anons_edit_vremya_' + anons_id }],
+                [{ text: '📍 Место проведения', callback_data: 'anons_edit_adres_' + anons_id }],
+                [{ text: '💬 Комментарий', callback_data: 'anons_edit_komment_' + anons_id }],
+                [{ text: '⬅️ Назад', callback_data: 'anons_card_' + anons_id }]
+            ]}
         });
     }
 
@@ -17521,6 +17606,10 @@ bot.on('callback_query', async function(query) {
     // ===== АНОНС: список записавшихся с отметкой посещаемости =====
     else if (data.startsWith('anons_spisok_')) {
         const anons_id = data.replace('anons_spisok_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         const { data: anons } = await supabase
             .from('anonsy')
@@ -17591,6 +17680,10 @@ bot.on('callback_query', async function(query) {
         if (!p) return;
         const zapis_id = p.zapis_id;
         const anons_id = p.anons_id;
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         await supabase.from('zapisi_na_anons').update({ status: 'prishel' }).eq('id', zapis_id);
         bot.answerCallbackQuery(query.id, { text: '✅ Отмечен как пришедший' });
@@ -17642,6 +17735,10 @@ bot.on('callback_query', async function(query) {
         const parts = data.replace('pris_da_', '').split('_');
         const zapis_id = parts[0];
         const anons_id = parts.slice(1).join('_');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         await supabase.from('zapisi_na_anons').update({ status: 'prishel' }).eq('id', zapis_id);
         bot.answerCallbackQuery(query.id, { text: '✅ Отмечен как пришедший' });
@@ -17704,6 +17801,10 @@ bot.on('callback_query', async function(query) {
         if (!p) return;
         const zapis_id = p.zapis_id;
         const anons_id = p.anons_id;
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         await supabase.from('zapisi_na_anons').update({ status: 'ne_prishel' }).eq('id', zapis_id);
         bot.answerCallbackQuery(query.id, { text: '❌ Отмечен как не пришедший' });
@@ -17750,6 +17851,10 @@ bot.on('callback_query', async function(query) {
         const parts = data.replace('pris_net_', '').split('_');
         const zapis_id = parts[0];
         const anons_id = parts.slice(1).join('_');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         await supabase.from('zapisi_na_anons').update({ status: 'ne_prishel' }).eq('id', zapis_id);
         bot.answerCallbackQuery(query.id, { text: '❌ Отмечен как не пришедший' });
@@ -17807,6 +17912,10 @@ bot.on('callback_query', async function(query) {
     // ===== НАЧАТЬ ИГРУ ИЗ АНОНСА =====
     else if (data.startsWith('gia_')) {
         const anons_id = data.replace('gia_', '');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         const { data: zapisi } = await supabase
             .from('zapisi_na_anons')
@@ -17847,6 +17956,10 @@ bot.on('callback_query', async function(query) {
         const parts = data.replace('igra_kol_', '').split('_');
         const kolichestvo = parseInt(parts[parts.length - 1]);
         const anons_id = parts.slice(0, -1).join('_');
+        if (!(await mozhnoUpravlyatAnonsom(telegram_id, anons_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к анонсу', show_alert: true });
+            return;
+        }
 
         if (!sostavy[kolichestvo]) {
             bot.answerCallbackQuery(query.id, { text: '❌ Нет состава для ' + kolichestvo + ' игроков', show_alert: true });

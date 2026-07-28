@@ -72,7 +72,8 @@ ALLOW_MINIAPP_DEV_BYPASS=... # только локально, если нуже�
 ## Зависимости
 
 - `npm overrides` закрывают часть CVE транзитивных пакетов (`form-data`, `qs`, `ws`).
-- Остаточный moderate в `request` тянется из `node-telegram-bot-api@0.67` — апгрейд на 1.x отдельной задачей (breaking).
+- `node-telegram-bot-api` **^1.1.2** (CJS: `const { TelegramBot } = require(...)`) — убран deprecated `request`, `npm audit` чистый.
+- После `fix_open_rls_policies.sql` anon не читает клубные таблицы.
 
 ## Публикация итогов в группу / канал
 
