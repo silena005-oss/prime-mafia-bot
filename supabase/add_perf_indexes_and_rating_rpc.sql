@@ -1,5 +1,9 @@
 -- Performance indexes + club rating top RPC for miniapp /state.
--- Run in Supabase SQL Editor. If an index already exists, statement is skipped.
+-- Run in Supabase SQL Editor. Safe to re-run.
+
+-- Prod may miss this column (code already writes sportivniy)
+ALTER TABLE public.bally
+  ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS igroki_tg_id_uq
   ON public.igroki (tg_id);
