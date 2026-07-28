@@ -4,6 +4,15 @@
 
 Prime Mafia работает через **бот-токен** от [@BotFather](https://t.me/BotFather). Сообщения игрокам идут **от имени бота**, не от вашего личного аккаунта.
 
+## Аккаунты и 2FA (обязательно)
+
+Если Google-почта — единая точка входа в GitHub / Railway / Supabase / BotFather / платежи:
+
+1. **Включите 2FA на Google** (приложение Authenticator или ключ безопасности — не только SMS).
+2. Сохраните **backup-коды** Google offline + во втором месте.
+3. То же для **GitHub**, **Railway**, **Supabase**, **Telegram** (облачный пароль / 2FA).
+4. Не шарьте один пароль между сервисами — менеджер паролей.
+
 | Риск | Личный аккаунт | Бот |
 |------|----------------|-----|
 | Массовая рассылка приглашений | Высокий риск блокировки | Нормальная практика, если есть отписка `/stop` |
@@ -19,7 +28,7 @@ TELEGRAM_TOKEN=...          # только на сервере, не в git
 SUPABASE_KEY=...            # только service_role secret, не anon
 ADMIN_TG_ID=123456789       # основной администратор (заявки, загрузка карт)
 BACKUP_ADMIN_TG_IDS=111,222 # резервные админы через запятую
-ENFORCE_TRIAL_LIMITS=true   # в проде — включить лимиты теста
+ENFORCE_TRIAL_LIMITS=true   # на Railway включено по умолчанию; false — только для отладки
 ```
 
 **Не ставить на Railway:**
@@ -58,6 +67,12 @@ ALLOW_MINIAPP_DEV_BYPASS=... # только локально, если нуже�
 - Регулярные бэкапы — в панели Supabase → Database → Backups (на платном плане) или pg_dump по расписанию.
 - **Перед гостевыми клубами:** выполнить `supabase/enable_rls_club_isolation.sql` — RLS по `klub_id`, anon/authenticated не видят чужие данные.
 - В Railway `SUPABASE_KEY` = **service_role** (бот обходит RLS). Anon-ключ в боте — ошибка, процесс не стартует.
+- После миграции: в Supabase → Authentication → Policies убедиться, что RLS enabled на клубных таблицах.
+
+## Зависимости
+
+- `npm overrides` закрывают часть CVE транзитивных пакетов (`form-data`, `qs`, `ws`).
+- Остаточный moderate в `request` тянется из `node-telegram-bot-api@0.67` — апгрейд на 1.x отдельной задачей (breaking).
 
 ## Публикация итогов в группу / канал
 

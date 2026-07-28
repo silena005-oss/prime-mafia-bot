@@ -25,6 +25,14 @@ const gorodaUi = require('./lib/goroda-ui');
 const vecherReyting = require('./lib/vecher-reyting');
 const reytingImport = require('./lib/reyting-import');
 const itogFrazy = require('./lib/itog-frazy');
+const bezopasnost = require('./lib/bezopasnost');
+const {
+    orIlikeIgrokiPoisk,
+    orIlikeIgrokiTochno,
+    proveritRateLimit,
+    securityHeadersDlyaOtvetov,
+    securityHeadersDlyaMiniAppHtml
+} = bezopasnost;
 
 const {
     razobratDenRozhdeniya,
@@ -145,7 +153,10 @@ function miniAppMime(filePath) {
 }
 
 function otpravitJson(res, status, data) {
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.writeHead(status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...securityHeadersDlyaOtvetov()
+    });
     res.end(JSON.stringify(data));
 }
 
@@ -187,7 +198,8 @@ function proveritTelegramInitData(initData) {
     if (!crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(hash, 'hex'))) return null;
 
     const authDate = Number(params.get('auth_date') || 0);
-    if (authDate && Date.now() / 1000 - authDate > 86400) return null;
+    // 6 часов — меньше окно для украденного initData
+    if (authDate && Date.now() / 1000 - authDate > 6 * 3600) return null;
     const userRaw = params.get('user');
     if (!userRaw) return null;
     try {
@@ -793,6 +805,13 @@ async function sostoyanieMiniApp(user) {
 }
 
 async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}, body = {}) {
+    const dmActions = new Set(['open_menu', 'support', 'roles', 'rating', 'profile_settings', 'join_game']);
+    if (dmActions.has(action)) {
+        const rlDm = proveritRateLimit('miniapp-dm:' + tg_id, 8, 60 * 1000);
+        if (!rlDm.ok) {
+            return { stay: true, message: 'Слишком много запросов. Подожди ' + rlDm.retryAfterSec + ' сек.' };
+        }
+    }
     if (action === 'open_menu') {
         await obrabotatStart({
             chat: { id: chatId },
@@ -937,11 +956,10 @@ function mozhnoSmotretKartuRoli(requesterTgId, klub_id, rol, kod) {
     const igra = igry[kod];
     if (!igra || String(igra.klub_id) !== String(klub_id)) return false;
     if (igra.vedushchii_id === requesterTgId) return true;
-    const igroki = igra.igroki || [];
-    const me = igroki.find(i => i.telegram_id === requesterTgId);
+    const me = (igra.igroki || []).find(i => i.telegram_id === requesterTgId);
     if (!me) return false;
-    if (me.rol === rol) return true;
-    return igroki.some(i => i.rol === rol && i.status !== 'v_igre');
+    // Только своя роль — не чужие карты той же роли после выбытия
+    return me.rol === rol;
 }
 
 async function obrabotatMiniAppRoleCard(req, res, url) {
@@ -984,6 +1002,19 @@ async function obrabotatMiniAppApi(req, res, url) {
     const user = await poluchitMiniAppUser(req);
     if (!user) {
         otpravitJson(res, 401, { ok: false, error: 'telegram_auth_required' });
+        return;
+    }
+    const tgKey = String(user.id);
+    const isWrite = req.method === 'POST';
+    const limit = isWrite ? 20 : 60;
+    const rl = proveritRateLimit('miniapp:' + tgKey + ':' + (isWrite ? 'w' : 'r'), limit, 60 * 1000);
+    if (!rl.ok) {
+        res.writeHead(429, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Retry-After': String(rl.retryAfterSec),
+            ...securityHeadersDlyaOtvetov()
+        });
+        res.end(JSON.stringify({ ok: false, error: 'rate_limited', retry_after: rl.retryAfterSec }));
         return;
     }
     if (req.method === 'GET' && url.pathname === '/api/miniapp/state') {
@@ -1050,7 +1081,8 @@ function otpravitMiniAppFile(res, url) {
         }
         res.writeHead(200, {
             'Content-Type': miniAppMime(filePath),
-            'Cache-Control': filePath.endsWith('.html') ? 'no-store' : 'public, max-age=300'
+            'Cache-Control': filePath.endsWith('.html') ? 'no-store' : 'public, max-age=300',
+            ...(filePath.endsWith('.html') ? securityHeadersDlyaMiniAppHtml() : securityHeadersDlyaOtvetov())
         });
         res.end(body);
     });
@@ -1059,7 +1091,10 @@ function otpravitMiniAppFile(res, url) {
 http.createServer((req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (url.pathname === '/health' || url.pathname === '/health/') {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            ...securityHeadersDlyaOtvetov()
+        });
         res.end(JSON.stringify({ ok: true, service: 'prime-mafia', ts: new Date().toISOString() }));
         return;
     }
@@ -5190,10 +5225,18 @@ bot.on('message', async function(msg) {
                 .limit(5);
             igroki = data;
         } else {
+            const orFiltr = orIlikeIgrokiPoisk(query);
+            if (!orFiltr) {
+                bot.sendMessage(chatId, '❌ Слишком короткий или пустой запрос. Введи имя или @username:', {
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+                });
+                sostoyanie[tg_id] = 'peredat_poisk_' + klub_id;
+                return;
+            }
             const { data } = await supabase
                 .from('igroki')
                 .select('id, imya, igrovoy_nik, tg_username, telefon')
-                .or(`imya.ilike.%${query}%,igrovoy_nik.ilike.%${query}%,tg_username.ilike.%${query}%`)
+                .or(orFiltr)
                 .limit(5);
             igroki = data;
         }
@@ -5266,10 +5309,18 @@ bot.on('message', async function(msg) {
                 .limit(5);
             igroki = data;
         } else {
+            const orFiltr = orIlikeIgrokiPoisk(query);
+            if (!orFiltr) {
+                bot.sendMessage(chatId, '❌ Слишком короткий или пустой запрос. Введи имя или @username:', {
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Отмена', callback_data: 'menu_vladeltsa' }]] }
+                });
+                sostoyanie[tg_id] = 'naznach_poisk_' + klub_id;
+                return;
+            }
             const { data } = await supabase
                 .from('igroki')
                 .select('id, imya, igrovoy_nik, tg_username, telefon')
-                .or(`imya.ilike.%${query}%,igrovoy_nik.ilike.%${query}%,tg_username.ilike.%${query}%`)
+                .or(orFiltr)
                 .limit(5);
             igroki = data;
         }
@@ -6146,10 +6197,12 @@ async function privyazatIgrokaIzBazy(igra, igrok) {
         }
     }
 
+    const orFiltrNick = orIlikeIgrokiTochno(name);
+    if (!orFiltrNick) return igrok;
     const { data: poNicku } = await supabase
         .from('igroki')
         .select('id, tg_id, imya, igrovoy_nik, tg_username')
-        .or('igrovoy_nik.ilike.' + name + ',imya.ilike.' + name + ',tg_username.ilike.' + name)
+        .or(orFiltrNick)
         .limit(5);
     const foundGlobal = (poNicku || []).find(sravnit);
     if (foundGlobal) {
@@ -7744,6 +7797,15 @@ async function miniAppVecherAction(tg_id, user, body) {
     }
     if (sub === 'from_anons') {
         const anons_id = body.anons_id;
+        if (!anons_id) return { stay: true, message: 'Анонс не выбран' };
+        const { data: anons } = await supabase
+            .from('anonsy')
+            .select('id, klub_id')
+            .eq('id', anons_id)
+            .maybeSingle();
+        if (!anons || String(anons.klub_id) !== String(klub_id)) {
+            return { stay: true, message: 'Анонс не найден или принадлежит другому клубу' };
+        }
         const { data: zapisi } = await supabase
             .from('zapisi_na_anons')
             .select('status, igroki(id, tg_id, imya, igrovoy_nik)')
