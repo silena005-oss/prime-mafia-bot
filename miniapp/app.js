@@ -1304,29 +1304,65 @@ function renderHostPanel(game) {
   }
 }
 
+function seatFingerprint(player, clickMode) {
+  return [
+    player.nomer,
+    player.name,
+    player.role || '',
+    player.status,
+    player.foly || 0,
+    player.speaking ? 1 : 0,
+    player.role_card_url || '',
+    clickMode || ''
+  ].join('|');
+}
+
 function renderSeats(players, hostMeta) {
-  el.table.querySelectorAll('.seat').forEach((seat) => seat.remove());
   const rectPad = 12;
   const total = Math.max(players.length, 1);
   const clickMode = hostClickMode(hostMeta);
-  // На узких экранах (телефон) и при большом столе круговая раскладка сбивается —
-  // используем аккуратную сетку мест.
   const listMode = (typeof window !== 'undefined' && window.innerWidth <= 760) || total > 12;
   el.table.classList.toggle('table-list', listMode);
 
+  const nextKeys = new Set(players.map((p) => String(p.nomer)));
+  el.table.querySelectorAll('.seat[data-nomer]').forEach((seat) => {
+    if (!nextKeys.has(seat.dataset.nomer)) seat.remove();
+  });
+
   players.forEach((player, index) => {
+    const nomerKey = String(player.nomer || index + 1);
     const angle = (Math.PI * 2 * index / total) - Math.PI / 2;
     const x = 50 + Math.cos(angle) * 37;
     const y = 50 + Math.sin(angle) * 39;
     const clickable = clickMode && player.status === 'v_igre' &&
       !(clickMode === 'nominate' && player.speaking) &&
       !(clickMode === 'intro_assign' && player.role);
-    const seat = document.createElement('button');
-    seat.type = 'button';
+    const fp = seatFingerprint(player, clickable ? clickMode : '');
+    let seat = el.table.querySelector('.seat[data-nomer="' + nomerKey + '"]');
+    if (seat && seat.dataset.fp === fp && seat.dataset.list === String(listMode)) {
+      if (!listMode) {
+        seat.style.left = `clamp(${rectPad}px, ${x}%, calc(100% - 148px))`;
+        seat.style.top = `clamp(${rectPad}px, ${y}%, calc(100% - 86px))`;
+      }
+      return;
+    }
+
+    const created = !seat;
+    if (!seat) {
+      seat = document.createElement('button');
+      seat.type = 'button';
+      seat.dataset.nomer = nomerKey;
+      el.table.appendChild(seat);
+    }
+    seat.dataset.fp = fp;
+    seat.dataset.list = String(listMode);
     seat.className = `seat ${listMode ? 'seat-flow ' : ''}${player.status === 'v_igre' ? '' : 'dead'}${player.speaking ? ' speaking' : ''}${clickable ? ' host-target' : ''}`;
     if (!listMode) {
       seat.style.left = `clamp(${rectPad}px, ${x}%, calc(100% - 148px))`;
       seat.style.top = `clamp(${rectPad}px, ${y}%, calc(100% - 86px))`;
+    } else {
+      seat.style.left = '';
+      seat.style.top = '';
     }
     const roleLine = player.role ? `<div class="seat-role">${escapeHtml(player.role)}</div>` : '';
     seat.innerHTML = `
@@ -1337,7 +1373,7 @@ function renderSeats(players, hostMeta) {
     `;
     if (player.role_card_url) {
       loadAuthImage(player.role_card_url).then((objectUrl) => {
-        if (!objectUrl) return;
+        if (!objectUrl || seat.dataset.nomer !== nomerKey) return;
         const img = document.createElement('img');
         img.className = 'seat-role-card';
         img.src = objectUrl;
@@ -1345,6 +1381,8 @@ function renderSeats(players, hostMeta) {
         seat.insertBefore(img, seat.firstChild);
       });
     }
+    // Rebind click each update when targetable
+    seat.onclick = null;
     if (clickable) {
       seat.addEventListener('click', () => {
         if (clickMode === 'pick_first') hostAction('pick_first', { nomer: player.nomer, faza: hostMeta.pick_first_faza });
@@ -1365,6 +1403,7 @@ function renderSeats(players, hostMeta) {
           hostAction('give_foul', { nomer: player.nomer });
         }
         else if (clickMode === 'immunity') {
+          state.immunityArmed = false;
           hostAction('immunity_toggle', { nomer: player.nomer });
         }
         else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
@@ -1372,7 +1411,7 @@ function renderSeats(players, hostMeta) {
     }
     if (player.avatar_url) {
       loadAvatarImage(player.avatar_url).then((objectUrl) => {
-        if (!objectUrl) return;
+        if (!objectUrl || seat.dataset.nomer !== nomerKey) return;
         const img = document.createElement('img');
         img.className = 'seat-avatar';
         img.src = objectUrl;
@@ -1380,7 +1419,6 @@ function renderSeats(players, hostMeta) {
         seat.prepend(img);
       });
     }
-    el.table.appendChild(seat);
   });
 }
 

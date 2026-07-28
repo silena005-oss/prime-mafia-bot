@@ -10637,19 +10637,38 @@ async function miniAppHostAction(tg_id, user, body) {
     }
 
     const faza = igra.faza || '';
-    const nochSubs = new Set(['night_pick', 'night_skip', 'night_next', 'night_reset', 'night_finish', 'night_prev']);
-    if (nochSubs.has(sub) && faza !== 'noch') {
-        return { stay: true, message: 'Сейчас не ночная фаза' };
-    }
-    if (sub === 'night' && !['den', 'znakomstvo', 'opravdanie', 'golosovanie'].includes(faza)) {
-        return { stay: true, message: 'Ночь нельзя начать из фазы «' + faza + '»' };
-    }
-    if ((sub === 'vote_set' || sub === 'vote_finish') && faza !== 'golosovanie' && faza !== 'opravdanie') {
-        return { stay: true, message: 'Сейчас не голосование' };
-    }
-    if ((sub === 'nominate' || sub === 'undo_nominate' || sub === 'pass' || sub === 'skip_krug') &&
-        !['den', 'znakomstvo'].includes(faza)) {
-        return { stay: true, message: 'Действие недоступно в фазе «' + faza + '»' };
+    const HOST_FAZY = {
+        pass: ['den', 'znakomstvo'],
+        skip_krug: ['den', 'znakomstvo'],
+        nominate: ['den', 'znakomstvo'],
+        undo_nominate: ['den', 'znakomstvo'],
+        nominate_to_vote: ['den', 'znakomstvo', 'opravdanie'],
+        start_znakomstvo: ['lobby', 'registraciya', 'znakomstvo', ''],
+        start_voting: ['den', 'znakomstvo', 'opravdanie'],
+        night: ['den', 'znakomstvo', 'opravdanie', 'golosovanie'],
+        night_pick: ['noch'],
+        night_skip: ['noch'],
+        night_next: ['noch'],
+        night_reset: ['noch'],
+        night_finish: ['noch'],
+        night_prev: ['noch'],
+        vote_set: ['golosovanie', 'opravdanie'],
+        vote_finish: ['golosovanie', 'opravdanie'],
+        vote_nobody: ['golosovanie', 'opravdanie'],
+        vote_eliminate: ['golosovanie', 'opravdanie'],
+        pick_first: ['den', 'znakomstvo', 'lobby', ''],
+        pick_first_auto: ['den', 'znakomstvo', 'lobby', ''],
+        intro_start: ['lobby', 'registraciya', 'znakomstvo', ''],
+        intro_assign: ['lobby', 'registraciya', 'znakomstvo', ''],
+        intro_mirny: ['lobby', 'registraciya', 'znakomstvo', ''],
+        give_foul: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
+        immunity: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
+        immunity_toggle: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
+        confirm_vecher_roster: ['lobby', 'registraciya', '']
+    };
+    const allowed = HOST_FAZY[sub];
+    if (allowed && !allowed.includes(faza)) {
+        return { stay: true, message: 'Действие «' + sub + '» недоступно в фазе «' + (faza || '—') + '»' };
     }
 
     if (sub === 'pass') {
@@ -13440,12 +13459,11 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: 'Рассылка запущена' });
         bot.sendMessage(chatId, '📨 Рассылка запущена. Пришлю итог, когда закончится.', { parse_mode: 'Markdown' }).catch(() => {});
         const me = await bot.getMe();
-        rassylka.razoslatAnons(bot, a.klub_id, a.kluby, a, me.username, telegram_id)
+        rassylka.razoslatAnons(bot, a.klub_id, a.kluby, a, me.username, telegram_id, chatId)
             .then((res) => {
-                let t = '📨 *Рассылка приглашений*\n\n';
-                if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
-                else t += 'Доставлено: *' + res.ok + '* из ' + res.total + (res.blocked ? '\nНе доставлено (бот заблокирован): ' + res.blocked : '') + (res.fail ? '\nОшибок: ' + res.fail : '');
-                return bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+                if (res.empty) {
+                    bot.sendMessage(chatId, '📨 Некому отправить: база пуста или все отписались (/stop).', { parse_mode: 'Markdown' }).catch(() => {});
+                }
             })
             .catch((e) => {
                 console.error('[rassylka anons]', e?.message || e);
@@ -13469,12 +13487,11 @@ bot.on('callback_query', async function(query) {
         await zagruzitNazvanieKlubaVIgru(igra);
         const url = await ssylkaVhodaVIgru(bot, kod);
         bot.sendMessage(chatId, '📨 Рассылка на игру №' + kod + ' запущена. Пришлю итог позже.').catch(() => {});
-        rassylka.razoslatVhodVIgru(bot, igra.klub_id, nazvanieKlubaIgry(igra), kod, url, telegram_id)
+        rassylka.razoslatVhodVIgru(bot, igra.klub_id, nazvanieKlubaIgry(igra), kod, url, telegram_id, chatId)
             .then((res) => {
-                let t = '📨 *Приглашения на игру №' + kod + '*\n\n';
-                if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
-                else t += 'Доставлено: *' + res.ok + '* из ' + res.total + '\n\nСсылка: ' + url;
-                return bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+                if (res.empty) {
+                    bot.sendMessage(chatId, '📨 Некому отправить: база пуста или все отписались (/stop).').catch(() => {});
+                }
             })
             .catch((e) => {
                 console.error('[rassylka igry]', e?.message || e);
@@ -18736,6 +18753,7 @@ async function napomnitObOplateRailway() {
         if (me) console.log('🤖 @' + (me.username || me.id));
         await zapustitPolling();
         console.log('🎴 PrimeMafia бот запущен (polling)');
+        rassylka.zapustitWorker(bot);
     } catch (e) {
         if (etoOshibka409(e)) {
             await perezapuskPosle409();
