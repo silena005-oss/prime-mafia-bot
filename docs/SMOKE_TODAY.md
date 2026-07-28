@@ -2,15 +2,15 @@
 
 ## 1. SQL в Supabase (обязательно)
 
-1. Открой SQL Editor → вставь **весь** файл `supabase/ops_today_run.sql`.
+1. Открой SQL Editor → вставь **весь** файл `supabase/ops_today_run.sql` (обновлённый: сам добавит `data_igry` / `sportivniy`).
 2. Run.
-3. В Results должно быть примерно:
-   - `policies_left` — маленькое число или 0 (после lockdown)
+3. В Results должно быть:
    - `bally_has_sportivniy` = true
+   - `bally_has_data_igry` = true
    - `has_top_rpc` = true
    - `has_rassylka_jobs` = true
 
-Если снова ошибка — скопируй текст ошибки целиком.
+Если какой-то индекс пропущен из‑за другой колонки — в Notices будет `skip index …` (это ок).
 
 ## 2. Railway / miniapp
 

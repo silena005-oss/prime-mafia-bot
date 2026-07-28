@@ -1,9 +1,11 @@
--- Performance indexes + club rating top RPC for miniapp /state.
--- Run in Supabase SQL Editor. Safe to re-run.
+-- Performance indexes + club rating top RPC.
+-- Prefer running supabase/ops_today_run.sql (safer for prod schema drift).
 
--- Prod may miss this column (code already writes sportivniy)
 ALTER TABLE public.bally
   ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.bally
+  ADD COLUMN IF NOT EXISTS data_igry date;
 
 CREATE UNIQUE INDEX IF NOT EXISTS igroki_tg_id_uq
   ON public.igroki (tg_id);
