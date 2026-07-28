@@ -74,6 +74,8 @@ ALLOW_MINIAPP_DEV_BYPASS=... # только локально, если нуже�
 - `npm overrides` закрывают часть CVE транзитивных пакетов (`form-data`, `qs`, `ws`).
 - `node-telegram-bot-api` **^1.1.2** (CJS: `const { TelegramBot } = require(...)`) — убран deprecated `request`, `npm audit` чистый.
 - После `fix_open_rls_policies.sql` anon не читает клубные таблицы.
+- Критичные unit-тесты: `npm test` (`test/security-crit.test.js`).
+- Производительность miniapp: кэш `/state` 8с, gzip, SQL top через `top_reytinga_kluba` (см. `add_perf_indexes_and_rating_rpc.sql`).
 
 ## Публикация итогов в группу / канал
 

@@ -35,7 +35,8 @@ const {
     etoRazreshennyyImageMime,
     proveritRateLimit,
     securityHeadersDlyaOtvetov,
-    securityHeadersDlyaMiniAppHtml
+    securityHeadersDlyaMiniAppHtml,
+    otpravitSSzhatie
 } = bezopasnost;
 
 const {
@@ -156,12 +157,12 @@ function miniAppMime(filePath) {
     return 'application/octet-stream';
 }
 
-function otpravitJson(res, status, data) {
-    res.writeHead(status, {
+function otpravitJson(res, status, data, req) {
+    const body = JSON.stringify(data);
+    otpravitSSzhatie(req, res, status, {
         'Content-Type': 'application/json; charset=utf-8',
         ...securityHeadersDlyaOtvetov()
-    });
-    res.end(JSON.stringify(data));
+    }, body);
 }
 
 function prochitatJsonBody(req) {
@@ -202,8 +203,10 @@ function proveritTelegramInitData(initData) {
     if (!crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(hash, 'hex'))) return null;
 
     const authDate = Number(params.get('auth_date') || 0);
+    const nowSec = Date.now() / 1000;
+    if (!authDate || authDate > nowSec + 120) return null;
     // 6 часов — меньше окно для украденного initData
-    if (authDate && Date.now() / 1000 - authDate > 6 * 3600) return null;
+    if (nowSec - authDate > 6 * 3600) return null;
     const userRaw = params.get('user');
     if (!userRaw) return null;
     try {
@@ -536,8 +539,19 @@ async function sozdatNovuyuIgry(telegram_id, klub_id, kolichestvo, anons_id = nu
 }
 
 async function otvetMiniAppPosleDeystviya(tg_id, user, message, extra = {}) {
+    invalidirovatMiniAppStateKesh(tg_id);
     const data = await sostoyanieMiniApp(user || { id: tg_id });
     return { stay: true, message, data, ...extra };
+}
+
+const MINIAPP_STATE_TTL_MS = 8000;
+const miniappStateCache = new Map();
+
+function invalidirovatMiniAppStateKesh(tg_id) {
+    const prefix = String(tg_id) + ':';
+    for (const k of [...miniappStateCache.keys()]) {
+        if (k.startsWith(prefix) || k === String(tg_id) + ':') miniappStateCache.delete(k);
+    }
 }
 
 const MINIAPP_TEMY = {
@@ -659,11 +673,29 @@ function topReytingaIzStrok(rows) {
 
 async function poluchitTopReytingaKluba(klub_id, sportivniy = false) {
     if (!klub_id) return [];
+    try {
+        const { data, error } = await supabase.rpc('top_reytinga_kluba', {
+            p_klub: klub_id,
+            p_sport: sportivniy || false,
+            p_limit: 10
+        });
+        if (!error && Array.isArray(data)) {
+            return data.map((r, i) => ({
+                place: i + 1,
+                name: r.igrovoy_nik || r.imya || '?',
+                pts: Number(r.pts) || 0,
+                games: Number(r.games) || 0
+            }));
+        }
+    } catch (_) { /* RPC ещё не задеплоен */ }
+
+    // Fallback: ограниченный скан (не все исторические строки)
     const { data: rows } = await supabase
         .from('bally')
         .select('igrok_id, bally_vsego, igroki(imya, igrovoy_nik)')
         .eq('klub_id', klub_id)
-        .eq('sportivniy', sportivniy || false);
+        .eq('sportivniy', sportivniy || false)
+        .limit(3000);
     return topReytingaIzStrok(rows);
 }
 
@@ -742,13 +774,16 @@ async function poluchitReytingMiniApp(telegram_id, klub_id) {
     return result;
 }
 
-async function sostoyanieMiniApp(user) {
+async function sostoyanieMiniApp(user, opts = {}) {
     const telegram_id = Number(user.id);
     const roles = await poluchitRoliPolzovatelya(telegram_id);
     const igrok = roles.igrok;
 
     const clubs = await poluchitKlubyMiniApp(telegram_id);
-    const selectedKlubId = clubs[0]?.id || null;
+    const preferred = opts.klub_id || null;
+    const selectedKlubId = (preferred && clubs.some(c => String(c.id) === String(preferred)))
+        ? preferred
+        : (clubs[0]?.id || null);
     let games = aktivnyeIgryVedushchego(telegram_id).map(({ kod, igra }) => kratkoIgruDlyaMiniApp(kod, igra, telegram_id));
     const klubIds = new Set(clubs.map(k => k.id));
     Object.entries(igry)
@@ -951,6 +986,12 @@ async function obrabotatMiniAppClubLogo(req, res, url) {
         res.end();
         return;
     }
+    const rlMedia = proveritRateLimit('miniapp-media:' + user.id, 40, 60 * 1000);
+    if (!rlMedia.ok) {
+        res.writeHead(429, { 'Retry-After': String(rlMedia.retryAfterSec), ...securityHeadersDlyaOtvetov() });
+        res.end();
+        return;
+    }
     const klub_id = url.searchParams.get('klub_id');
     if (!klub_id || !(await klubBrend.mozhnoSmotretLogoKluba(Number(user.id), klub_id))) {
         res.writeHead(403);
@@ -976,6 +1017,12 @@ async function obrabotatMiniAppRoleCard(req, res, url) {
     const user = await poluchitMiniAppUser(req);
     if (!user) {
         res.writeHead(401);
+        res.end();
+        return;
+    }
+    const rlMedia = proveritRateLimit('miniapp-media:' + user.id, 40, 60 * 1000);
+    if (!rlMedia.ok) {
+        res.writeHead(429, { 'Retry-After': String(rlMedia.retryAfterSec), ...securityHeadersDlyaOtvetov() });
         res.end();
         return;
     }
@@ -1011,7 +1058,7 @@ async function obrabotatMiniAppApi(req, res, url) {
     }
     const user = await poluchitMiniAppUser(req);
     if (!user) {
-        otpravitJson(res, 401, { ok: false, error: 'telegram_auth_required' });
+        otpravitJson(res, 401, { ok: false, error: 'telegram_auth_required' }, req);
         return;
     }
     const tgKey = String(user.id);
@@ -1028,47 +1075,42 @@ async function obrabotatMiniAppApi(req, res, url) {
         return;
     }
     if (req.method === 'GET' && url.pathname === '/api/miniapp/state') {
-        const klub_id = url.searchParams.get('klub_id');
-        const data = await sostoyanieMiniApp(user);
-        if (klub_id && data.clubs?.some(c => c.id === klub_id)) {
-            data.selected_klub_id = klub_id;
-            const club = data.clubs.find(c => c.id === klub_id);
-            data.rating_enabled = club?.has_rating !== false;
-            if (data.rating_enabled) {
-                data.rating = await poluchitReytingMiniApp(Number(user.id), klub_id).catch(() => data.rating);
-            } else {
-                data.rating = { klub_id, enabled: false, my: null, top: [], best_game: null, role_stats: [] };
-            }
-            const rolesK = await poluchitRoliPolzovatelya(Number(user.id));
-            if (rolesK.igrok?.id) {
-                data.bonuses = { active: await bonusy.poluchitBonusyIgroka(rolesK.igrok.id, klub_id).catch(() => []) };
-            }
-            if (data.user?.can_manage_evening) {
-                data.evening = await sostoyanieVecheraDlyaMiniApp(klub_id, Number(user.id)).catch(() => null);
-            }
+        const klub_id = url.searchParams.get('klub_id') || null;
+        const cacheKey = String(user.id) + ':' + String(klub_id || '');
+        const cached = miniappStateCache.get(cacheKey);
+        if (cached && Date.now() - cached.ts < MINIAPP_STATE_TTL_MS) {
+            otpravitJson(res, 200, { ok: true, data: cached.data, cached: true }, req);
+            return;
         }
-        otpravitJson(res, 200, { ok: true, data });
+        const data = await sostoyanieMiniApp(user, { klub_id });
+        miniappStateCache.set(cacheKey, { ts: Date.now(), data });
+        if (miniappStateCache.size > 500) {
+            const oldest = miniappStateCache.keys().next().value;
+            miniappStateCache.delete(oldest);
+        }
+        otpravitJson(res, 200, { ok: true, data }, req);
         return;
     }
     if (req.method === 'POST' && url.pathname === '/api/miniapp/action') {
         const body = await prochitatJsonBody(req);
         const action = body.action || body.type;
         if (!action) {
-            otpravitJson(res, 400, { ok: false, error: 'action_required' });
+            otpravitJson(res, 400, { ok: false, error: 'action_required' }, req);
             return;
         }
+        invalidirovatMiniAppStateKesh(user.id);
         const message = await obrabotatMiniAppAction(Number(user.id), Number(user.id), action, user, body);
         if (message && typeof message === 'object' && message.stay) {
-            otpravitJson(res, 200, { ok: true, ...message });
+            otpravitJson(res, 200, { ok: true, ...message }, req);
         } else {
-            otpravitJson(res, 200, { ok: true, message: message || 'ok' });
+            otpravitJson(res, 200, { ok: true, message: message || 'ok' }, req);
         }
         return;
     }
-    otpravitJson(res, 404, { ok: false, error: 'not_found' });
+    otpravitJson(res, 404, { ok: false, error: 'not_found' }, req);
 }
 
-function otpravitMiniAppFile(res, url) {
+function otpravitMiniAppFile(req, res, url) {
     const relPath = url.pathname === MINI_APP_PATH || url.pathname === MINI_APP_PATH + '/'
         ? 'index.html'
         : decodeURIComponent(url.pathname.replace(MINI_APP_PATH + '/', ''));
@@ -1089,12 +1131,12 @@ function otpravitMiniAppFile(res, url) {
             res.end('Mini app file not found');
             return;
         }
-        res.writeHead(200, {
+        const headers = {
             'Content-Type': miniAppMime(filePath),
             'Cache-Control': filePath.endsWith('.html') ? 'no-store' : 'public, max-age=300',
             ...(filePath.endsWith('.html') ? securityHeadersDlyaMiniAppHtml() : securityHeadersDlyaOtvetov())
-        });
-        res.end(body);
+        };
+        otpravitSSzhatie(req, res, 200, headers, body);
     });
 }
 
@@ -1111,12 +1153,12 @@ http.createServer((req, res) => {
     if (url.pathname.startsWith('/api/miniapp/')) {
         obrabotatMiniAppApi(req, res, url).catch(e => {
             console.error('[miniapp api]', e.message || e);
-            otpravitJson(res, 500, { ok: false, error: 'server_error' });
+            otpravitJson(res, 500, { ok: false, error: 'server_error' }, req);
         });
         return;
     }
     if (url.pathname === MINI_APP_PATH || url.pathname.startsWith(MINI_APP_PATH + '/')) {
-        otpravitMiniAppFile(res, url);
+        otpravitMiniAppFile(req, res, url);
         return;
     }
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -6244,33 +6286,34 @@ async function privyazatIgrokaIzBazy(igra, igrok) {
     };
 
     if (igra?.klub_id) {
-        const { data: chleny } = await supabase
-            .from('chleny_klubov')
-            .select('igroki(id, tg_id, imya, igrovoy_nik, tg_username)')
-            .eq('klub_id', igra.klub_id);
-        const found = (chleny || []).map(c => c.igroki).find(sravnit);
+        if (!igra._chleny_cache) {
+            const { data: chleny } = await supabase
+                .from('chleny_klubov')
+                .select('igroki(id, tg_id, imya, igrovoy_nik, tg_username)')
+                .eq('klub_id', igra.klub_id);
+            igra._chleny_cache = (chleny || []).map(c => c.igroki).filter(Boolean);
+        }
+        const found = igra._chleny_cache.find(sravnit);
         if (found) {
             igrok.igrok_id = found.id;
             igrok.telegram_id = igrok.telegram_id || found.tg_id || null;
             igrok.name = igrok.name || found.igrovoy_nik || found.imya || igrok.name;
-            await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, found.id);
             return igrok;
         }
     }
 
+    // Глобальный поиск — только для имени/igrok_id, без tg_id и без авто-вступления в клуб
     const orFiltrNick = orIlikeIgrokiTochno(name);
     if (!orFiltrNick) return igrok;
     const { data: poNicku } = await supabase
         .from('igroki')
-        .select('id, tg_id, imya, igrovoy_nik, tg_username')
+        .select('id, imya, igrovoy_nik, tg_username')
         .or(orFiltrNick)
         .limit(5);
     const foundGlobal = (poNicku || []).find(sravnit);
     if (foundGlobal) {
         igrok.igrok_id = foundGlobal.id;
-        igrok.telegram_id = igrok.telegram_id || foundGlobal.tg_id || null;
         igrok.name = igrok.name || foundGlobal.igrovoy_nik || foundGlobal.imya || igrok.name;
-        if (igra?.klub_id) await dobavitChlenaKlubaEsliNuzhno(igra.klub_id, foundGlobal.id);
     }
     return igrok;
 }
@@ -10593,6 +10636,22 @@ async function miniAppHostAction(tg_id, user, body) {
         return { stay: true, message: 'Нет доступа к игре.' };
     }
 
+    const faza = igra.faza || '';
+    const nochSubs = new Set(['night_pick', 'night_skip', 'night_next', 'night_reset', 'night_finish', 'night_prev']);
+    if (nochSubs.has(sub) && faza !== 'noch') {
+        return { stay: true, message: 'Сейчас не ночная фаза' };
+    }
+    if (sub === 'night' && !['den', 'znakomstvo', 'opravdanie', 'golosovanie'].includes(faza)) {
+        return { stay: true, message: 'Ночь нельзя начать из фазы «' + faza + '»' };
+    }
+    if ((sub === 'vote_set' || sub === 'vote_finish') && faza !== 'golosovanie' && faza !== 'opravdanie') {
+        return { stay: true, message: 'Сейчас не голосование' };
+    }
+    if ((sub === 'nominate' || sub === 'undo_nominate' || sub === 'pass' || sub === 'skip_krug') &&
+        !['den', 'znakomstvo'].includes(faza)) {
+        return { stay: true, message: 'Действие недоступно в фазе «' + faza + '»' };
+    }
+
     if (sub === 'pass') {
         await hostPasBezPaneli(igra, kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Следующий игрок');
@@ -11148,7 +11207,7 @@ bot.on('callback_query', async function(query) {
     const telegram_id = query.from.id;
     const data = query.data;
 
-    console.log('[callback]', telegram_id, data);
+    console.log('[callback]', telegram_id, String(data || '').slice(0, 48));
 
     bot.answerCallbackQuery(query.id).catch(() => {});
 
@@ -13378,13 +13437,21 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: 'Рассылка — с тарифа Start', show_alert: true });
             return;
         }
-        bot.answerCallbackQuery(query.id, { text: 'Рассылка…' });
+        bot.answerCallbackQuery(query.id, { text: 'Рассылка запущена' });
+        bot.sendMessage(chatId, '📨 Рассылка запущена. Пришлю итог, когда закончится.', { parse_mode: 'Markdown' }).catch(() => {});
         const me = await bot.getMe();
-        const res = await rassylka.razoslatAnons(bot, a.klub_id, a.kluby, a, me.username, telegram_id);
-        let t = '📨 *Рассылка приглашений*\n\n';
-        if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
-        else t += 'Доставлено: *' + res.ok + '* из ' + res.total + (res.blocked ? '\nНе доставлено (бот заблокирован): ' + res.blocked : '') + (res.fail ? '\nОшибок: ' + res.fail : '');
-        bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+        rassylka.razoslatAnons(bot, a.klub_id, a.kluby, a, me.username, telegram_id)
+            .then((res) => {
+                let t = '📨 *Рассылка приглашений*\n\n';
+                if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
+                else t += 'Доставлено: *' + res.ok + '* из ' + res.total + (res.blocked ? '\nНе доставлено (бот заблокирован): ' + res.blocked : '') + (res.fail ? '\nОшибок: ' + res.fail : '');
+                return bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+            })
+            .catch((e) => {
+                console.error('[rassylka anons]', e?.message || e);
+                bot.sendMessage(chatId, '❌ Рассылка завершилась с ошибкой.').catch(() => {});
+            });
+        return;
     }
 
     else if (data.startsWith('rassylka_igry_')) {
@@ -13398,14 +13465,22 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: 'Рассылка — с тарифа Start', show_alert: true });
             return;
         }
-        bot.answerCallbackQuery(query.id, { text: 'Рассылка…' });
+        bot.answerCallbackQuery(query.id, { text: 'Рассылка запущена' });
         await zagruzitNazvanieKlubaVIgru(igra);
         const url = await ssylkaVhodaVIgru(bot, kod);
-        const res = await rassylka.razoslatVhodVIgru(bot, igra.klub_id, nazvanieKlubaIgry(igra), kod, url, telegram_id);
-        let t = '📨 *Приглашения на игру №' + kod + '*\n\n';
-        if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
-        else t += 'Доставлено: *' + res.ok + '* из ' + res.total + '\n\nСсылка: ' + url;
-        bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, '📨 Рассылка на игру №' + kod + ' запущена. Пришлю итог позже.').catch(() => {});
+        rassylka.razoslatVhodVIgru(bot, igra.klub_id, nazvanieKlubaIgry(igra), kod, url, telegram_id)
+            .then((res) => {
+                let t = '📨 *Приглашения на игру №' + kod + '*\n\n';
+                if (res.empty) t += 'Некому отправить: база пуста или все отписались (/stop).';
+                else t += 'Доставлено: *' + res.ok + '* из ' + res.total + '\n\nСсылка: ' + url;
+                return bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
+            })
+            .catch((e) => {
+                console.error('[rassylka igry]', e?.message || e);
+                bot.sendMessage(chatId, '❌ Рассылка завершилась с ошибкой.').catch(() => {});
+            });
+        return;
     }
 
     else if (data.startsWith('qr_igry_')) {

@@ -29,6 +29,7 @@ Prime Mafia — **одна база**, но данные каждого клуб
 5. `add_klub_ankety.sql`
 6. `add_vecher_reyting.sql` — игрок вечера, рейтинг за вечер
 7. **`enable_rls_club_isolation.sql`** — RLS, изоляция клубов (**обязательно до гостевых клубов**)
+8. **`add_perf_indexes_and_rating_rpc.sql`** — индексы + RPC `top_reytinga_kluba` для топа рейтинга miniapp
 
 ## Где смотреть анкеты клубов
 

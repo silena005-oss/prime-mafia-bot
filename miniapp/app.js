@@ -15,6 +15,8 @@ const state = {
   localTimerSec: 0,
   localTimerKod: null,
   localTimerSpeaking: null,
+  loadInFlight: false,
+  pollBusyUntil: 0,
 };
 
 if (tg) {
@@ -438,6 +440,8 @@ async function hostAction(sub, extra = {}) {
 }
 
 async function loadState(klubId, silent) {
+  if (state.loadInFlight) return;
+  state.loadInFlight = true;
   try {
     const query = klubId ? `?klub_id=${encodeURIComponent(klubId)}` : '';
     const response = await fetch('/api/miniapp/state' + query, {
@@ -459,6 +463,8 @@ async function loadState(klubId, silent) {
     render();
   } catch (error) {
     if (!silent) renderError(error);
+  } finally {
+    state.loadInFlight = false;
   }
 }
 
@@ -718,13 +724,25 @@ function avatarHeaders() {
   return tg?.initData ? { 'x-telegram-init-data': tg.initData } : {};
 }
 
+const authImageCache = new Map();
+const AUTH_IMAGE_CACHE_MAX = 48;
+
 async function loadAuthImage(url) {
   if (!url || !tg?.initData) return null;
+  if (authImageCache.has(url)) return authImageCache.get(url);
   try {
     const response = await fetch(url, { headers: avatarHeaders() });
     if (!response.ok) return null;
     const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
+    if (authImageCache.size >= AUTH_IMAGE_CACHE_MAX) {
+      const first = authImageCache.keys().next().value;
+      const old = authImageCache.get(first);
+      authImageCache.delete(first);
+      if (old) URL.revokeObjectURL(old);
+    }
+    authImageCache.set(url, objectUrl);
+    return objectUrl;
   } catch (_) {
     return null;
   }
@@ -782,7 +800,17 @@ function render() {
   renderAvatar(el.avatar, user.name, user.avatar_url);
 
   if (selectedClub?.logo_url && el.brandMark) {
-    el.brandMark.innerHTML = `<img src="${escapeAttr(selectedClub.logo_url)}" alt="" />`;
+    el.brandMark.textContent = '';
+    const img = document.createElement('img');
+    img.alt = '';
+    el.brandMark.appendChild(img);
+    loadAuthImage(selectedClub.logo_url).then((objectUrl) => {
+      if (!objectUrl) {
+        el.brandMark.textContent = 'PM';
+        return;
+      }
+      img.src = objectUrl;
+    });
   } else if (el.brandMark) {
     el.brandMark.textContent = 'PM';
   }
@@ -1380,6 +1408,17 @@ function escapeAttr(value) {
 applyTheme(state.theme);
 loadState();
 setInterval(() => {
-  if (tg?.initData) loadState(state.selectedKlubId, true);
-}, 12000);
+  if (!tg?.initData) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (state.loadInFlight) return;
+  const hasLiveGame = (state.data?.games || []).some((g) => g.host || g.faza);
+  const intervalOk = Date.now() >= (state.pollBusyUntil || 0);
+  if (!intervalOk) return;
+  // Активная игра — чаще, idle — реже
+  state.pollBusyUntil = Date.now() + (hasLiveGame ? 12000 : 30000);
+  loadState(state.selectedKlubId, true);
+}, 4000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && tg?.initData) loadState(state.selectedKlubId, true);
+});
 setInterval(tickLocalTimer, 1000);
