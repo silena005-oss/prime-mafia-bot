@@ -29,6 +29,8 @@ const bezopasnost = require('./lib/bezopasnost');
 const {
     orIlikeIgrokiPoisk,
     orIlikeIgrokiTochno,
+    orOwnerTgId,
+    urlTelegramFile,
     proveritRateLimit,
     securityHeadersDlyaOtvetov,
     securityHeadersDlyaMiniAppHtml
@@ -918,6 +920,12 @@ async function obrabotatMiniAppAvatar(req, res, url) {
         res.end();
         return;
     }
+    const rlMedia = proveritRateLimit('miniapp-media:' + user.id, 40, 60 * 1000);
+    if (!rlMedia.ok) {
+        res.writeHead(429, { 'Retry-After': String(rlMedia.retryAfterSec), ...securityHeadersDlyaOtvetov() });
+        res.end();
+        return;
+    }
     const requesterId = Number(user.id);
     const targetId = url.searchParams.get('tg_id') ? Number(url.searchParams.get('tg_id')) : requesterId;
     if (!targetId || !(await mozhnoSmotretAvatar(requesterId, targetId))) {
@@ -1275,10 +1283,20 @@ async function poluchitRoliPolzovatelya(telegram_id) {
             .eq('tg_id', String(telegram_id))
             .maybeSingle();
         if (!igrokStr?.id) {
+            const orOwner = orOwnerTgId(telegram_id);
+            if (!orOwner) {
+                return {
+                    registered: false,
+                    igrok: null,
+                    isOwner: false,
+                    isHost: false,
+                    menuCallback: 'menu_igroka'
+                };
+            }
             const { data: owned } = await supabase
                 .from('kluby')
                 .select('id')
-                .or(`owner_tg_id.eq.${tg},owner_tg_id.eq.${String(telegram_id)}`)
+                .or(orOwner)
                 .limit(1);
             const isOwner = !!(owned && owned.length);
             return {
@@ -4451,7 +4469,11 @@ bot.on('message', async function(msg) {
         if (msg.document) {
             try {
                 const file = await bot.getFile(msg.document.file_id);
-                const url = 'https://api.telegram.org/file/bot' + token + '/' + file.file_path;
+                const url = urlTelegramFile(token, file.file_path);
+                if (!url) {
+                    bot.sendMessage(chatId, '❌ Некорректный путь к файлу Telegram.');
+                    return;
+                }
                 const res = await fetch(url);
                 csvText = await res.text();
             } catch (e) {
@@ -11477,7 +11499,21 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('vech_an_')) {
         const p = cbUnpack(data.replace('vech_an_', ''));
-        if (!p) return;
+        if (!p?.anons_id || !p?.klub_id) return;
+        const klubyDostupa = await poluchitKlubyDlyaIgr(telegram_id);
+        if (!klubyDostupa.some(k => String(k.id) === String(p.klub_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к клубу', show_alert: true });
+            return;
+        }
+        const { data: anonsChk } = await supabase
+            .from('anonsy')
+            .select('id, klub_id')
+            .eq('id', p.anons_id)
+            .maybeSingle();
+        if (!anonsChk || String(anonsChk.klub_id) !== String(p.klub_id)) {
+            bot.answerCallbackQuery(query.id, { text: 'Анонс не найден или чужой клуб', show_alert: true });
+            return;
+        }
         const { data: zapisi } = await supabase
             .from('zapisi_na_anons')
             .select('status, igroki(id, tg_id, imya, igrovoy_nik)')
@@ -13278,6 +13314,11 @@ bot.on('callback_query', async function(query) {
             .single();
         if (!a) {
             bot.answerCallbackQuery(query.id, { text: 'Анонс не найден', show_alert: true });
+            return;
+        }
+        const klubyRassylki = await poluchitKlubyDlyaIgr(telegram_id);
+        if (!klubyRassylki.some(k => String(k.id) === String(a.klub_id))) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет доступа к клубу анонса', show_alert: true });
             return;
         }
         if (!(await mozhnoFunktsiyuKluba(a.klub_id, 'rassylka_priglasheniy'))) {

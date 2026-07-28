@@ -39,15 +39,12 @@ Prime Mafia — **одна база**, но данные каждого клуб
 
 ## RLS — замок перед гостями
 
-**Сейчас:** таблицы могут быть открыты для anon/authenticated — это нормальный этап разработки.
+**Рекомендуется сейчас:** выполнить **`fix_open_rls_policies.sql`** в SQL Editor —  
+снимет все `Allow all` / публичные политики, включит RLS на всех таблицах, отзовёт права у `anon`.  
+Бот с `service_role` не сломается. Mini app в Supabase напрямую не ходит.
 
-**Перед чужими клубами:** выполнить `enable_rls_club_isolation.sql`:
+Проверка: Database → Policies — везде RLS enabled и **No policies**.
 
-- RLS включён на всех клубных таблицах
-- `anon` / `authenticated` — **нет доступа** (политик нет = deny)
-- `goroda` — публичное чтение (регистрация)
-- Бот на Railway — **service_role** key (обходит RLS, фильтрация по `klub_id` в коде)
+Альтернатива/дополнение: `enable_rls_club_isolation.sql` (точечный список таблиц + опционально чтение `goroda`).
 
-Проверка: в Supabase → Authentication → Policies — на `kluby`, `bally` и т.д. RLS = enabled.
-
-Для будущего прямого доступа mini app → Supabase в файле миграции есть закомментированные политики через JWT `tg_id`.
+Для будущего прямого доступа mini app → Supabase в `enable_rls_club_isolation.sql` есть закомментированные политики через JWT `tg_id`.
