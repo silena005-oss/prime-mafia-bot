@@ -45,6 +45,8 @@ const {
     raschetStatusaTarifa,
     tekstTestovoyNedeli,
     tekstPaywallPosleTesta,
+    tekstPaketProdazhKluba,
+    knopkiPaketProdazhKluba,
     proveritStartPlatnoyIgry,
     poluchitTarifKluba,
     mozhnoFunktsiyuKluba
@@ -271,6 +273,7 @@ function knopkiNastroykiKlubaPanel(klub_nk) {
         [{ text: tipPrav === 'vip' ? '\uD83D\uDCCB Переключить на Pascal' : '\uD83D\uDCCB Переключить на VIP', callback_data: 'toggle_tip_kluba_' + klub_nk.id }],
         [{ text: n.logo_file_id ? '🎨 Заменить логотип' : '🎨 Загрузить логотип', callback_data: 'brend_klub_' + klub_nk.id }],
         ...(n.logo_file_id ? [[{ text: '🗑 Удалить логотип', callback_data: 'brend_klub_del_' + klub_nk.id }]] : []),
+        [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + klub_nk.id }],
         [{ text: '\uD83C\uDFA8 Свой брендбук — 5000₽', callback_data: 'stil_klub_' + klub_nk.id }],
         [{ text: '\u23F1 Изменить таймеры', callback_data: 'edit_taymery_' + klub_nk.id }],
         ...(reytingOn ? [[{ text: '\uD83C\uDFC6 Изменить баллы', callback_data: 'edit_bally_' + klub_nk.id }]] : []),
@@ -289,6 +292,30 @@ async function pokazatNastroykiKlubaV(chatId, messageId, klub_nk) {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: knopkiNastroykiKlubaPanel(klub_nk) }
     });
+}
+
+async function pokazatPaketProdazhKluba(chatId, messageId, klub_id, opts = {}) {
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, nastroyki')
+        .eq('id', klub_id)
+        .single();
+    const tekst = tekstPaketProdazhKluba(klub?.nazvaniye || 'клуб', klub?.nastroyki || {});
+    const knopki = knopkiPaketProdazhKluba(klub_id, {
+        back: opts.back || 'menu_vladeltsa'
+    });
+    const payload = {
+        chat_id: chatId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    };
+    if (messageId) {
+        await bot.editMessageText(tekst, { ...payload, message_id: messageId }).catch(() =>
+            bot.sendMessage(chatId, tekst, payload)
+        );
+    } else {
+        await bot.sendMessage(chatId, tekst, payload);
+    }
 }
 
 function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
@@ -2360,7 +2387,7 @@ function tekstInstrukciiVladeltsa() {
         '2) перешлите боту любое сообщение из этого чата;\n' +
         '3) после игры — «📢 Отправить в группу» или автопубликация в настройках.\n\n' +
         '*7. Тариф*\n' +
-        'После теста — «💳 Подключить тариф». Mini — *3 999 ₽*, до 10 игр.\n\n' +
+        '«💳 Тариф и пакет» — статус теста, Mini / Start / Club и заявка на подключение.\n\n' +
         '_Безопасность: docs/BEZOPASNOST.md · резервный админ: BACKUP_ADMIN_TG_IDS в Railway._\n' +
         '_Команды: /start — меню, /help — справка. Поддержка — «💬 Поддержка»._';
 }
@@ -2507,7 +2534,7 @@ async function zavershitAnketuKluba(chatId, tg_id, d, status) {
         {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '🎁 Тестовая неделя', callback_data: 'tarif_klub_' + klub_id }],
+                [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + klub_id }],
                 [{ text: '🎨 Свой брендбук 5000₽', callback_data: 'stil_klub_' + klub_id }],
                 ...dopolnitMiniAppKnopkami(menu_vladeltsa).reply_markup.inline_keyboard
             ] }
@@ -2826,6 +2853,63 @@ function uvedomitMiniAppPobedu(igra, kod, pobeditel) {
 }       // активные игры в памяти (кэш)
 const ruchnyeRezultaty = {}; // черновики ручного внесения игр без процесса
 
+function etoChernovikRuchnogoRezultata(tg_id) {
+    const shag = ozhidanie_registracii[tg_id]?.shag;
+    return !!shag && (String(shag).startsWith('manual_result') || shag === 'vecher_result_number');
+}
+
+function etoPrioritetnyyVvodStola(tg_id) {
+    const st = sostoyanie[tg_id];
+    if (typeof st !== 'string') return false;
+    return st.startsWith('lobby_spisok_') ||
+        st.startsWith('noch_znakomstvo_') ||
+        st.startsWith('vecher_vvod_') ||
+        st.startsWith('vecher_add_') ||
+        st.startsWith('vecher_remove_') ||
+        st.startsWith('perviy_hod_') ||
+        st.startsWith('vystav_golos_') ||
+        st.startsWith('golos_count_');
+}
+
+function ochistitChernovikRuchnogoRezultata(tg_id) {
+    if (!etoChernovikRuchnogoRezultata(tg_id) && !ruchnyeRezultaty[tg_id]) return false;
+    delete ozhidanie_registracii[tg_id];
+    delete ruchnyeRezultaty[tg_id];
+    return true;
+}
+
+function ochistitVvodStolaDlyaRezultata(tg_id) {
+    const st = sostoyanie[tg_id];
+    if (typeof st !== 'string') return;
+    if (
+        st.startsWith('lobby_spisok_') ||
+        st.startsWith('noch_znakomstvo_') ||
+        st.startsWith('vecher_vvod_') ||
+        st.startsWith('vecher_add_') ||
+        st.startsWith('vecher_remove_')
+    ) {
+        delete sostoyanie[tg_id];
+    }
+}
+
+function naytiLobbyOzhidayushcheeSpisok(tg_id, nikiCount) {
+    if (!Number.isFinite(nikiCount) || nikiCount < 6) return null;
+    let candidate = null;
+    for (const [kod, igra] of Object.entries(igry)) {
+        if (String(kod).startsWith('archive_') || igra?._ne_sohranyat) continue;
+        if (String(igra?.vedushchii_id) !== String(tg_id)) continue;
+        if (igra.roli_razdany) continue;
+        if (['den', 'noch', 'golosovanie', 'opravdanie', 'znakomstvo', 'noch_znakomstvo'].includes(igra.faza)) {
+            continue;
+        }
+        if (igra.kolichestvo !== nikiCount) continue;
+        const estRoli = (igra.igroki || []).some(i => i.rol);
+        if (estRoli) continue;
+        candidate = kod;
+    }
+    return candidate;
+}
+
 // ============================================
 // ПЕРСИСТЕНТНОСТЬ ИГР
 // ============================================
@@ -3037,22 +3121,25 @@ const menu_vladeltsa = {
             ],
             [
                 { text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' },
-                { text: '👥 База игроков', callback_data: 'baza_igrokov' }
+                { text: '💳 Тариф и пакет', callback_data: 'tarif_paket_v' }
             ],
             [
-                { text: '🔗 Приглашение', callback_data: 'klub_priglashenie' },
-                { text: '📢 Анонс', callback_data: 'anons_vybor_kluba' }
+                { text: '👥 База игроков', callback_data: 'baza_igrokov' },
+                { text: '🔗 Приглашение', callback_data: 'klub_priglashenie' }
             ],
             [
-                { text: '🏆 Рейтинг', callback_data: 'reyting_vybor_kluba' },
-                { text: '📊 Аналитика', callback_data: 'analitika' }
+                { text: '📢 Анонс', callback_data: 'anons_vybor_kluba' },
+                { text: '🏆 Рейтинг', callback_data: 'reyting_vybor_kluba' }
             ],
             [
-                { text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' },
-                { text: '🎴 Меню игрока', callback_data: 'menu_igroka' }
+                { text: '📊 Аналитика', callback_data: 'analitika' },
+                { text: '🎙 Меню ведущего', callback_data: 'menu_vedushchego' }
             ],
             [
-                { text: '📖 Как пользоваться', callback_data: 'pomoshch' },
+                { text: '🎴 Меню игрока', callback_data: 'menu_igroka' },
+                { text: '📖 Как пользоваться', callback_data: 'pomoshch' }
+            ],
+            [
                 { text: '💬 Поддержка', callback_data: 'podderzhka' }
             ]
         ]
@@ -3076,6 +3163,7 @@ const menu_vladeltsa_full = {
             [{ text: '📋 Мои анонсы', callback_data: 'moi_anonsy_vse' }],
             [{ text: '🎭 Управление ролями', callback_data: 'roli_vybor_kluba' }],
             [{ text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' }],
+            [{ text: '💳 Тариф и пакет', callback_data: 'tarif_paket_v' }],
             [{ text: '📋 Анкета клуба', callback_data: 'anketa_klub_prosmotr' }],
             [{ text: '➕ Создать ещё клуб', callback_data: 'sozdat_klub' }],
             [{ text: '📖 Как пользоваться', callback_data: 'pomoshch' }],
@@ -3266,8 +3354,7 @@ async function pokazatBlokStartaIgry(chatId, messageId, query, rez) {
     const body = rez.paywall || ('⚠️ ' + rez.preduprezhdenie);
     const klub_id = rez.klub_id || '';
     const knopki = [
-        [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + klub_id }],
-        [{ text: '🎁 О тестовой неделе', callback_data: 'tarif_klub_' + klub_id }],
+        [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + klub_id }],
         [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
     ];
     if (messageId) {
@@ -4125,6 +4212,11 @@ bot.on('message', async function(msg) {
         return;
     }
 
+    // Живой ввод за столом важнее «залипшего» черновика «внести результат»
+    if (etoChernovikRuchnogoRezultata(tg_id) && etoPrioritetnyyVvodStola(tg_id)) {
+        ochistitChernovikRuchnogoRezultata(tg_id);
+    }
+
     if (ozhidanie_registracii[tg_id]?.shag === 'manual_result_date') {
         const dataIso = razobrat_datu_anonsa(text) || (text.toLowerCase() === 'сегодня' ? dataIgrovoegoVechera() : null);
         if (!dataIso) {
@@ -4163,12 +4255,26 @@ bot.on('message', async function(msg) {
     if (ozhidanie_registracii[tg_id]?.shag === 'manual_result_players') {
         const parsed = razobratRuchnoyProtokol(text);
         if (!parsed) {
+            const nikiOnly = razobratSpisokNikov(text);
+            const kodLobby = naytiLobbyOzhidayushcheeSpisok(tg_id, nikiOnly.length);
+            if (kodLobby && igry[kodLobby]) {
+                ochistitChernovikRuchnogoRezultata(tg_id);
+                sostoyanie[tg_id] = 'lobby_spisok_' + kodLobby;
+                await bot.sendMessage(chatId,
+                    '↩️ Это похоже на состав стола, а не на протокол с ролями.\n' +
+                    'Принимаю как ники для игры №' + kodLobby + '.',
+                    { parse_mode: 'Markdown' }
+                );
+                await vnestiSpisokIgrokovLobby(chatId, igry[kodLobby], kodLobby, text);
+                return;
+            }
             bot.sendMessage(chatId,
                 '❌ Не смог разобрать состав.\n\n' +
                 'Нужно минимум 6 строк в формате:\n' +
                 '`1. Анна — Дон`\n' +
                 '`2. Олег — Шериф`\n' +
-                '`3. Катя — Мирный`',
+                '`3. Катя — Мирный`\n\n' +
+                '_Если хочешь начать игру (ночь знакомства) — открой лобби и «Внести список» / «Игра на N» из вечера. Черновик результата: /start._',
                 { parse_mode: 'Markdown' }
             );
             return;
@@ -7440,6 +7546,7 @@ async function obnovitLobbyVecheraIzSpiska(telegram_id, klub_id) {
 async function sozdatIgryIzVechera(tg_id, klub_id) {
     const spisok = await poluchitSpisokVecheraKluba(klub_id);
     if (!spisok?.length) return null;
+    ochistitChernovikRuchnogoRezultata(tg_id);
     await ochistitLobbyVedushchegoBezRoley(tg_id);
     const kod = await sozdatNovuyuIgry(tg_id, klub_id, spisok.length);
     const igra = igry[kod];
@@ -7659,7 +7766,17 @@ async function miniAppVecherAction(tg_id, user, body) {
     if (sub === 'create_game') {
         const kod = await sozdatIgryIzVechera(tg_id, klub_id);
         if (!kod) return { stay: true, message: 'Сначала зафиксируй состав вечера' };
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + kod + ' создана из состава вечера', { selected_game: kod });
+        const sent = await bot.sendMessage(
+            tg_id,
+            '🎲 Игра создана из состава вечера. Открываю стол…',
+            bystrayaKlaviaturaVedushchego
+        ).catch(() => null);
+        if (sent?.message_id) {
+            await pokazatSostavSleduyushcheyIgryVechera(tg_id, sent.message_id, kod);
+        } else {
+            await pokazatSostavSleduyushcheyIgryVechera(tg_id, null, kod).catch(() => {});
+        }
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + kod + ' — в чате кнопка «Начать ночь знакомства»', { selected_game: kod });
     }
     if (sub === 'enter_result') {
         const nomerRaw = body.game_number ?? body.nomer_igry;
@@ -7675,8 +7792,9 @@ async function miniAppVecherAction(tg_id, user, body) {
                 used_game_numbers: used
             };
         }
+        ochistitVvodStolaDlyaRezultata(tg_id);
         await nachatVnesenieRezultataVechera(tg_id, tg_id, klub_id, null, nomer);
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + nomer + ' — открой чат с ботом и отправь протокол');
+        return otvetMiniAppPosleDeystviya(tg_id, user, 'Игра №' + nomer + ' — открой чат с ботом и отправь протокол (ник — роль)');
     }
     if (sub === 'finish') {
         try {
@@ -7762,6 +7880,7 @@ function tekstVvodaSpiskaIgrokov(igra, kod) {
 async function pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
     const igra = igry[kod];
     if (!igra) return;
+    ochistitChernovikRuchnogoRezultata(telegram_id);
     sostoyanie[telegram_id] = 'lobby_spisok_' + kod;
     const opts = {
         parse_mode: 'Markdown',
@@ -7780,6 +7899,7 @@ async function pokazatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
 async function nachatVvodSpiskaIgrokov(chatId, messageId, kod, telegram_id) {
     const igra = igry[kod];
     if (!igra) return;
+    ochistitChernovikRuchnogoRezultata(telegram_id);
     igra.rezhim_rolei = 'karty';
     await zagruzitNazvanieKlubaVIgru(igra);
     await sohranit_igru(kod);
@@ -7888,12 +8008,19 @@ async function pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod) {
     }
     knopki.push([{ text: '\uD83C\uDFB4 К лобби', callback_data: 'obnovit_igru_' + kod }]);
 
-    await bot.editMessageText(t, {
-        chat_id: chatId,
-        message_id: messageId,
+    const opts = {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: knopki }
-    });
+    };
+    if (messageId) {
+        await bot.editMessageText(t, {
+            chat_id: chatId,
+            message_id: messageId,
+            ...opts
+        }).catch(() => bot.sendMessage(chatId, t, opts));
+    } else {
+        await bot.sendMessage(chatId, t, opts);
+    }
 }
 
 async function pokazatSpisokVecheraKluba(chatId, messageId, kod, spisok) {
@@ -8241,6 +8368,7 @@ async function pokazatVvodNomeraIgryVechera(chatId, messageId, klub_id, telegram
 
 async function prodolzhitVnesenieRezultataVechera(telegram_id, chatId, klub_id, nomer, messageId) {
     const today = dataIgrovoegoVechera();
+    ochistitVvodStolaDlyaRezultata(telegram_id);
     ozhidanie_registracii[telegram_id] = {
         shag: 'manual_result_players',
         klub_id,
@@ -12912,6 +13040,7 @@ bot.on('callback_query', async function(query) {
             });
             return;
         }
+        ochistitChernovikRuchnogoRezultata(telegram_id);
         igra.rezhim_rolei = 'karty';
         igra.den = 1;
         igra.igroki.forEach(i => { delete i.rol; });
@@ -12972,6 +13101,7 @@ bot.on('callback_query', async function(query) {
             return;
         }
         if (kluby.length === 1) {
+            ochistitVvodStolaDlyaRezultata(telegram_id);
             ozhidanie_registracii[telegram_id] = { shag: 'manual_result_date', klub_id: kluby[0].id };
             bot.editMessageText('📅 *Дата игры*\n\nВведи дату игры или напиши `сегодня`.\n\nПример: `01.06.2026`', {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -12989,6 +13119,7 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('rez_manual_klub_')) {
         const klub_id = data.replace('rez_manual_klub_', '');
+        ochistitVvodStolaDlyaRezultata(telegram_id);
         ozhidanie_registracii[telegram_id] = { shag: 'manual_result_date', klub_id };
         bot.editMessageText('📅 *Дата игры*\n\nВведи дату игры или напиши `сегодня`.\n\nПример: `01.06.2026`', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
@@ -15587,23 +15718,97 @@ bot.on('callback_query', async function(query) {
         );
     }
 
-    else if (data.startsWith('tarif_klub_')) {
-        const klub_id_tar = data.replace('tarif_klub_', '');
-        const { data: klub_tar } = await supabase
+    else if (data === 'tarif_paket_v') {
+        const klubyTar = await klubyVladeltsa(telegram_id);
+        if (!klubyTar.length) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет клуба', show_alert: true });
+            return;
+        }
+        if (klubyTar.length === 1) {
+            await pokazatPaketProdazhKluba(chatId, messageId, klubyTar[0].id, { back: 'menu_vladeltsa' });
+            return;
+        }
+        const knopki = klubyTar.map(k => [{
+            text: '💳 ' + (k.nazvaniye || 'Клуб'),
+            callback_data: 'tarif_klub_' + k.id
+        }]);
+        knopki.push([{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]);
+        bot.editMessageText('💳 *Тариф и пакет*\n\nВыбери клуб:', {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopki }
+        });
+    }
+
+    else if (data.startsWith('tarif_test_')) {
+        const klub_id_tt = data.replace('tarif_test_', '');
+        const { data: klub_tt } = await supabase
             .from('kluby')
             .select('id, nazvaniye')
-            .eq('id', klub_id_tar)
+            .eq('id', klub_id_tt)
             .single();
-        bot.editMessageText(tekstTestovoyNedeli(klub_tar?.nazvaniye || 'клуб'), {
+        bot.editMessageText(tekstTestovoyNedeli(klub_tt?.nazvaniye || 'клуб'), {
             chat_id: chatId,
             message_id: messageId,
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
-                [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + klub_id_tar }],
-                [{ text: '🎨 Свой брендбук — 5000₽', callback_data: 'stil_klub_' + klub_id_tar }],
-                [{ text: '⬅️ В настройки клуба', callback_data: 'nastroyki_kluba_v' }]
+                [{ text: '💳 К тарифу и пакету', callback_data: 'tarif_klub_' + klub_id_tt }],
+                [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
             ] }
         });
+    }
+
+    else if (data.startsWith('tarif_klub_')) {
+        const klub_id_tar = data.replace('tarif_klub_', '');
+        await pokazatPaketProdazhKluba(chatId, messageId, klub_id_tar, { back: 'menu_vladeltsa' });
+    }
+
+    else if (data.startsWith('tarif_plan_')) {
+        const restPlan = data.replace('tarif_plan_', '');
+        const sep = restPlan.lastIndexOf('_');
+        const klub_id_tp = sep > 0 ? restPlan.slice(0, sep) : restPlan;
+        const planId = sep > 0 ? restPlan.slice(sep + 1) : '';
+        const plan = (tarify.PLANY || []).find(p => p.id === planId);
+        if (!plan) {
+            bot.answerCallbackQuery(query.id, { text: 'Неизвестный пакет', show_alert: true });
+            return;
+        }
+        const { data: klub_tp } = await supabase
+            .from('kluby')
+            .select('nazvaniye')
+            .eq('id', klub_id_tp)
+            .single();
+        bot.answerCallbackQuery(query.id, { text: 'Заявка отправлена', show_alert: true });
+        if (ADMIN_TG_ID) {
+            bot.sendMessage(ADMIN_TG_ID,
+                '💳 *Заявка на пакет ' + plan.name + '*\n\n' +
+                'Клуб: *' + md(klub_tp?.nazvaniye || klub_id_tp) + '*\n' +
+                'TG собственника: `' + telegram_id + '`\n' +
+                'Пакет: *' + plan.name + '* — *' + tarify.formatRub(plan.price) + ' ₽/мес* · ' + plan.games + ' игр\n' +
+                (plan.razovo ? 'Разово: *' + tarify.formatRub(plan.razovo) + ' ₽*\n' : '') +
+                '\nСроки: 1 / 3 / 6 / 12 месяцев.\n' +
+                'Для 6/12 можно предложить рассрочку через банк-партнёр.',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
+        }
+        bot.editMessageText(
+            '✅ *Заявка на пакет ' + plan.name + ' принята!*\n\n' +
+            '*' + plan.name + '* — *' + tarify.formatRub(plan.price) + ' ₽/мес*\n' +
+            plan.games + ' игр · ' + plan.vedushchie + ' вед.\n' +
+            '_' + plan.features + '_\n\n' +
+            'Свяжемся в Telegram и оформим оплату (СБП / перевод).',
+            {
+                chat_id: chatId,
+                message_id: messageId,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '💳 Другой пакет', callback_data: 'tarif_klub_' + klub_id_tp }],
+                    [{ text: '💬 Поддержка', callback_data: 'podderzhka' }],
+                    [{ text: '⬅️ В меню', callback_data: 'menu_vladeltsa' }]
+                ] }
+            }
+        );
     }
 
     else if (data.startsWith('tarif_zayavka_')) {
@@ -15619,7 +15824,7 @@ bot.on('callback_query', async function(query) {
                 '💳 *Заявка на тариф клуба*\n\n' +
                 'Клуб: *' + md(klub_tz?.nazvaniye || klub_id_tz) + '*\n' +
                 'TG ведущего/собственника: `' + telegram_id + '`\n\n' +
-                'Интерес: тариф после тестовой недели.\n' +
+                'Интерес: подберём пакет (собственник не выбрал Mini/Start/Club сам).\n' +
                 'Пакеты: ' + tarify.tekstZayavkiAdmin() + '.\n' +
                 'Сроки: 1 / 3 / 6 / 12 месяцев.\n' +
                 'Для 6/12 месяцев можно предложить внешнюю рассрочку через банк-партнёр.\n' +
@@ -15637,7 +15842,7 @@ bot.on('callback_query', async function(query) {
                 message_id: messageId,
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [
-                    [{ text: '🎁 О тестовой неделе', callback_data: 'tarif_klub_' + klub_id_tz }],
+                    [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + klub_id_tz }],
                     [{ text: '⚙️ Настройки клуба', callback_data: 'nastroyki_kluba_v' }]
                 ] }
             }
@@ -16742,7 +16947,7 @@ bot.on('callback_query', async function(query) {
                 bot.editMessageText(tarify.tekstOgranicheniyaTarifa('anonsy'), {
                     chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                     reply_markup: { inline_keyboard: [
-                        [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + kluby[0].id }],
+                        [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + kluby[0].id }],
                         [{ text: '⬅️ Назад', callback_data: 'menu_vladeltsa' }]
                     ] }
                 });
@@ -16771,7 +16976,7 @@ bot.on('callback_query', async function(query) {
             bot.editMessageText(tarify.tekstOgranicheniyaTarifa('anonsy'), {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [
-                    [{ text: '💳 Подключить тариф', callback_data: 'tarif_zayavka_' + klub_id }],
+                    [{ text: '💳 Тариф и пакет', callback_data: 'tarif_klub_' + klub_id }],
                     [{ text: '⬅️ Назад', callback_data: 'anons_vybor_kluba' }]
                 ] }
             });
