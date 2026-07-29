@@ -1418,7 +1418,20 @@ function renderSeats(players, hostMeta) {
           state.immunityArmed = false;
           hostAction('immunity_toggle', { nomer: player.nomer });
         }
-        else if (clickMode === 'night_pick') hostAction('night_pick', { nomer: player.nomer });
+        else if (clickMode === 'night_pick') {
+          const nightTip = game.host?.night?.step_label || '';
+          const isEskort = /эскорт/i.test(nightTip);
+          if (isEskort) {
+            const rol = window.prompt('Эскортница назвала роль? (например: Шериф, Дон, Мирный)') || '';
+            if (!rol.trim()) {
+              showToast('Нужна роль для выстрела эскортницы');
+              return;
+            }
+            hostAction('night_pick', { nomer: player.nomer, ugadannaya_rol: rol.trim() });
+          } else {
+            hostAction('night_pick', { nomer: player.nomer });
+          }
+        }
       });
     }
     if (player.avatar_url) {

@@ -2353,8 +2353,8 @@ const roli_opisaniya = {
     // Мафия
     'Дон': '\uD83D\uDD34 *Дон мафии*\n\nТы — глава мафии. Знаешь всю команду. Ночью выбираете жертву вместе, твоё слово решающее. Можешь искать Шерифа/Комиссара.',
     'Мафия': '\uD83D\uDD34 *Мафия*\n\nТы — часть команды мафии. Знаешь своих. Ночью голосуете за жертву.',
-    'Путана': '\uD83D\uDD34 *Путана (Эскортница)*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: до 11 игроков — 1, с 12 до 14 — 2, от 15 — 3.',
-    'Эскортница': '\uD83D\uDD34 *Эскортница*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: до 11 игроков — 1, с 12 до 14 — 2, от 15 — 3.\n\u2B50 За угаданную роль: *+0.5 балла*.',
+    'Путана': '\uD83D\uDD34 *Путана (Эскортница)*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: 9–11 игроков — 1, 12–14 — 2, от 15 — 3.',
+    'Эскортница': '\uD83D\uDD34 *Эскортница*\n\nЧасть мафии. Ночью называешь роль игрока. Угадала — он не переживает утро. Промахнулась — остаётся.\n\nВыстрелов за ночь: 9–11 игроков — 1, 12–14 — 2, от 15 — 3.\n\u2B50 За угаданную роль: *+0.5 балла*.',
     'Подрывник мафии': '\uD83D\uDD34 *Подрывник мафии*\n\nЧасть мафии. Если в тебя выстрелит Стрелок или Маньяк — ты забираешь стрелявшего с собой.',
     'Консильери': '\uD83D\uDD34 *Консильери*\n\nЧасть мафии. Советник Дона.',
     // Мирные
@@ -6177,11 +6177,18 @@ function razobratStrokuRoli(line, index) {
     return null;
 }
 
-const PORYADOK_ROLEY_NOCHI = [
-    'Мафия', 'Консильери', 'Подрывник мафии', 'Эскортница', 'Дон',
+/** Порядок записи ролей в ночь знакомства: Дон → эскорт/путана → мафии → остальные. */
+const PORYADOK_ROLEY_ZNAKOMSTVA = [
+    'Дон', 'Эскортница', 'Мафия', 'Консильери', 'Подрывник мафии',
     'Шериф', 'Комиссар', 'Детектив', 'Маньяк', 'Доктор', 'Стрелок', 'Охотник',
     'Камикадзе', 'Шахид', 'Бессмертный', 'Затычка', 'Любовница', 'Ведьма',
     'Бомба', 'Безликий', 'Адвокат', 'Мстительный родственник'
+];
+
+/** Порядок остальных ночных действий после мафии / дона / эскортницы. */
+const PORYADOK_NOCHI_OSTALNYE = [
+    'Консильери', 'Шериф', 'Комиссар', 'Детектив', 'Маньяк', 'Доктор',
+    'Стрелок', 'Охотник', 'Затычка'
 ];
 
 function poluchitSostavDlyaIgry(igra) {
@@ -6192,8 +6199,8 @@ function poluchitSostavDlyaIgry(igra) {
 function poryadokRoleyDlyaNochi(igra) {
     const sostav = poluchitSostavDlyaIgry(igra).filter(rol => rol !== 'Мирный');
     return sostav.sort((a, b) => {
-        const ia = PORYADOK_ROLEY_NOCHI.indexOf(a);
-        const ib = PORYADOK_ROLEY_NOCHI.indexOf(b);
+        const ia = PORYADOK_ROLEY_ZNAKOMSTVA.indexOf(a);
+        const ib = PORYADOK_ROLEY_ZNAKOMSTVA.indexOf(b);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
     });
 }
@@ -8963,11 +8970,12 @@ function limitMinShahida(igra) {
     return Math.ceil((igra?.kolichestvo || igra?.igroki?.length || 0) * 0.3);
 }
 
+/** 9–11 → 1 выстрел; 12–14 → 2; 15+ → 3. */
 function limitVystrelovEskort(igra) {
     const n = igra?.kolichestvo || igra?.igroki?.length || 0;
     if (n >= 15) return 3;
     if (n >= 12) return 2;
-    return 1;
+    return 1; // в т.ч. 9–11 и меньшие столы, если роль есть
 }
 
 function eskortVyboryNochi(igra) {
@@ -10315,7 +10323,7 @@ async function pokazat_prehod_k_nochi(chatId, messageId, kod) {
 function tipNochiPoRoli(rol) {
     if (rol === 'Мафия') return 'maf';
     if (rol === 'Дон') return 'don';
-    if (rol === 'Эскортница') return 'eskort';
+    if (rol === 'Эскортница' || rol === 'Путана') return 'eskort';
     if (rol === 'Консильери') return 'kons';
     if (isSheriffRole(rol)) return 'sher';
     if (rol === 'Маньяк') return 'manyak';
@@ -10335,25 +10343,72 @@ function igraEstZhivayaRol(igra, rol) {
     return (igra.igroki || []).some(i => i.status === 'v_igre' && i.rol === rol);
 }
 
+function chernayaKomandaZhiva(igra) {
+    return (igra.igroki || []).some(i => i.status === 'v_igre' && isMafiaRole(i.rol));
+}
+
+/**
+ * Ночные действия (убивают / ищут): сначала обычная мафия (1 ход),
+ * потом отдельно Дон, потом отдельно эскортница (1–3 выстрела по размеру стола),
+ * затем остальные роли.
+ */
 function shagiNochiDeystviy(igra) {
-    const composition = poryadokRoleyDlyaNochi(igra);
     const steps = [];
-    const seenTip = new Set();
 
-    for (let i = 0; i < composition.length; i++) {
-        const rol = composition[i];
+    if (chernayaKomandaZhiva(igra)) {
+        steps.push({
+            rol: 'Мафия',
+            tip: 'maf',
+            variant: 1,
+            vsego: 1,
+            label: 'Мафия просыпается'
+        });
+    }
+
+    if (igraEstZhivayaRol(igra, 'Дон')) {
+        steps.push({
+            rol: 'Дон',
+            tip: 'don',
+            variant: 1,
+            vsego: 1,
+            label: 'Дон просыпается'
+        });
+    }
+
+    if (igraEstZhivayaRol(igra, 'Эскортница')) {
+        const limit = limitVystrelovEskort(igra);
+        for (let v = 1; v <= limit; v++) {
+            steps.push({
+                rol: 'Эскортница',
+                tip: 'eskort',
+                variant: v,
+                vsego: limit,
+                eskort_shot: v - 1,
+                label: labelShagaNochi('Эскортница', v, limit)
+            });
+        }
+    }
+
+    const seenTip = new Set(['maf', 'don', 'eskort']);
+    for (const rol of PORYADOK_NOCHI_OSTALNYE) {
         const tip = tipNochiPoRoli(rol);
-        if (!tip) continue;
-        if (!igraEstZhivayaRol(igra, rol)) continue;
+        if (!tip || seenTip.has(tip)) continue;
+        if (tip === 'sher') {
+            if (!(igra.igroki || []).some(i => i.status === 'v_igre' && isSheriffRole(i.rol))) continue;
+        } else if (tip === 'strelok') {
+            if (!(igra.igroki || []).some(i => i.status === 'v_igre' && rolStrelyayushchegoZaMirnyh(i.rol))) continue;
+        } else if (!igraEstZhivayaRol(igra, rol)) {
+            continue;
+        }
         if (rol === 'Консильери' && !mozhetKonsilyeriVerbovat(igra)) continue;
-        if (rol === 'Шахид' && !(igra.den === 1 || igra.den === 2)) continue;
-        if (tip === 'eskort' || tip === 'shahid') continue;
-        if ((tip === 'sher' || tip === 'strelok') && seenTip.has(tip)) continue;
-
-        const variant = composition.slice(0, i + 1).filter(r => r === rol).length;
-        const vsego = composition.filter(r => r === rol).length;
-        steps.push({ rol, tip, variant, vsego, label: labelShagaNochi(rol, variant, vsego) });
-        if (tip === 'sher' || tip === 'strelok') seenTip.add(tip);
+        steps.push({
+            rol,
+            tip,
+            variant: 1,
+            vsego: 1,
+            label: labelShagaNochi(rol, 1, 1)
+        });
+        seenTip.add(tip);
     }
     return steps;
 }
@@ -10388,12 +10443,16 @@ function tekstVyboraNochiGuided(igra, kod, step, idx, vsego) {
     t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_';
     if (step.tip === 'maf') t += '\n_Можно свою мафию или самострел — для отвода глаз._';
     if (step.tip === 'strelok') t += '\n_Можно пропустить выстрел этой ночью._';
-    const cur = tekushchiyVyborNochi(igra, step.tip);
-    if (cur != null) t += '\n\n_Текущий выбор: ' + (cur === 'пропуск' ? 'пропуск выстрела' : '№' + cur) + '_';
+    if (step.tip === 'eskort') {
+        t += '\n_После выбора игрока назови роль — угадала = убийство._';
+        t += '\n_Выстрелов эскортницы: ' + limitVystrelovEskort(igra) + ' (9–11 → 1, 12–14 → 2, 15+ → 3)._';
+    }
+    const cur = tekushchiyVyborNochi(igra, step.tip, step);
+    if (cur != null) t += '\n\n_Текущий выбор: ' + (cur === 'пропуск' ? 'пропуск выстрела' : String(cur)) + '_';
     return t;
 }
 
-function tekushchiyVyborNochi(igra, tip) {
+function tekushchiyVyborNochi(igra, tip, step = null) {
     const d = igra.noch_deystviya || {};
     if (tip === 'maf') return d.mafiya_tseli?.[0] ?? null;
     if (tip === 'don') return d.don_tseli ?? null;
@@ -10409,12 +10468,16 @@ function tekushchiyVyborNochi(igra, tip) {
     }
     if (tip === 'eskort') {
         const v = eskortVyboryNochi(igra);
-        return v.length ? v.map(x => x.nomer).join(', ') : null;
+        if (step && Number.isFinite(step.eskort_shot)) {
+            const shot = v[step.eskort_shot];
+            return shot ? ('№' + shot.nomer + ' → ' + shot.ugadannaya_rol) : null;
+        }
+        return v.length ? v.map(x => '№' + x.nomer).join(', ') : null;
     }
     return null;
 }
 
-function sbrNochnoeDeystvie(igra, tip) {
+function sbrNochnoeDeystvie(igra, tip, step = null) {
     const d = igra.noch_deystviya || {};
     if (tip === 'maf') delete d.mafiya_tseli;
     else if (tip === 'don') delete d.don_tseli;
@@ -10425,11 +10488,21 @@ function sbrNochnoeDeystvie(igra, tip) {
     else if (tip === 'strelok') { delete d.strelok_tseli; delete d.strelok_propustil; }
     else if (tip === 'zat') { delete d.zatychka_tseli; delete igra.zablokirovan_nomer; }
     else if (tip === 'shahid') delete d.shahid_miny_tseli;
-    else if (tip === 'eskort') delete d.eskort_vybory;
+    else if (tip === 'eskort') {
+        if (step && Number.isFinite(step.eskort_shot)) {
+            const v = [...eskortVyboryNochi(igra)];
+            if (v[step.eskort_shot]) {
+                v.splice(step.eskort_shot, 1);
+                d.eskort_vybory = v;
+            }
+        } else {
+            delete d.eskort_vybory;
+        }
+    }
     igra.noch_deystviya = d;
 }
 
-async function primeniNochnoeDeystvie(igra, tip, nomer, chatId) {
+async function primeniNochnoeDeystvie(igra, tip, nomer, chatId, opts = {}) {
     igra.noch_deystviya = igra.noch_deystviya || {};
     const igrok = igra.igroki.find(i => i.nomer === nomer);
     if (!igrok || igrok.status !== 'v_igre') return { ok: false, text: 'Игрок не найден' };
@@ -10485,6 +10558,26 @@ async function primeniNochnoeDeystvie(igra, tip, nomer, chatId) {
         }
         return { ok: true, text: 'Затычка → №' + nomer };
     }
+    if (tip === 'eskort') {
+        const ugadannaya = opts.ugadannaya_rol;
+        if (!ugadannaya) return { ok: false, text: 'Нужно назвать роль', need_role: true };
+        const shotIdx = Number.isFinite(opts.eskort_shot) ? opts.eskort_shot : eskortVyboryNochi(igra).length;
+        const limit = limitVystrelovEskort(igra);
+        if (shotIdx >= limit) return { ok: false, text: 'Лимит выстрелов эскортницы исчерпан (' + limit + ')' };
+        const arr = [...eskortVyboryNochi(igra)];
+        if (shotIdx > arr.length) return { ok: false, text: 'Сначала предыдущий выстрел эскортницы' };
+        if (arr.some((v, i) => i !== shotIdx && v.nomer === nomer)) {
+            return { ok: false, text: 'В этого игрока эскортница уже стреляла этой ночью' };
+        }
+        const entry = { nomer, ugadannaya_rol: ugadannaya };
+        if (shotIdx < arr.length) arr[shotIdx] = entry;
+        else arr.push(entry);
+        igra.noch_deystviya.eskort_vybory = arr;
+        return {
+            ok: true,
+            text: 'Эскортница → №' + nomer + ' как ' + ugadannaya + ' (' + arr.length + '/' + limit + ')'
+        };
+    }
     return { ok: false, text: 'Неизвестное действие' };
 }
 
@@ -10497,7 +10590,7 @@ function knopkiShagaNochiGuided(igra, kod, step, idx) {
     if (step.tip === 'strelok') {
         knopki.unshift([{ text: '\u23ED Пропустить выстрел', callback_data: 'noch_g_skip_' + kod + '_' + idx }]);
     }
-    if (tekushchiyVyborNochi(igra, step.tip) != null) {
+    if (tekushchiyVyborNochi(igra, step.tip, step) != null) {
         knopki.push([{ text: '\u274C Сбросить выбор', callback_data: 'noch_g_sbr_' + kod + '_' + idx }]);
     }
     knopki.push([{ text: '\u23ED Далее', callback_data: 'noch_g_next_' + kod }]);
@@ -10541,16 +10634,20 @@ async function pokazatSvodkuNochiGuided(chatId, messageId, kod) {
     if (!igra) return;
     const shagi = shagiNochiDeystviy(igra);
     let t = '\uD83C\uDF19 *Ночь ' + (igra.den || 1) + ' — сводка*\n\n';
-    shagi.forEach((step, idx) => {
-        const cur = tekushchiyVyborNochi(igra, step.tip);
+    shagi.forEach((step) => {
+        const cur = tekushchiyVyborNochi(igra, step.tip, step);
         t += (cur != null ? '\u2705' : '\u25A1') + ' ' + step.label;
-        if (step.tip === 'strelok') t += cur != null ? ' → ' + (cur === 'пропуск' ? 'пропуск' : '№' + cur) : '';
-        else t += cur != null ? ' → №' + cur : '';
+        if (cur != null) {
+            if (step.tip === 'strelok') t += ' → ' + (cur === 'пропуск' ? 'пропуск' : '№' + cur);
+            else if (step.tip === 'eskort') t += ' → ' + cur;
+            else t += ' → №' + cur;
+        }
         t += '\n';
     });
-    t += '\n_Эскортница и Шахид — на классической панели ночи._';
+    t += '\n_Шахид — на классической панели ночи._';
+    t += '\n_Лимит эскортницы: ' + limitVystrelovEskort(igra) + ' (9–11 → 1, 12–14 → 2, 15+ → 3)._';
     const knopki = shagi.map((step, idx) => [{
-        text: '\u270F ' + step.label,
+        text: (tekushchiyVyborNochi(igra, step.tip, step) != null ? '\u2705 ' : '') + step.label,
         callback_data: 'noch_g_redo_' + kod + '_' + idx
     }]);
     knopki.push([{ text: '\uD83C\uDF1F Итоги ночи', callback_data: 'noch_itog_' + kod }]);
@@ -10848,7 +10945,19 @@ async function miniAppHostAction(tg_id, user, body) {
         if (!kandidaty.some(i => i.nomer === nomer)) {
             return { stay: true, message: 'Этот игрок недоступен для шага' };
         }
-        const rez = await primeniNochnoeDeystvie(igra, step.tip, nomer, null);
+        if (step.tip === 'eskort' && !body.ugadannaya_rol && !body.rol) {
+            return {
+                stay: true,
+                message: 'Эскортница: выбери роль угадывания в боте или передай ugadannaya_rol',
+                need_eskort_role: true,
+                nomer,
+                roles: roliDlyaUgadivaniyaEskort()
+            };
+        }
+        const rez = await primeniNochnoeDeystvie(igra, step.tip, nomer, null, {
+            ugadannaya_rol: body.ugadannaya_rol || body.rol || null,
+            eskort_shot: step.eskort_shot
+        });
         if (!rez.ok) return { stay: true, message: rez.text };
         await sohranit_igru(kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, rez.text);
@@ -10873,7 +10982,7 @@ async function miniAppHostAction(tg_id, user, body) {
         const idx = parseInt(body.step, 10);
         const shagi = shagiNochiDeystviy(igra);
         const step = shagi[idx];
-        if (step) sbrNochnoeDeystvie(igra, step.tip);
+        if (step) sbrNochnoeDeystvie(igra, step.tip, step);
         await sohranit_igru(kod);
         return otvetMiniAppPosleDeystviya(tg_id, user, 'Выбор сброшен');
     }
@@ -11026,9 +11135,9 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     } else {
         t += '\u25A1 Мафия: не выбрала\n';
     }
-    if (roli_alive.includes('Консильери')) t += (d.kons_tseli ? '\u2705' : '\u25A1') + ' Консильери: ' + (d.kons_tseli ? '\u2116' + d.kons_tseli + ' завербован' : (mozhetKonsilyeriVerbovat(igra) ? 'может вербовать' : 'ждёт условия <30%')) + '\n';
-    if (roli_alive.includes('Эскортница')) t += (eskortVyboryNochi(igra).length ? '\u2705' : '\u25A1') + ' Эскортница: ' + tekstStatusaEskort(igra) + '\n';
     if (roli_alive.includes('Дон')) t += (d.don_tseli ? '\u2705' : '\u25A1') + ' Дон: ' + (d.don_tseli ? '\u2116' + d.don_tseli + ' проверен' : 'не проверял') + '\n';
+    if (roli_alive.includes('Эскортница')) t += (eskortVyboryNochi(igra).length ? '\u2705' : '\u25A1') + ' Эскортница: ' + tekstStatusaEskort(igra) + '\n';
+    if (roli_alive.includes('Консильери')) t += (d.kons_tseli ? '\u2705' : '\u25A1') + ' Консильери: ' + (d.kons_tseli ? '\u2116' + d.kons_tseli + ' завербован' : (mozhetKonsilyeriVerbovat(igra) ? 'может вербовать' : 'ждёт условия <30%')) + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Маньяк')) t += (d.manyak_tseli ? '\u2705' : '\u25A1') + ' Маньяк: ' + (d.manyak_tseli ? '\u2116' + d.manyak_tseli : 'не выбрал') + '\n';
     if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
@@ -11045,7 +11154,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     const knopki = [
         [{ text: '\uD83D\uDD2B Мафия убивает', callback_data: 'noch_vybor_maf_' + kod }],
     ];
-    if (roli_alive.includes('Консильери') && mozhetKonsilyeriVerbovat(igra)) knopki.push([{ text: '\uD83E\uDD1D Консильери вербует', callback_data: 'noch_vybor_kons_' + kod }]);
+    if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
     if (roli_alive.includes('Эскортница') && eskortVyboryNochi(igra).length < limitVystrelovEskort(igra)) {
         knopki.push([{ text: '\uD83D\uDC8B Эскортница (' + eskortVyboryNochi(igra).length + '/' + limitVystrelovEskort(igra) + ')', callback_data: 'noch_vybor_eskort_' + kod }]);
     }
@@ -11053,7 +11162,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
         knopki.push([{ text: '\u270F\uFE0F Изменить эскорт', callback_data: 'noch_eskort_fix_' + kod }]);
         knopki.push([{ text: '\u274C Сброс: эскорт', callback_data: 'noch_sbr_eskort_' + kod }]);
     }
-    if (roli_alive.includes('Дон')) knopki.push([{ text: '\uD83D\uDD0E Дон ищет Шерифа', callback_data: 'noch_vybor_don_' + kod }]);
+    if (roli_alive.includes('Консильери') && mozhetKonsilyeriVerbovat(igra)) knopki.push([{ text: '\uD83E\uDD1D Консильери вербует', callback_data: 'noch_vybor_kons_' + kod }]);
     if (roli_alive.some(isSheriffRole)) knopki.push([{ text: '\uD83D\uDD0D Шериф/Комиссар проверяет', callback_data: 'noch_vybor_sher_' + kod }]);
     if (roli_alive.includes('Маньяк')) knopki.push([{ text: '\uD83C\uDFAF Маньяк стреляет', callback_data: 'noch_vybor_manyak_' + kod }]);
     if (roli_alive.includes('Доктор')) knopki.push([{ text: '\uD83D\uDC89 Доктор лечит', callback_data: 'noch_vybor_doc_' + kod }]);
@@ -15085,6 +15194,29 @@ bot.on('callback_query', async function(query) {
         const shagi = shagiNochiDeystviy(igra);
         const step = shagi[idx];
         if (!step) return;
+        if (step.tip === 'eskort') {
+            const tsel = igra.igroki.find(i => i.nomer === nomer && i.status === 'v_igre');
+            if (!tsel) {
+                bot.answerCallbackQuery(query.id, { text: 'Игрок не найден', show_alert: true });
+                return;
+            }
+            const roli_esk = roliDlyaUgadivaniyaEskort();
+            const knopki_rol = [];
+            for (let rIdx = 0; rIdx < roli_esk.length; rIdx += 2) {
+                const row = [{ text: roli_esk[rIdx], callback_data: 'noch_g_eskort_rol_' + kod + '_' + idx + '_' + nomer + '_' + rIdx }];
+                if (roli_esk[rIdx + 1]) {
+                    row.push({ text: roli_esk[rIdx + 1], callback_data: 'noch_g_eskort_rol_' + kod + '_' + idx + '_' + nomer + '_' + (rIdx + 1) });
+                }
+                knopki_rol.push(row);
+            }
+            knopki_rol.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_g_redo_' + kod + '_' + idx }]);
+            bot.answerCallbackQuery(query.id);
+            await bot.editMessageText(
+                '\uD83D\uDC8B *Эскортница называет роль*\n\nИгрок: \u2116' + nomer + ' *' + tsel.name + '*\nВыстрел ' + (step.variant || 1) + '/' + (step.vsego || 1) + '\nКакую роль назвала?',
+                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_rol } }
+            );
+            return;
+        }
         const rez = await primeniNochnoeDeystvie(igra, step.tip, nomer, chatId);
         if (!rez.ok) {
             bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: true });
@@ -15096,6 +15228,35 @@ bot.on('callback_query', async function(query) {
         await pokazatShagNochiGuided(chatId, messageId, kod);
     }
 
+    else if (data.startsWith('noch_g_eskort_rol_')) {
+        const parts = data.replace('noch_g_eskort_rol_', '').split('_');
+        const kod = parts[0];
+        const idx = parseInt(parts[1], 10);
+        const nomer = parseInt(parts[2], 10);
+        const rolIdx = parseInt(parts[3], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        const step = shagiNochiDeystviy(igra)[idx];
+        const roli_esk = roliDlyaUgadivaniyaEskort();
+        const ugadannaya = roli_esk[rolIdx];
+        if (!step || step.tip !== 'eskort' || !ugadannaya) {
+            bot.answerCallbackQuery(query.id, { text: 'Шаг сбит', show_alert: true });
+            return;
+        }
+        const rez = await primeniNochnoeDeystvie(igra, 'eskort', nomer, chatId, {
+            ugadannaya_rol: ugadannaya,
+            eskort_shot: step.eskort_shot
+        });
+        if (!rez.ok) {
+            bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: true });
+            return;
+        }
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: rez.text });
+        igra._noch_guided_idx = idx;
+        await pokazatShagNochiGuided(chatId, messageId, kod);
+    }
+
     else if (data.startsWith('noch_g_sbr_')) {
         const parts = data.replace('noch_g_sbr_', '').split('_');
         const kod = parts[0];
@@ -15103,7 +15264,7 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         const step = shagiNochiDeystviy(igra)[idx];
-        if (step) sbrNochnoeDeystvie(igra, step.tip);
+        if (step) sbrNochnoeDeystvie(igra, step.tip, step);
         await sohranit_igru(kod);
         bot.answerCallbackQuery(query.id, { text: 'Выбор сброшен' });
         igra._noch_guided_idx = idx;
