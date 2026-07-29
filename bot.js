@@ -2498,10 +2498,10 @@ function tekstInstrukciiIgroka() {
         '*5. Играть с друзьями*\n' +
         '«🎮 Играть с друзьями» — бесплатная игра без клуба и рейтинга. После игры можно включить анонсы города.\n\n' +
         '*6. Приглашения*\n' +
-        'Клуб может прислать приглашение на игру (тариф Start+). Отписаться: /stop или «стоп». Снова подписаться: /subscribe или «подписаться».\n\n' +
+        'Клуб может прислать приглашение на игру (тариф Start+). Отписаться: /unsubscribe. Снова подписаться: /subscribe.\n\n' +
         '*7. Открыть клуб*\n' +
         '«🏢 Открыть клуб в своём городе» — 3 коротких вопроса, затем создание клуба.\n\n' +
-        '_Команды: /start — меню, /help — эта справка, /stop — отписаться от приглашений._';
+        '_Команды: /start — меню, /help — справка, /stop — остановить игру ведущего (если нет игры — отписка), /unsubscribe — отписка от приглашений._';
 }
 
 function tekstInstrukciiVedushchego() {
@@ -3589,7 +3589,12 @@ bot.onText(/\/help/, async (msg) => {
     }
 });
 
-bot.onText(/\/(stop|unsubscribe)$/i, async (msg) => {
+bot.onText(/\/stop$/i, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
+    await obrabotatKomanduStop(msg.chat.id, msg.from.id);
+});
+
+bot.onText(/\/unsubscribe$/i, async (msg) => {
     if (!etoLichnyyChat(msg)) return;
     const tg_id = msg.from.id;
     await ustanovitOtpisPriglasheniy(tg_id, true);
@@ -3608,7 +3613,8 @@ bot.onText(/\/subscribe$/i, async (msg) => {
     bot.sendMessage(msg.chat.id,
         '✅ *Подписка на приглашения включена.*\n\n' +
         'Клубы снова смогут присылать приглашения на игры.\n\n' +
-        'Отписаться: /stop или «стоп».',
+        'Отписаться от приглашений: /unsubscribe.\n' +
+        'Остановить свою игру: /stop или «стоп».',
         { parse_mode: 'Markdown' }
     );
 });
@@ -4336,6 +4342,10 @@ bot.on('message', async function(msg) {
 
     const textLow = text.toLowerCase();
     if (textLow === 'стоп' || textLow === 'stop') {
+        await obrabotatKomanduStop(chatId, tg_id);
+        return;
+    }
+    if (textLow === 'отписаться' || textLow === 'unsubscribe') {
         await ustanovitOtpisPriglasheniy(tg_id, true);
         bot.sendMessage(chatId,
             '✅ Вы *отписались* от приглашений на игры.\n\nСнова подписаться: /subscribe или «подписаться».',
@@ -4346,7 +4356,9 @@ bot.on('message', async function(msg) {
     if (textLow === 'подписаться' || textLow === 'subscribe') {
         await ustanovitOtpisPriglasheniy(tg_id, false);
         bot.sendMessage(chatId,
-            '✅ Подписка на *приглашения* снова включена.\n\nОтписаться: /stop или «стоп».',
+            '✅ Подписка на *приглашения* снова включена.\n\n' +
+            'Отписаться от приглашений: /unsubscribe.\n' +
+            'Остановить свою игру: /stop или «стоп».',
             { parse_mode: 'Markdown' }
         );
         return;
@@ -8491,6 +8503,85 @@ async function pokazatBystryyVyborIgry(chatId, telegram_id, tip) {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: knopki }
     });
+}
+
+/** Код игры из текущего ввода ведущего (ночь знакомства и т.п.). */
+function kodIgryIzSostoyaniyaVedushchego(tg_id) {
+    const st = String(sostoyanie[tg_id] || '');
+    if (!st) return null;
+    const nz = razobratSostoyanieNochiZnakomstva(st);
+    if (nz?.kod && igry[nz.kod]) return nz.kod;
+    const m = st.match(/^(?:noch_mirnye_|noch_g_|panel_|intro_)(.+)$/);
+    if (m?.[1] && igry[m[1]]) return m[1];
+    const m2 = st.match(/_(\d{3,5})$/);
+    if (m2?.[1] && igry[m2[1]]) return m2[1];
+    return null;
+}
+
+/**
+ * «стоп» / /stop:
+ * — у ведущего с активной игрой → остановить игру (не отписка);
+ * — иначе → отписка от приглашений.
+ * Явная отписка всегда: /unsubscribe.
+ */
+async function obrabotatKomanduStop(chatId, tg_id) {
+    const izSostoyaniya = kodIgryIzSostoyaniyaVedushchego(tg_id);
+    const aktivnye = aktivnyeIgryVedushchego(tg_id).filter(({ igra }) => !igra.ostanovlena);
+
+    if (izSostoyaniya && igry[izSostoyaniya] && !igry[izSostoyaniya].ostanovlena) {
+        await bot.sendMessage(chatId,
+            '⏸ *Остановить игру №' + izSostoyaniya + '?*\n\n' +
+            'Таймер остановится, ночь знакомства прервётся. Игру можно возобновить из «Мои игры».\n\n' +
+            '_Отписка от приглашений: /unsubscribe_',
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '✅ Да, остановить игру', callback_data: 'stop_igra_ok_' + izSostoyaniya }],
+                        [{ text: '⬅️ Не останавливать', callback_data: 'panel_' + izSostoyaniya }]
+                    ]
+                }
+            }
+        );
+        return 'pause';
+    }
+
+    if (aktivnye.length === 1) {
+        const kod = aktivnye[0].kod;
+        await bot.sendMessage(chatId,
+            '⏸ *Остановить игру №' + kod + '?*\n\n' +
+            'Таймер остановится, игра останется в «Мои игры».\n\n' +
+            '_Отписка от приглашений: /unsubscribe_',
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '✅ Да, остановить игру', callback_data: 'stop_igra_ok_' + kod }],
+                        [{ text: '🎮 Мои игры', callback_data: 'moi_igry' }]
+                    ]
+                }
+            }
+        );
+        return 'pause';
+    }
+
+    if (aktivnye.length > 1) {
+        await bot.sendMessage(chatId,
+            '⏸ У тебя несколько активных игр. Выбери, какую остановить.\n\n_Отписка от приглашений: /unsubscribe_',
+            { parse_mode: 'Markdown' }
+        );
+        await pokazatBystryyVyborIgry(chatId, tg_id, 'pause');
+        return 'pause';
+    }
+
+    await ustanovitOtpisPriglasheniy(tg_id, true);
+    await bot.sendMessage(chatId,
+        '✅ Вы *отписались* от приглашений на игры.\n\n' +
+        'Снова подписаться: /subscribe или «подписаться».\n\n' +
+        '_Если ты ведущий и хотел остановить стол — сначала открой/создай игру, затем снова напиши «стоп»._',
+        { parse_mode: 'Markdown' }
+    );
+    return 'otpis';
 }
 
 function aktivnyeIgryKluba(klub_id) {
@@ -16820,7 +16911,7 @@ bot.on('callback_query', async function(query) {
         bot.editMessageText(
             '📢 *Готово!*\n\n' +
             'Будем присылать анонсы и приглашения по городу *' + md(igrok.gorod) + '*.\n\n' +
-            'Отписаться: /stop или «стоп».',
+            'Отписаться: /unsubscribe.',
             {
                 chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [
