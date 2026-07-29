@@ -5,11 +5,18 @@
 -- =============================================================================
 
 -- --- A. Ensure columns the bot already writes --------------------------------
+-- Prod historically had a stub `bally` (kolichestvo/prichina only). Bot rating
+-- needs the full scoreboard columns below.
 ALTER TABLE public.bally
-  ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false;
-
-ALTER TABLE public.bally
-  ADD COLUMN IF NOT EXISTS data_igry date;
+  ADD COLUMN IF NOT EXISTS rol text,
+  ADD COLUMN IF NOT EXISTS pobedila_komanda boolean,
+  ADD COLUMN IF NOT EXISTS vyzhil boolean,
+  ADD COLUMN IF NOT EXISTS bally_komanda numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS bally_lichnie numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS bally_vsego numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS data_igry date,
+  ADD COLUMN IF NOT EXISTS bonus_info jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 -- --- B. Helper: create index only if all listed columns exist ----------------
 CREATE OR REPLACE FUNCTION public._pm_create_index_if_cols(

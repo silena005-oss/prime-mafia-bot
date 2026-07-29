@@ -396,8 +396,55 @@ function kratkoIgruDlyaMiniApp(kod, igra, requesterId = null) {
     };
 }
 
+/** Индекс следующего шага ночи знакомства по уже назначенным активным ролям. */
+function indeksSleduyushchegoShagaIntro(igra) {
+    const roles = poryadokRoleyDlyaNochi(igra);
+    const byRole = {};
+    for (const i of igra?.igroki || []) {
+        if (!i?.rol || i.rol === 'Мирный') continue;
+        byRole[i.rol] = (byRole[i.rol] || 0) + 1;
+    }
+    const need = {};
+    for (let i = 0; i < roles.length; i++) {
+        const r = roles[i];
+        need[r] = (need[r] || 0) + 1;
+        if ((byRole[r] || 0) < need[r]) return i;
+    }
+    return roles.length;
+}
+
+/**
+ * Держит igra._miniapp_intro в синхроне с бот-потоком ночи знакомства.
+ * Без этого миниапп не видит шаг, который ведущий уже ведёт в чате.
+ */
+function sinhronizirovatMiniappIntro(igra, idxOpt = null) {
+    if (!igra || igra.roli_razdany) {
+        if (igra) delete igra._miniapp_intro;
+        return;
+    }
+    const roles = poryadokRoleyDlyaNochi(igra);
+    const idx = Number.isFinite(idxOpt) ? idxOpt : indeksSleduyushchegoShagaIntro(igra);
+    igra.rezhim_rolei = igra.rezhim_rolei || 'karty';
+    igra.faza = 'noch_znakomstvo';
+    if (idx >= roles.length) {
+        igra._miniapp_intro = { idx: roles.length, phase: 'mirny' };
+    } else {
+        igra._miniapp_intro = { idx, phase: 'roles' };
+    }
+}
+
 function shagIntroNochi(igra) {
-    if (!igra?._miniapp_intro) return null;
+    if (!igra) return null;
+    // Подтянуть intro из бот-потока / частичных ролей, если миниапп ещё не стартовал ночь
+    if (!igra._miniapp_intro && !igra.roli_razdany) {
+        const st = sostoyanie[igra.vedushchii_id];
+        const parsed = razobratSostoyanieNochiZnakomstva(st);
+        const midNight = igra.faza === 'noch_znakomstvo'
+            || !!parsed
+            || (igra.rezhim_rolei === 'karty' && (igra.igroki || []).some(i => i.rol));
+        if (midNight) sinhronizirovatMiniappIntro(igra, parsed ? parsed.idx : null);
+    }
+    if (!igra._miniapp_intro) return null;
     const intro = igra._miniapp_intro;
     const candidates = igrokiBezRoliDlyaMirnyh(igra).map(i => ({
         nomer: i.nomer,
@@ -781,14 +828,30 @@ async function sostoyanieMiniApp(user, opts = {}) {
 
     const clubs = await poluchitKlubyMiniApp(telegram_id);
     const preferred = opts.klub_id || null;
+    const hostGames = aktivnyeIgryVedushchego(telegram_id);
+    const klubIzAktivnoyIgry = hostGames.find(g => g.igra?.klub_id)?.igra?.klub_id || null;
     const selectedKlubId = (preferred && clubs.some(c => String(c.id) === String(preferred)))
         ? preferred
-        : (clubs[0]?.id || null);
-    let games = aktivnyeIgryVedushchego(telegram_id).map(({ kod, igra }) => kratkoIgruDlyaMiniApp(kod, igra, telegram_id));
+        : (klubIzAktivnoyIgry && clubs.some(c => String(c.id) === String(klubIzAktivnoyIgry))
+            ? klubIzAktivnoyIgry
+            : (clubs[0]?.id || null));
+    let games = hostGames.map(({ kod, igra }) => kratkoIgruDlyaMiniApp(kod, igra, telegram_id));
     const klubIds = new Set(clubs.map(k => k.id));
     Object.entries(igry)
         .filter(([kod, igra]) => !String(kod).startsWith('archive_') && klubIds.has(igra?.klub_id) && igra?.vedushchii_id !== telegram_id)
         .forEach(([kod, igra]) => games.push(kratkoIgruDlyaMiniApp(kod, igra, telegram_id)));
+    // Живая ночь знакомства / стол — первыми, чтобы миниапп открывался на нужной игре
+    games.sort((a, b) => {
+        const score = (g) => {
+            if (!g) return 0;
+            if (g.host?.intro) return 4;
+            if (g.faza === 'noch_znakomstvo' || g.faza === 'noch') return 3;
+            if (g.is_host && g.status === 'live') return 2;
+            if (g.is_host) return 1;
+            return 0;
+        };
+        return score(b) - score(a);
+    });
     games = await obogatitIgryAvatarami(games, telegram_id);
 
     const selectedClub = clubs.find(c => c.id === selectedKlubId);
@@ -3027,8 +3090,12 @@ async function sohranit_igru(kod) {
             luchshie_hody: igra.luchshie_hody || [],
             ostanovlena: !!igra.ostanovlena,
             data_igry: igra.data_igry || igra._nastroyki?.data_igry || null,
-            nomer_igry: igra.nomer_igry || igra._nastroyki?.nomer_igry || null
+            nomer_igry: igra.nomer_igry || igra._nastroyki?.nomer_igry || null,
+            _miniapp_intro: igra._miniapp_intro || null,
+            _noch_guided_idx: Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null,
+            _pick_first_faza: igra._pick_first_faza || null
         };
+        igra._nastroyki = nastroyki;
         const data = {
             kod,
             klub_id: igra.klub_id || null,
@@ -3046,6 +3113,7 @@ async function sohranit_igru(kod) {
             zavershena: false
         };
         await supabase.from('aktivnye_igry').upsert(data, { onConflict: 'kod' });
+        if (igra.vedushchii_id) invalidirovatMiniAppStateKesh(igra.vedushchii_id);
     } catch(e) {
         console.error('Ошибка сохранения игры:', e.message);
     }
@@ -3082,6 +3150,7 @@ async function zagruzit_aktivnye_igry() {
         (rows || []).forEach(row => {
             if (!igry[row.kod]) {
                 const nastroyki = typeof row.nastroyki === 'string' ? JSON.parse(row.nastroyki) : (row.nastroyki || {});
+                const igrokiRestored = typeof row.igroki === 'string' ? JSON.parse(row.igroki) : (row.igroki || []);
                 igry[row.kod] = {
                     kolichestvo: row.kolichestvo,
                     vedushchii_id: row.vedushchii_tg_id,
@@ -3089,18 +3158,30 @@ async function zagruzit_aktivnye_igry() {
                     klub_nazvaniye: nastroyki.klub_nazvaniye || null,
                     tip_kluba: row.tip_kluba || 'paskal',
                     sportivniy: row.sportivniy || false,
-                    igroki: typeof row.igroki === 'string' ? JSON.parse(row.igroki) : (row.igroki || []),
+                    igroki: igrokiRestored,
                     faza: row.faza || 'ozhidanie',
                     den: row.den || 1,
                     rezhim_rolei: nastroyki.rezhim_rolei || null,
                     luchshie_hody: nastroyki.luchshie_hody || [],
                     ostanovlena: !!nastroyki.ostanovlena,
                     _nastroyki: nastroyki,
+                    _miniapp_intro: nastroyki._miniapp_intro || null,
+                    _noch_guided_idx: Number.isFinite(nastroyki._noch_guided_idx) ? nastroyki._noch_guided_idx : null,
+                    _pick_first_faza: nastroyki._pick_first_faza || null,
                     noch_deystviya: typeof row.noch_deystviya === 'string' ? JSON.parse(row.noch_deystviya) : (row.noch_deystviya || {}),
                     naznacheny_golos: typeof row.naznacheny_golos === 'string' ? JSON.parse(row.naznacheny_golos) : (row.naznacheny_golos || []),
-                    roli_razdany: (row.igroki && (typeof row.igroki === 'string' ? JSON.parse(row.igroki) : row.igroki).some(i => i.rol)),
+                    roli_razdany: (() => {
+                        const allHaveRoles = igrokiRestored.length > 0
+                            && igrokiRestored.length >= (row.kolichestvo || igrokiRestored.length)
+                            && igrokiRestored.every(i => i.rol);
+                        return allHaveRoles && row.faza !== 'noch_znakomstvo' && !nastroyki._miniapp_intro;
+                    })(),
                     _vosstanovlena: true
                 };
+                // После рестарта: дособрать intro, если ночь знакомства шла в боте
+                if (!igry[row.kod].roli_razdany && (row.faza === 'noch_znakomstvo' || nastroyki._miniapp_intro || igrokiRestored.some(i => i.rol))) {
+                    sinhronizirovatMiniappIntro(igry[row.kod], nastroyki._miniapp_intro?.idx);
+                }
                 count++;
             }
         });
@@ -6798,6 +6879,7 @@ async function nachatVvodMirnyhRuchnoy(chatId, kod) {
 
     // Ждём подтверждение кнопкой, не текстовый ввод
     if (igra.vedushchii_id) delete sostoyanie[igra.vedushchii_id];
+    sinhronizirovatMiniappIntro(igra, poryadokRoleyDlyaNochi(igra).length);
     await sohranit_igru(kod);
     await bot.sendMessage(chatId, tekstVvodaSpiskaMirnyh(igra, kod), {
         parse_mode: 'Markdown',
@@ -6811,10 +6893,14 @@ async function pokazatShagNochiZnakomstva(chatId, kod, idx, hostTgId) {
     await zagruzitNazvanieKlubaVIgru(igra);
     const roles = poryadokRoleyDlyaNochi(igra);
     if (idx >= roles.length) {
+        sinhronizirovatMiniappIntro(igra, roles.length);
+        await sohranit_igru(kod);
         await nachatVvodMirnyhRuchnoy(chatId, kod);
         return;
     }
+    sinhronizirovatMiniappIntro(igra, idx);
     ustanovitSostoyanieNochiZnakomstva(igra, hostTgId, kod, idx);
+    await sohranit_igru(kod);
     const knopki = knopkiShagaNochiZnakomstva(igra, kod, idx);
     await bot.sendMessage(chatId, tekstShagaNochiZnakomstva(igra, kod, idx), {
         parse_mode: 'Markdown',
@@ -10482,7 +10568,8 @@ async function nachatIntroNoch(igra, kod) {
     igra.den = 1;
     igra.faza = 'noch_znakomstvo';
     igra.igroki.forEach(i => { delete i.rol; });
-    igra._miniapp_intro = { idx: 0, phase: 'roles' };
+    sinhronizirovatMiniappIntro(igra, 0);
+    ustanovitSostoyanieNochiZnakomstva(igra, igra.vedushchii_id, kod, 0);
     delete igra._pick_first_faza;
     await sohranit_igru(kod);
     const step = shagIntroNochi(igra);
@@ -10501,6 +10588,12 @@ async function primeniIntroRol(igra, kod, nomer) {
     igra._miniapp_intro.idx = (igra._miniapp_intro.idx || 0) + 1;
     const roles = poryadokRoleyDlyaNochi(igra);
     if (igra._miniapp_intro.idx >= roles.length) igra._miniapp_intro.phase = 'mirny';
+    sinhronizirovatMiniappIntro(igra, igra._miniapp_intro.idx);
+    if (igra._miniapp_intro.phase === 'roles') {
+        ustanovitSostoyanieNochiZnakomstva(igra, igra.vedushchii_id, kod, igra._miniapp_intro.idx);
+    } else if (igra.vedushchii_id) {
+        delete sostoyanie[igra.vedushchii_id];
+    }
     await sohranit_igru(kod);
     const next = shagIntroNochi(igra);
     return { ok: true, message: '№' + igrok.nomer + ' — ' + step.rol, next };
@@ -13245,11 +13338,8 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('nz_restart_', '');
         const igra = igry[kod];
         if (!igra) return;
-        igra.rezhim_rolei = 'karty';
-        igra.den = 1;
-        igra.igroki.forEach(i => { delete i.rol; });
-        delete sostoyanie[telegram_id];
-        await sohranit_igru(kod);
+        ochistitChernovikRuchnogoRezultata(telegram_id);
+        await nachatIntroNoch(igra, kod);
         bot.answerCallbackQuery(query.id, { text: 'Ночь знакомства заново' });
         await bot.editMessageText(
             '\uD83C\uDF19 *Исправляем роли*\n\nСнова по очереди внеси *активные* роли. Потом подтвердим мирных одним нажатием.',
@@ -13270,10 +13360,7 @@ bot.on('callback_query', async function(query) {
             return;
         }
         ochistitChernovikRuchnogoRezultata(telegram_id);
-        igra.rezhim_rolei = 'karty';
-        igra.den = 1;
-        igra.igroki.forEach(i => { delete i.rol; });
-        await sohranit_igru(kod);
+        await nachatIntroNoch(igra, kod);
         bot.answerCallbackQuery(query.id, { text: '\uD83C\uDF19 Ночь знакомства' });
         await bot.editMessageText('\uD83C\uDF19 *Ночь знакомства началась.*\n\nСначала по очереди внесём активные роли из состава. Затем отдельным шагом — *мирных без роли*, чтобы они попали в рейтинг.', {
             chat_id: chatId,

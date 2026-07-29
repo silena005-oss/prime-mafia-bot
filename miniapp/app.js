@@ -454,10 +454,22 @@ async function loadState(klubId, silent) {
     state.data = json.data;
     state.selectedKlubId = json.data.selected_klub_id || json.data.clubs?.[0]?.id || null;
     const prevKod = state.selectedGame?.kod;
+    const games = json.data.games || [];
+    const pickLive = () => games.find((g) => g.host?.intro)
+      || games.find((g) => g.is_host && (g.faza === 'noch_znakomstvo' || g.status === 'live'))
+      || games.find((g) => g.is_host)
+      || games[0]
+      || null;
     if (prevKod) {
-      state.selectedGame = json.data.games?.find((g) => String(g.kod) === String(prevKod)) || json.data.games?.[0] || null;
-    } else if (!state.selectedGame) {
-      state.selectedGame = json.data.games?.[0] || null;
+      const still = games.find((g) => String(g.kod) === String(prevKod));
+      const live = pickLive();
+      if (live?.host?.intro && String(live.kod) !== String(prevKod)) {
+        state.selectedGame = live;
+      } else {
+        state.selectedGame = still || live || null;
+      }
+    } else {
+      state.selectedGame = pickLive();
     }
     syncLocalTimerFromGame(state.selectedGame);
     render();
@@ -1449,11 +1461,11 @@ setInterval(() => {
   if (!tg?.initData) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (state.loadInFlight) return;
-  const hasLiveGame = (state.data?.games || []).some((g) => g.host || g.faza);
+  // Активная ночь знакомства / стол — опрашивать чаще
+  const hasLiveGame = (state.data?.games || []).some((g) => g.host?.intro || g.host || g.faza === 'noch_znakomstvo' || g.status === 'live');
   const intervalOk = Date.now() >= (state.pollBusyUntil || 0);
   if (!intervalOk) return;
-  // Активная игра — чаще, idle — реже
-  state.pollBusyUntil = Date.now() + (hasLiveGame ? 12000 : 30000);
+  state.pollBusyUntil = Date.now() + (hasLiveGame ? 5000 : 30000);
   loadState(state.selectedKlubId, true);
 }, 4000);
 document.addEventListener('visibilitychange', () => {

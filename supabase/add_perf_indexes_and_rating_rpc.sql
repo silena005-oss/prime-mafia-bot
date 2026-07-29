@@ -1,11 +1,17 @@
 -- Performance indexes + club rating top RPC.
 -- Prefer running supabase/ops_today_run.sql (safer for prod schema drift).
 
+-- Full rating columns (prod stub bally may only have kolichestvo/prichina).
 ALTER TABLE public.bally
-  ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false;
-
-ALTER TABLE public.bally
-  ADD COLUMN IF NOT EXISTS data_igry date;
+  ADD COLUMN IF NOT EXISTS rol text,
+  ADD COLUMN IF NOT EXISTS pobedila_komanda boolean,
+  ADD COLUMN IF NOT EXISTS vyzhil boolean,
+  ADD COLUMN IF NOT EXISTS bally_komanda numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS bally_lichnie numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS bally_vsego numeric(6,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sportivniy boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS data_igry date,
+  ADD COLUMN IF NOT EXISTS bonus_info jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE UNIQUE INDEX IF NOT EXISTS igroki_tg_id_uq
   ON public.igroki (tg_id);
