@@ -3145,7 +3145,20 @@ async function sohranit_igru(kod) {
             _slot_oplaty: !!igra._slot_oplaty,
             _miniapp_intro: igra._miniapp_intro || null,
             _noch_guided_idx: Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null,
-            _pick_first_faza: igra._pick_first_faza || null
+            _pick_first_faza: igra._pick_first_faza || null,
+            // Процесс за столом — чтобы после сворачивания/рестарта игра не «обнулялась»
+            tekushchiy_nomer: igra.tekushchiy_nomer || null,
+            poryadok_hoda: Array.isArray(igra.poryadok_hoda) ? igra.poryadok_hoda : null,
+            perviy_hod_nomer: igra.perviy_hod_nomer || null,
+            taymer_aktiven: !!igra.taymer_aktiven,
+            taymer_sekundy: Number.isFinite(igra.taymer_sekundy) ? igra.taymer_sekundy : null,
+            taymer_ends_at: igra._taymer_ends_at || null,
+            _taymer_chat_id: igra._taymer_chat_id || null,
+            _taymer_message_id: igra._taymer_message_id || null,
+            _krug_zavershen: !!igra._krug_zavershen,
+            vystavlenie_v_rechi: igra.vystavlenie_v_rechi || {},
+            golosa_dnya: igra.golosa_dnya || {},
+            _zhdat_fazu: igra._zhdat_fazu || null
         };
         igra._nastroyki = nastroyki;
         const data = {
@@ -3222,6 +3235,18 @@ async function zagruzit_aktivnye_igry() {
                     _miniapp_intro: nastroyki._miniapp_intro || null,
                     _noch_guided_idx: Number.isFinite(nastroyki._noch_guided_idx) ? nastroyki._noch_guided_idx : null,
                     _pick_first_faza: nastroyki._pick_first_faza || null,
+                    tekushchiy_nomer: nastroyki.tekushchiy_nomer || null,
+                    poryadok_hoda: Array.isArray(nastroyki.poryadok_hoda) ? nastroyki.poryadok_hoda : null,
+                    perviy_hod_nomer: nastroyki.perviy_hod_nomer || null,
+                    taymer_aktiven: !!nastroyki.taymer_aktiven,
+                    taymer_sekundy: Number.isFinite(nastroyki.taymer_sekundy) ? nastroyki.taymer_sekundy : null,
+                    _taymer_ends_at: nastroyki.taymer_ends_at || null,
+                    _taymer_chat_id: nastroyki._taymer_chat_id || null,
+                    _taymer_message_id: nastroyki._taymer_message_id || null,
+                    _krug_zavershen: !!nastroyki._krug_zavershen,
+                    vystavlenie_v_rechi: nastroyki.vystavlenie_v_rechi || {},
+                    golosa_dnya: nastroyki.golosa_dnya || {},
+                    _zhdat_fazu: nastroyki._zhdat_fazu || null,
                     noch_deystviya: typeof row.noch_deystviya === 'string' ? JSON.parse(row.noch_deystviya) : (row.noch_deystviya || {}),
                     naznacheny_golos: typeof row.naznacheny_golos === 'string' ? JSON.parse(row.naznacheny_golos) : (row.naznacheny_golos || []),
                     roli_razdany: (() => {
@@ -3244,9 +3269,6 @@ async function zagruzit_aktivnye_igry() {
         console.error('Ошибка загрузки игр:', e.message);
     }
 }
-
-// Запускаем загрузку при старте
-zagruzit_aktivnye_igry();
 
 // Состояние регистрации: { tg_id: { shag: 'igrovoy_nik' | 'telefon' | 'gorod', igrovoy_nik: '...' } }
 const ozhidanie_registracii = {};
@@ -6014,6 +6036,10 @@ function formatTime(sec) {
 function stopTimer(kod) {
     const igra = igry[kod];
     if (!igra) return;
+    // Зафиксировать остаток до очистки интервала — при паузе/рестарте не теряем секунды
+    if (igra.taymer_aktiven && igra._taymer_ends_at) {
+        igra.taymer_sekundy = Math.max(0, Math.ceil((igra._taymer_ends_at - Date.now()) / 1000));
+    }
     igra.taymer_aktiven = false;
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
 }
@@ -6168,13 +6194,17 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
     const igra = igry[kod];
     if (!igra) return;
     stopTimer(kod);
-    igra.taymer_sekundy = sekundy;
+    const sek = Math.max(1, Math.floor(Number(sekundy) || 1));
+    igra.taymer_sekundy = sek;
     igra.taymer_aktiven = true;
+    igra._taymer_ends_at = Date.now() + sek * 1000;
+    igra._taymer_save_tick = 0;
     if (chatId) {
         igra._taymer_chat_id = chatId;
         igra._taymer_message_id = messageId;
         obnovitPanelTaymera(kod);
     }
+    sohranit_igru(kod).catch(() => {});
 
     igra._interval = setInterval(() => {
         const ig = igry[kod];
@@ -6182,13 +6212,67 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
             if (ig?._interval) { clearInterval(ig._interval); ig._interval = null; }
             return;
         }
-        ig.taymer_sekundy--;
+        // Считаем по дедлайну — устойчивее к лагам и сворачиванию клиента
+        if (ig._taymer_ends_at) {
+            ig.taymer_sekundy = Math.max(0, Math.ceil((ig._taymer_ends_at - Date.now()) / 1000));
+        } else {
+            ig.taymer_sekundy--;
+        }
         if (ig._taymer_chat_id && ig._taymer_message_id) obnovitPanelTaymera(kod);
+        ig._taymer_save_tick = (ig._taymer_save_tick || 0) + 1;
+        if (ig._taymer_save_tick % 5 === 0) sohranit_igru(kod).catch(() => {});
         if (ig.taymer_sekundy <= 0) {
             stopTimer(kod);
+            sohranit_igru(kod).catch(() => {});
             sleduyushchiy(ig._taymer_chat_id || null, ig._taymer_message_id || null, kod);
         }
     }, 1000);
+}
+
+/** После рестарта бота — продолжить круг речи / оправдания с того же места. */
+async function vosstanovitTaymeryPosleRestarta() {
+    let n = 0;
+    for (const [kod, igra] of Object.entries(igry)) {
+        if (String(kod).startsWith('archive_') || !igra || igra._ne_sohranyat) continue;
+        if (igra.ostanovlena) continue;
+        if (!fazaKRuchiRechi(igra.faza)) continue;
+        if (!igra.tekushchiy_nomer || igra._krug_zavershen) continue;
+
+        let sek = null;
+        if (igra._taymer_ends_at) {
+            sek = Math.ceil((igra._taymer_ends_at - Date.now()) / 1000);
+        } else if (Number.isFinite(igra.taymer_sekundy)) {
+            sek = igra.taymer_sekundy;
+        }
+
+        const chatId = igra._taymer_chat_id || igra.vedushchii_id || null;
+        const msgId = igra._taymer_message_id || null;
+        try {
+            // Дедлайн уже прошёл, пока бот был выключен — переходим к следующему
+            if (!Number.isFinite(sek) || sek <= 0) {
+                await sleduyushchiy(chatId, msgId, kod);
+                n++;
+                continue;
+            }
+            if (chatId && msgId) {
+                zapustitTaymer(chatId, msgId, kod, sek);
+            } else if (chatId) {
+                const text = '▶️ *Игра продолжается*\n\n' + buildPanelText(igra, kod);
+                const msg = await bot.sendMessage(chatId, text, {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: buildTimerKnopki(kod, igra.faza) }
+                }).catch(() => null);
+                if (msg?.message_id) zapustitTaymer(chatId, msg.message_id, kod, sek);
+                else zapustitTaymer(null, null, kod, sek);
+            } else {
+                zapustitTaymer(null, null, kod, sek);
+            }
+            n++;
+        } catch (e) {
+            console.error('[restore timer]', kod, e?.message || e);
+        }
+    }
+    if (n) console.log('⏱ Возобновлено таймеров после рестарта:', n);
 }
 
 function estDostupKIgre(igra, telegram_id) {
@@ -6318,6 +6402,25 @@ async function vozobnovitIgru(kod, telegram_id) {
     if (!estDostupKIgre(igra, telegram_id)) return { ok: false, error: 'access' };
     igra.ostanovlena = false;
     await sohranit_igru(kod);
+    // Вернуть речь/оправдание с того же говорящего и остатка таймера
+    if (fazaKRuchiRechi(igra.faza) && igra.tekushchiy_nomer && !igra._krug_zavershen) {
+        const sek = (Number.isFinite(igra.taymer_sekundy) && igra.taymer_sekundy > 0)
+            ? igra.taymer_sekundy
+            : sekundyTaymeraRechi(igra);
+        const chatId = igra._taymer_chat_id || igra.vedushchii_id || null;
+        const msgId = igra._taymer_message_id || null;
+        if (chatId && msgId) {
+            zapustitTaymer(chatId, msgId, kod, sek);
+            obnovitPanelTaymera(kod);
+        } else if (chatId) {
+            const text = '▶️ *Игра возобновлена*\n\n' + buildPanelText(igra, kod);
+            const msg = await bot.sendMessage(chatId, text, {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: buildTimerKnopki(kod, igra.faza) }
+            }).catch(() => null);
+            if (msg?.message_id) zapustitTaymer(chatId, msg.message_id, kod, sek);
+        }
+    }
     return { ok: true };
 }
 
@@ -9965,6 +10068,60 @@ async function nachatFazuDen(chatId, messageId, kod) {
         const msg = await bot.sendMessage(chatId, text, opts);
         zapustitTaymer(chatId, msg.message_id, kod, sek_d);
     }
+}
+
+async function nachatFazuOpravdanie(chatId, messageId, kod) {
+    const igra = igry[kod];
+    if (!igra) return false;
+    await podgruzitNastroykiIgry(igra);
+    stopTimer(kod);
+    if (!igra.naznacheny_golos || igra.naznacheny_golos.length === 0) return false;
+    sinhronizirovatSpisokGolosovaniya(igra);
+    if (!igra.naznacheny_golos.length) return false;
+
+    igra.faza = 'opravdanie';
+    igra.poryadok_hoda = [...igra.naznacheny_golos];
+    igra.tekushchiy_nomer = igra.poryadok_hoda[0];
+    igra._krug_zavershen = false;
+    igra._krug_lock = false;
+    // Иначе после списка номинаций (_picker_type=nominacii) obnovitPanelTaymera молчит — «время не идёт»
+    delete igra._taymer_ui_mode;
+    delete igra._picker_type;
+
+    igra.naznacheny_golos.forEach(nomer => {
+        const i = igra.igroki.find(x => x.nomer === nomer);
+        if (i?.telegram_id) {
+            bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Тебя выставили на голосование!*\n\nГотовь оправдание.', { parse_mode: 'Markdown' }).catch(() => {});
+        }
+    });
+
+    const sek_op = (igra._nastroyki && igra._nastroyki.opravdanie_sek) || 30;
+    igra.taymer_sekundy = sek_op;
+    const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'opravdanie') }
+    };
+    const text = buildPanelText(igra, kod);
+    try {
+        if (chatId && messageId) {
+            await bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+            zapustitTaymer(chatId, messageId, kod, sek_op);
+        } else if (chatId) {
+            const msg = await bot.sendMessage(chatId, text, opts);
+            zapustitTaymer(chatId, msg.message_id, kod, sek_op);
+        } else {
+            zapustitTaymer(null, null, kod, sek_op);
+        }
+    } catch (e) {
+        console.error('[opravdanie start]', e?.message || e);
+        if (chatId) {
+            const msg = await bot.sendMessage(chatId, text, opts).catch(() => null);
+            if (msg?.message_id) zapustitTaymer(chatId, msg.message_id, kod, sek_op);
+            else zapustitTaymer(chatId, messageId || null, kod, sek_op);
+        }
+    }
+    await sohranit_igru(kod);
+    return true;
 }
 
 async function ustanovitPervogoHoda(chatId, messageId, kod, nomer, faza, telegram_id) {
@@ -15370,23 +15527,15 @@ bot.on('callback_query', async function(query) {
         const kod = data.replace('faza_opravdanie_', '');
         const igra = igry[kod];
         if (!igra) return;
-        stopTimer(kod);
         if (!igra.naznacheny_golos || igra.naznacheny_golos.length === 0) {
-            bot.answerCallbackQuery(query.id, { text: '\u274C Никто не выставлен', show_alert: true }); return;
+            bot.answerCallbackQuery(query.id, { text: '\u274C Никто не выставлен', show_alert: true });
+            return;
         }
-        sinhronizirovatSpisokGolosovaniya(igra);
-        igra.faza = 'opravdanie';
-        igra.poryadok_hoda = [...igra.naznacheny_golos];
-        igra.tekushchiy_nomer = igra.poryadok_hoda[0];
-        igra._krug_zavershen = false;
-        igra._krug_lock = false;
-        igra.naznacheny_golos.forEach(nomer => {
-            const i = igra.igroki.find(x => x.nomer === nomer);
-            if (i?.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Тебя выставили на голосование!*\n\nГотовь оправдание.', { parse_mode: 'Markdown' }).catch(() => {});
-        });
-        const sek_op = igra._nastroyki?.opravdanie_sek || 30;
-        await bot.editMessageText(buildPanelText(igra, kod), { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buildTimerKnopki(kod, 'opravdanie') } });
-        zapustitTaymer(chatId, messageId, kod, sek_op);
+        bot.answerCallbackQuery(query.id);
+        const ok = await nachatFazuOpravdanie(chatId, messageId, kod);
+        if (!ok) {
+            bot.sendMessage(chatId, '❌ Не удалось начать оправдание. Проверь список выставленных.').catch(() => {});
+        }
     }
 
     // ===== ФАЗА: ГОЛОСОВАНИЕ =====
@@ -19515,8 +19664,10 @@ async function napomnitObOplateRailway() {
     try {
         const me = await bot.getMe().catch(() => null);
         if (me) console.log('🤖 @' + (me.username || me.id));
+        await zagruzit_aktivnye_igry();
         await zapustitPolling();
         console.log('🎴 PrimeMafia бот запущен (polling)');
+        await vosstanovitTaymeryPosleRestarta();
         rassylka.zapustitWorker(bot);
         backup.zapustitWorker();
         otkrytPolnyyDostupDevKlubov().catch(e => console.error('[billing grant]', e?.message || e));
