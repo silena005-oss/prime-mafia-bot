@@ -63,7 +63,9 @@ const {
     knopkiPaketProdazhKluba,
     proveritStartPlatnoyIgry,
     poluchitTarifKluba,
-    mozhnoFunktsiyuKluba
+    mozhnoFunktsiyuKluba,
+    otkrytPolnyyDostupKluba,
+    otkrytPolnyyDostupDevKlubov
 } = billing;
 
 const { otpravitQrVhodaVBota, ssylkaVhodaVIgru, knopkiPriglasheniyaVIgru, tekstPriglasheniyaVIgru } = invite;
@@ -3138,6 +3140,7 @@ async function sohranit_igru(kod) {
             ostanovlena: !!igra.ostanovlena,
             data_igry: igra.data_igry || igra._nastroyki?.data_igry || null,
             nomer_igry: igra.nomer_igry || igra._nastroyki?.nomer_igry || null,
+            _sostav_custom: Array.isArray(igra._sostav_custom) ? igra._sostav_custom : (igra._nastroyki?._sostav_custom || null),
             _miniapp_intro: igra._miniapp_intro || null,
             _noch_guided_idx: Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null,
             _pick_first_faza: igra._pick_first_faza || null
@@ -3211,6 +3214,7 @@ async function zagruzit_aktivnye_igry() {
                     rezhim_rolei: nastroyki.rezhim_rolei || null,
                     luchshie_hody: nastroyki.luchshie_hody || [],
                     ostanovlena: !!nastroyki.ostanovlena,
+                    _sostav_custom: Array.isArray(nastroyki._sostav_custom) ? nastroyki._sostav_custom : null,
                     _nastroyki: nastroyki,
                     _miniapp_intro: nastroyki._miniapp_intro || null,
                     _noch_guided_idx: Number.isFinite(nastroyki._noch_guided_idx) ? nastroyki._noch_guided_idx : null,
@@ -4042,9 +4046,50 @@ bot.onText(/\/admin/, async (msg) => {
         '🏛 /sales — карточки клубов для продаж\n' +
         '📝 /scripts — скрипты продаж и отзывов\n' +
         '📋 /ankety — анкеты клубов (Supabase)\n' +
-        '💾 /backup — снимок БД сейчас (+ список последних)',
+        '💾 /backup — снимок БД сейчас (+ список последних)\n' +
+        '🔓 /grant — снять тест у Pascal / Prime Mafia (полный Network)',
         { parse_mode: 'Markdown' }
     );
+});
+
+bot.onText(/\/grant(?:\s+(.+))?$/, async (msg, match) => {
+    if (!etoLichnyyChat(msg)) return;
+    if (!isAdmin(msg.from.id)) {
+        bot.sendMessage(msg.chat.id, '🔓 /grant только для администратора.');
+        return;
+    }
+    const chatId = msg.chat.id;
+    const q = String(match?.[1] || '').trim().toLowerCase();
+    bot.sendMessage(chatId, '🔓 Открываю полный доступ…').catch(() => {});
+
+    if (!q || q === 'dev' || q === 'all') {
+        const rez = await otkrytPolnyyDostupDevKlubov();
+        if (!rez.ok) {
+            bot.sendMessage(chatId, '❌ ' + (rez.error || 'ошибка'));
+            return;
+        }
+        const list = rez.updated.length
+            ? rez.updated.map(n => '• ' + n).join('\n')
+            : '_Уже было открыто (или клубы не найдены)._';
+        bot.sendMessage(chatId,
+            '✅ *Полный доступ (Network)*\n\n' + list +
+            '\n\nТест снят. Можно снова начинать ночь знакомства.',
+            { parse_mode: 'Markdown' }
+        );
+        return;
+    }
+
+    const { data: kluby } = await supabase.from('kluby').select('id, nazvaniye').ilike('nazvaniye', '%' + q + '%');
+    if (!kluby?.length) {
+        bot.sendMessage(chatId, '❌ Клуб не найден: ' + q);
+        return;
+    }
+    const lines = [];
+    for (const k of kluby) {
+        const rez = await otkrytPolnyyDostupKluba(k.id, { force: true });
+        lines.push((rez.ok ? '✅ ' : '❌ ') + (k.nazvaniye || k.id) + (rez.error ? (' — ' + rez.error) : ''));
+    }
+    bot.sendMessage(chatId, '*Готово:*\n\n' + lines.join('\n'), { parse_mode: 'Markdown' });
 });
 
 bot.onText(/\/backup/, async (msg) => {
@@ -8469,6 +8514,9 @@ async function pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod) {
     const knopki = [
         [{ text: '\uD83C\uDF19 Начать ночь знакомства', callback_data: 'noch_znakomstvo_' + kod }]
     ];
+    if (!igra.roli_razdany) {
+        knopki.push([{ text: '\u2699\uFE0F Состав ролей', callback_data: 'igra_sostav_' + kod }]);
+    }
     if (igra.klub_id) {
         knopki.push([{ text: '➕ Добавить игроков', callback_data: 'vecher_add_' + igra.klub_id }]);
         if ((igra.igroki || []).length) {
@@ -8629,6 +8677,7 @@ async function pokazatLobbyIgry(chatId, messageId, kod) {
             knopki.push([{ text: '\uD83D\uDFE2 + Мирный (' + mirnyeOstalosVnesti(igra) + ')', callback_data: 'panel_mirny_' + kod }]);
         }
         knopki.push([{ text: polno ? '\uD83C\uDF19 Начать ночь знакомства' : '\uD83C\uDF19 Ночь (нужен полный состав)', callback_data: 'noch_znakomstvo_' + kod }]);
+        knopki.push([{ text: '\u2699\uFE0F Состав ролей', callback_data: 'igra_sostav_' + kod }]);
         knopki.push([{ text: '✍️ Внести роли вручную', callback_data: 'manual_roles_' + kod }]);
         knopki.push([{ text: polno ? '▶️ Начать игру' : '▶️ Начать игру / внести роли', callback_data: 'nachat_igru_' + kod }]);
     }
@@ -11666,6 +11715,14 @@ async function pokazat_reyting_kluba(chatId, messageId, klub_id, sportivniy) {
 // ============================================
 // ПРЕДПРОСМОТР СОСТАВА РОЛЕЙ
 // ============================================
+const VSE_ROLI_KONSTRUKTOR = [
+    'Дон', 'Мафия', 'Путана', 'Подрывник мафии', 'Консильери', 'Эскортница',
+    'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
+    'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
+    'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
+    'Мстительный родственник', 'Маньяк', 'Мирный'
+];
+
 function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba, nazvaniye_kluba = '') {
     // Берём кастомный состав если есть, иначе стандартный
     let sostav;
@@ -11705,6 +11762,90 @@ function pokazat_sostav_preview(kolichestvo, tip_kluba, nastroyki_kluba, nazvani
     }
 
     return { text: t, sostav };
+}
+
+/** Короткий id превью — иначе UUID клуба ломает callback_data (>64 байт). */
+function sozdatPreviewSostava(opts) {
+    const id = String(cbPack({ kind: 'sostav_preview' }));
+    const sostav = [...(opts.sostav || [])];
+    igry['preview_' + id] = {
+        sostav,
+        original: [...(opts.original || sostav)],
+        klub_id: opts.klub_id || null,
+        klub_nazvaniye: opts.klub_nazvaniye || '',
+        tip_kluba: opts.tip_kluba || 'paskal',
+        kolichestvo: opts.kolichestvo,
+        from_vecher: !!opts.from_vecher,
+        igra_kod: opts.igra_kod || null,
+        nazad_callback: opts.nazad_callback || null,
+        _ne_sohranyat: true
+    };
+    return id;
+}
+
+function knopkiPreviewSostava(previewId, nazadCallback) {
+    const rows = [
+        [{ text: '\u2705 Создать игру', callback_data: 'sostav_ok_' + previewId }],
+        [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + previewId }]
+    ];
+    if (nazadCallback) {
+        rows.push([{ text: '\u2B05\uFE0F Назад', callback_data: nazadCallback }]);
+    }
+    return rows;
+}
+
+function tekstRedaktoraSostava(sostav) {
+    let t = '\u270F\uFE0F *Редактировать состав*\n\n_Нажми на роль чтобы заменить:_\n\n';
+    (sostav || []).forEach((r, i) => {
+        const em = isMafiaRole(r) ? '\uD83D\uDD34' : (r === 'Маньяк' ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
+        t += (i + 1) + '. ' + em + ' ' + r + '\n';
+    });
+    return t;
+}
+
+function knopkiRedaktoraSostava(previewId, sostav, nazadCallback) {
+    const knopki = (sostav || []).map((r, i) => [{
+        text: (i + 1) + '. ' + r + ' \u270F\uFE0F',
+        callback_data: 'sostav_zamenit_' + previewId + '_' + i
+    }]);
+    knopki.push([{ text: '\uD83D\uDD04 Сбросить', callback_data: 'sostav_reset_' + previewId }]);
+    knopki.push([{ text: '\u2705 Готово', callback_data: 'sostav_ok_' + previewId }]);
+    if (nazadCallback) {
+        knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: nazadCallback }]);
+    }
+    return knopki;
+}
+
+async function pokazatEkranPreviewSostava(chatId, messageId, previewId, extraHint) {
+    const previewData = igry['preview_' + previewId];
+    if (!previewData) return false;
+    const preview = pokazat_sostav_preview(
+        previewData.kolichestvo,
+        previewData.tip_kluba,
+        { kastomnye_sostavy: { [previewData.kolichestvo]: previewData.sostav } },
+        previewData.klub_nazvaniye || ''
+    );
+    if (!preview) return false;
+    const hint = extraHint || (previewData.from_vecher || previewData.igra_kod
+        ? '\n\n_Можно поправить роли перед стартом — или сразу создать игру._'
+        : '\n\n_Дальше внеси список игроков столбиком — каждый ник с новой строки._');
+    const okText = previewData.igra_kod
+        ? '\u2705 Сохранить состав'
+        : '\u2705 Создать игру';
+    const knopki = [
+        [{ text: okText, callback_data: 'sostav_ok_' + previewId }],
+        [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + previewId }]
+    ];
+    if (previewData.nazad_callback) {
+        knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: previewData.nazad_callback }]);
+    }
+    await bot.editMessageText(preview.text + hint, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: knopki }
+    });
+    return true;
 }
 
 // ============================================
@@ -12054,16 +12195,34 @@ bot.on('callback_query', async function(query) {
 
     else if (data.startsWith('vecher_sozdat_igru_')) {
         const klub_id = data.replace('vecher_sozdat_igru_', '');
-        const kod = await sozdatIgryIzVechera(telegram_id, klub_id);
-        if (!kod) {
+        const spisok = await poluchitSpisokVecheraKluba(klub_id);
+        if (!spisok?.length) {
             bot.answerCallbackQuery(query.id, { text: 'Сначала зафиксируй состав вечера', show_alert: true });
             return;
         }
-        const igra = igry[kod];
-        bot.answerCallbackQuery(query.id, {
-            text: 'Игра вечера №' + (igra?.nomer_igry || '?') + ' создана'
+        const { data: klub } = await supabase
+            .from('kluby')
+            .select('id, nazvaniye, nastroyki')
+            .eq('id', klub_id)
+            .single();
+        const tip = klub?.nastroyki?.tip_kluba || 'paskal';
+        const kolichestvo = spisok.length;
+        const preview = pokazat_sostav_preview(kolichestvo, tip, klub?.nastroyki, klub?.nazvaniye || '');
+        if (!preview) {
+            bot.answerCallbackQuery(query.id, { text: 'Нет состава на ' + kolichestvo + ' игроков', show_alert: true });
+            return;
+        }
+        const previewId = sozdatPreviewSostava({
+            sostav: preview.sostav,
+            klub_id,
+            klub_nazvaniye: klub?.nazvaniye || '',
+            tip_kluba: tip,
+            kolichestvo,
+            from_vecher: true,
+            nazad_callback: 'vecher_klub_' + klub_id
         });
-        await pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod);
+        bot.answerCallbackQuery(query.id).catch(() => {});
+        await pokazatEkranPreviewSostava(chatId, messageId, previewId);
     }
 
     else if (data.startsWith('poe_tg_')) {
@@ -13210,31 +13369,15 @@ bot.on('callback_query', async function(query) {
             return;
         }
 
-        const preview_key = klub_id_itk + '_' + tip_itk + '_' + kolichestvo_itk;
-        // Сохраняем кастомный состав во временное хранилище
-        if (!igry['preview_' + preview_key]) {
-            igry['preview_' + preview_key] = {
-                sostav: [...preview.sostav],
-                original: [...preview.sostav],
-                klub_id: klub_id_itk,
-                klub_nazvaniye: klub_itk?.nazvaniye || '',
-                tip_kluba: tip_itk,
-                kolichestvo: kolichestvo_itk,
-                _ne_sohranyat: true
-            };
-        }
-
-        bot.editMessageText(
-            preview.text + '\n\n' +
-            '_Дальше внеси список игроков столбиком — каждый ник с новой строки._',
-            {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: '\u2705 Создать игру', callback_data: 'sostav_ok_' + preview_key }],
-                [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + preview_key }],
-                [{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_tip_' + klub_id_itk + '_' + tip_itk }]
-            ]}
+        const previewId = sozdatPreviewSostava({
+            sostav: preview.sostav,
+            klub_id: klub_id_itk,
+            klub_nazvaniye: klub_itk?.nazvaniye || '',
+            tip_kluba: tip_itk,
+            kolichestvo: kolichestvo_itk,
+            nazad_callback: 'igra_tip_' + klub_id_itk + '_' + tip_itk
         });
+        await pokazatEkranPreviewSostava(chatId, messageId, previewId);
     }
 
     // ===== СОСТАВ: подтвердить и создать игру =====
@@ -13243,6 +13386,34 @@ bot.on('callback_query', async function(query) {
         const preview_data = igry['preview_' + preview_key];
         if (!preview_data) {
             bot.answerCallbackQuery(query.id, { text: '\u274C Сессия истекла, начни заново', show_alert: true });
+            return;
+        }
+
+        // Уже созданная игра вечера / лобби — только сохранить состав
+        if (preview_data.igra_kod && igry[preview_data.igra_kod]) {
+            const kod = preview_data.igra_kod;
+            igry[kod]._sostav_custom = [...preview_data.sostav];
+            await sohranit_igru(kod);
+            delete igry['preview_' + preview_key];
+            bot.answerCallbackQuery(query.id, { text: 'Состав ролей сохранён' }).catch(() => {});
+            await pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod);
+            return;
+        }
+
+        // Следующая игра вечера — создать с выбранным составом ролей
+        if (preview_data.from_vecher && preview_data.klub_id) {
+            const kod = await sozdatIgryIzVechera(telegram_id, preview_data.klub_id);
+            if (!kod) {
+                bot.answerCallbackQuery(query.id, { text: 'Сначала зафиксируй состав вечера', show_alert: true });
+                return;
+            }
+            igry[kod]._sostav_custom = [...preview_data.sostav];
+            await sohranit_igru(kod);
+            delete igry['preview_' + preview_key];
+            bot.answerCallbackQuery(query.id, {
+                text: 'Игра вечера №' + (igry[kod]?.nomer_igry || '?') + ' создана'
+            }).catch(() => {});
+            await pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod);
             return;
         }
 
@@ -13273,49 +13444,62 @@ bot.on('callback_query', async function(query) {
             return;
         }
 
-        const sostav = preview_data.sostav;
-        let t = '\u270F\uFE0F *Редактировать состав*\n\n';
-        t += '_Нажми на роль чтобы заменить:_\n\n';
-        sostav.forEach((r, i) => {
-            const solo = ['Маньяк'];
-            const em = isMafiaRole(r) ? '\uD83D\uDD34' : (solo.includes(r) ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
-            t += (i + 1) + '. ' + em + ' ' + r + '\n';
-        });
-
-        const knopki_edit = sostav.map((r, i) => [{
-            text: (i + 1) + '. ' + r + ' ✏️',
-            callback_data: 'sostav_zamenit_' + preview_key + '_' + i
-        }]);
-        knopki_edit.push([{ text: '\uD83D\uDD04 Сбросить', callback_data: 'sostav_reset_' + preview_key }]);
-        knopki_edit.push([{ text: '\u2705 Готово', callback_data: 'sostav_ok_' + preview_key }]);
-        knopki_edit.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_tip_kol_' + preview_data.klub_id + '_' + preview_data.tip_kluba + '_' + preview_data.kolichestvo }]);
-
-        bot.editMessageText(t, {
+        const nazad = preview_data.igra_kod
+            ? 'igra_sostav_' + preview_data.igra_kod
+            : ('sostav_back_' + preview_key);
+        bot.editMessageText(tekstRedaktoraSostava(preview_data.sostav), {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: knopki_edit }
+            reply_markup: { inline_keyboard: knopkiRedaktoraSostava(preview_key, preview_data.sostav, nazad) }
         });
+    }
+
+    else if (data.startsWith('sostav_back_')) {
+        const preview_key = data.replace('sostav_back_', '');
+        if (!(await pokazatEkranPreviewSostava(chatId, messageId, preview_key))) {
+            bot.answerCallbackQuery(query.id, { text: '\u274C Сессия истекла', show_alert: true });
+        }
+    }
+
+    // Редактировать состав уже созданной игры (вечер / лобби)
+    else if (data.startsWith('igra_sostav_')) {
+        const kod = data.replace('igra_sostav_', '');
+        const igra = igry[kod];
+        if (!igra || igra.vedushchii_id !== telegram_id) {
+            bot.answerCallbackQuery(query.id, { text: 'Игра не найдена', show_alert: true });
+            return;
+        }
+        if (igra.roli_razdany) {
+            bot.answerCallbackQuery(query.id, { text: 'После раздачи роли уже нельзя менять состав', show_alert: true });
+            return;
+        }
+        const tip = igra.tip_kluba || 'paskal';
+        const base = Array.isArray(igra._sostav_custom) && igra._sostav_custom.length
+            ? igra._sostav_custom
+            : (poluchit_sostav(igra.kolichestvo, tip) || []);
+        const previewId = sozdatPreviewSostava({
+            sostav: base,
+            original: poluchit_sostav(igra.kolichestvo, tip) || base,
+            klub_id: igra.klub_id,
+            klub_nazvaniye: igra.klub_nazvaniye || '',
+            tip_kluba: tip,
+            kolichestvo: igra.kolichestvo,
+            igra_kod: kod,
+            nazad_callback: igra.klub_id ? ('open_igra_' + kod) : ('obnovit_igru_' + kod)
+        });
+        await pokazatEkranPreviewSostava(chatId, messageId, previewId);
     }
 
     // ===== СОСТАВ: выбрать замену для роли =====
     else if (data.startsWith('sostav_zamenit_')) {
         const rest = data.replace('sostav_zamenit_', '');
-        // preview_key может содержать _ так что берём последний элемент как индекс
         const last_under = rest.lastIndexOf('_');
         const preview_key = rest.substring(0, last_under);
-        const rol_idx = parseInt(rest.substring(last_under + 1));
+        const rol_idx = parseInt(rest.substring(last_under + 1), 10);
         const preview_data = igry['preview_' + preview_key];
         if (!preview_data) return;
 
         const tekushchaya = preview_data.sostav[rol_idx];
-
-        // Все доступные роли
-        const vse_roli = ['Дон', 'Мафия', 'Путана', 'Подрывник мафии', 'Консильери', 'Эскортница',
-                          'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-                          'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
-                          'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
-                          'Мстительный родственник', 'Маньяк', 'Мирный'];
-
-        const knopki_zam = vse_roli.map((r, ri) => [{
+        const knopki_zam = VSE_ROLI_KONSTRUKTOR.map((r, ri) => [{
             text: (r === tekushchaya ? '\u2705 ' : '') + r,
             callback_data: 'sostav_set_' + preview_key + '_' + rol_idx + '_' + ri
         }]);
@@ -13331,44 +13515,27 @@ bot.on('callback_query', async function(query) {
     // ===== СОСТАВ: установить новую роль =====
     else if (data.startsWith('sostav_set_')) {
         const rest_s = data.replace('sostav_set_', '');
-        // Формат: preview_key_idx_rolname (rolname может содержать пробелы заменим их)
-        // Ищем индекс как цифру перед названием роли
         const parts_s = rest_s.split('_');
-        // preview_key = klub_id + '_' + tip + '_' + kolichestvo
-        // затем idx, затем роль (может быть несколько слов через _)
-        // Берём первые 3 части как preview_key, 4-ю как idx, остальное как роль
-        const klub_id_s = parts_s[0];
-        const tip_s = parts_s[1];
-        const kol_s = parts_s[2];
-        const idx_s = parseInt(parts_s[3]);
-        const vse_roli_s = ['Дон', 'Мафия', 'Путана', 'Подрывник мафии', 'Консильери', 'Эскортница',
-            'Шериф', 'Комиссар', 'Детектив', 'Доктор', 'Охотник', 'Стрелок',
-            'Стрелочник', 'Камикадзе', 'Подрывник', 'Затычка', 'Шахид', 'Бессмертный',
-            'Любовница', 'Ведьма', 'Бомба', 'Безликий', 'Адвокат',
-            'Мстительный родственник', 'Маньяк', 'Мирный'];
-        const rol_ri = parseInt(parts_s[4], 10);
-        const new_rol = vse_roli_s[rol_ri] || parts_s.slice(4).join(' ');
-        const preview_key_s = klub_id_s + '_' + tip_s + '_' + kol_s;
+        // Короткий preview id (число) + idx + индекс роли в VSE_ROLI_KONSTRUKTOR
+        const preview_key_s = parts_s[0];
+        const idx_s = parseInt(parts_s[1], 10);
+        const rol_ri = parseInt(parts_s[2], 10);
+        const new_rol = VSE_ROLI_KONSTRUKTOR[rol_ri] || parts_s.slice(2).join(' ');
         const preview_data_s = igry['preview_' + preview_key_s];
-        if (!preview_data_s) return;
+        if (!preview_data_s || !Number.isFinite(idx_s)) return;
 
         const old_rol = preview_data_s.sostav[idx_s];
         preview_data_s.sostav[idx_s] = new_rol;
 
         bot.answerCallbackQuery(query.id, { text: old_rol + ' → ' + new_rol });
 
-        // Возвращаемся к редактору
-        const sostav_s = preview_data_s.sostav;
-        let t_s = '\u270F\uFE0F *Редактировать состав*\n\n_Нажми на роль чтобы заменить:_\n\n';
-        sostav_s.forEach((r, i) => {
-            const em_s = isMafiaRole(r) ? '\uD83D\uDD34' : (r === 'Маньяк' ? '\uD83C\uDFAF' : '\uD83D\uDFE2');
-            t_s += (i + 1) + '. ' + em_s + ' ' + r + '\n';
+        const nazad = preview_data_s.igra_kod
+            ? 'igra_sostav_' + preview_data_s.igra_kod
+            : ('sostav_back_' + preview_key_s);
+        bot.editMessageText(tekstRedaktoraSostava(preview_data_s.sostav), {
+            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: knopkiRedaktoraSostava(preview_key_s, preview_data_s.sostav, nazad) }
         });
-        const kk_s = sostav_s.map((r, i) => [{ text: (i + 1) + '. ' + r + ' \u270F\uFE0F', callback_data: 'sostav_zamenit_' + preview_key_s + '_' + i }]);
-        kk_s.push([{ text: '\uD83D\uDD04 Сбросить', callback_data: 'sostav_reset_' + preview_key_s }]);
-        kk_s.push([{ text: '\u2705 Готово', callback_data: 'sostav_ok_' + preview_key_s }]);
-        kk_s.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'igra_tip_kol_' + preview_key_s }]);
-        bot.editMessageText(t_s, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: kk_s } });
     }
 
     // ===== СОСТАВ: сбросить к стандарту =====
@@ -13378,18 +13545,7 @@ bot.on('callback_query', async function(query) {
         if (!preview_data_r) return;
         preview_data_r.sostav = [...preview_data_r.original];
         bot.answerCallbackQuery(query.id, { text: '\uD83D\uDD04 Состав сброшен к стандарту' });
-        // Показываем предпросмотр снова
-        const preview_r = pokazat_sostav_preview(preview_data_r.kolichestvo, preview_data_r.tip_kluba, {}, preview_data_r.klub_nazvaniye || '');
-        bot.editMessageText(
-            preview_r.text + '\n\n' +
-            '_Дальше внеси список игроков столбиком — каждый ник с новой строки._',
-            {
-            chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: '\u2705 Создать игру', callback_data: 'sostav_ok_' + preview_key_r }],
-                [{ text: '\u2699\uFE0F Состав ролей', callback_data: 'sostav_edit_' + preview_key_r }],
-            ]}
-        });
+        await pokazatEkranPreviewSostava(chatId, messageId, preview_key_r);
     }
 
     else if (data.startsWith('igra_bez_anons_')) {
@@ -19310,6 +19466,7 @@ async function napomnitObOplateRailway() {
         console.log('🎴 PrimeMafia бот запущен (polling)');
         rassylka.zapustitWorker(bot);
         backup.zapustitWorker();
+        otkrytPolnyyDostupDevKlubov().catch(e => console.error('[billing grant]', e?.message || e));
     } catch (e) {
         if (etoOshibka409(e)) {
             await perezapuskPosle409();
