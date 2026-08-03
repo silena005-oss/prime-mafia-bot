@@ -6642,6 +6642,9 @@ async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
     igra.rezhim_rolei = 'karty';
     igra.roli_razdany = true;
     igra.den = 1;
+    // После интро — ждём выбор первого для представления (панель смотрит на ozhidanie / _pick_first_faza)
+    igra.faza = 'ozhidanie';
+    igra.tekushchiy_nomer = null;
     igra.igroki.forEach(i => {
         i.status = 'v_igre';
         i.foly = i.foly || 0;
@@ -10322,9 +10325,12 @@ async function pokazatPanelImmuniteta(chatId, messageId, kod) {
     });
     knopki.push([{ text: '\uD83D\uDD04 Обновить бонусы', callback_data: 'panel_immunitet_' + kod }]);
     if (igra._pick_first_faza && !igra.tekushchiy_nomer) {
-        knopki.unshift([{ text: knopkaKtoNachinaet(igra._pick_first_faza), callback_data: 'faza_' + igra._pick_first_faza + '_' + kod }]);
+        knopki.unshift([{ text: knopkaKtoNachinaet(igra._pick_first_faza, igra.den), callback_data: 'faza_' + igra._pick_first_faza + '_' + kod }]);
+        knopki.push([{ text: '\u2705 Готово — ' + knopkaKtoNachinaet(igra._pick_first_faza, igra.den), callback_data: 'faza_' + igra._pick_first_faza + '_' + kod }]);
     }
-    const nazad = fazaKRuchiRechi(igra.faza) ? 'timer_back_' + kod : 'panel_' + kod;
+    const nazad = (fazaKRuchiRechi(igra.faza) && igra.tekushchiy_nomer)
+        ? 'timer_back_' + kod
+        : 'panel_' + kod;
     knopki.push([{ text: '\u2B05\uFE0F Назад', callback_data: nazad }]);
 
     const opts = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
@@ -14440,12 +14446,37 @@ bot.on('callback_query', async function(query) {
             .map(i => [{ text: '\uD83D\uDC80 \u2116' + i.nomer + ' ' + i.name + ' — выбыл', callback_data: 'vybyl_' + kod + '_' + i.nomer }]);
 
         // Кнопки фаз
-        if (!igra.faza || igra.faza === 'ozhidanie') {
+        if (igra._pick_first_faza && !igra.tekushchiy_nomer) {
+            // После ночи знакомства / иммунитетов — сразу выбрать, кто начинает круг
+            knopki.push([{
+                text: knopkaKtoNachinaet(igra._pick_first_faza, igra.den || 1),
+                callback_data: 'faza_' + igra._pick_first_faza + '_' + kod
+            }]);
+            if (igra._pick_first_faza === 'znakomstvo') {
+                knopki.push([{ text: knopkaKtoNachinaet('den', igra.den || 1), callback_data: 'faza_den_' + kod }]);
+            }
+        } else if (!igra.faza || igra.faza === 'ozhidanie' || (igra.faza === 'noch_znakomstvo' && igra.roli_razdany)) {
             knopki.push([{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }]);
             knopki.push([{ text: knopkaKtoNachinaet('den', igra.den || 1), callback_data: 'faza_den_' + kod }]);
+        } else if (igra.faza === 'znakomstvo') {
+            if (igra.tekushchiy_nomer && !igra._krug_zavershen) {
+                knopki.push([{ text: '⏱ К таймеру представления', callback_data: 'timer_back_' + kod }]);
+            } else {
+                knopki.push(...knopkiKoncaZnakomstva(igra, kod));
+            }
         } else if (igra.faza === 'den') {
+            if (igra.tekushchiy_nomer && !igra._krug_zavershen) {
+                knopki.push([{ text: '⏱ К минутным речам', callback_data: 'timer_back_' + kod }]);
+            }
             knopki.push([{ text: '\uD83D\uDCA5 На голосование', callback_data: 'vybrat_na_golos_' + kod }]);
             knopki.push([{ text: '\uD83C\uDF19 Перейти к ночи', callback_data: 'faza_noch_' + kod }]);
+        } else if (igra.faza === 'opravdanie') {
+            if (igra.tekushchiy_nomer && !igra._krug_zavershen) {
+                knopki.push([{ text: '⏱ К оправданию', callback_data: 'timer_back_' + kod }]);
+            }
+            knopki.push([{ text: '\uD83D\uDDF3 Голосование', callback_data: 'faza_golosovanie_' + kod }]);
+        } else if (igra.faza === 'golosovanie') {
+            knopki.push([{ text: '\uD83D\uDDF3 К голосованию', callback_data: 'faza_golosovanie_' + kod }]);
         } else if (igra.faza === 'noch') {
             knopki.push([{ text: '\uD83C\uDF19 Панель ночи', callback_data: 'noch_panel_' + kod }]);
         }
