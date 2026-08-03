@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const bez = require('../lib/bezopasnost');
 const reyting = require('../lib/reyting-import');
+const { ochistitNikIzSpiska, razobratSpisokNikov } = require('../lib/helpers');
 
 describe('bezopasnost', () => {
   it('sanitizes PostgREST search', () => {
@@ -48,5 +49,28 @@ describe('reyting-import', () => {
     const { rows, errors } = reyting.parseRatingCsv(lines.join('\n'));
     assert.equal(rows.length, 0);
     assert.ok(errors[0].includes('2000'));
+  });
+});
+
+describe('razobratSpisokNikov', () => {
+  it('strips UI labels and keycap seat numbers from pasted roster', () => {
+    const text = [
+      'В игре:',
+      '1️⃣Худи 🤩',
+      '2️⃣Лиса 🦊',
+      '🔟 Миледи',
+      '1️⃣2️⃣Айк рез.',
+      '1. Анна',
+      '2) Боря'
+    ].join('\n');
+    assert.deepEqual(
+      razobratSpisokNikov(text),
+      ['Худи 🤩', 'Лиса 🦊', 'Миледи', 'Айк рез.', 'Анна', 'Боря']
+    );
+  });
+
+  it('drops bare status labels', () => {
+    assert.equal(ochistitNikIzSpiska('В игре:'), '');
+    assert.equal(ochistitNikIzSpiska('состав вечера'), '');
   });
 });

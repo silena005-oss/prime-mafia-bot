@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const supabase = require('./lib/supabase');
-const { md, dataIgrovoegoVechera, formatDatyRu } = require('./lib/helpers');
+const { md, dataIgrovoegoVechera, formatDatyRu, ochistitNikIzSpiska, razobratSpisokNikov } = require('./lib/helpers');
 const billing = require('./lib/billing');
 const invite = require('./lib/invite');
 const klubInvite = require('./lib/klub-invite');
@@ -26,6 +26,7 @@ const vecherReyting = require('./lib/vecher-reyting');
 const reytingImport = require('./lib/reyting-import');
 const itogFrazy = require('./lib/itog-frazy');
 const bezopasnost = require('./lib/bezopasnost');
+const backup = require('./lib/backup');
 const {
     orIlikeIgrokiPoisk,
     orIlikeIgrokiTochno,
@@ -945,8 +946,8 @@ async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}, body = {
     if (action === 'create_game') {
         const klub_id = body.klub_id;
         const kolichestvo = parseInt(body.kolichestvo, 10);
-        if (!klub_id || !Number.isFinite(kolichestvo) || kolichestvo < 6 || kolichestvo > 20) {
-            return { stay: true, message: 'Выбери клуб и число игроков (6–20).' };
+        if (!klub_id || !Number.isFinite(kolichestvo) || kolichestvo < 6 || kolichestvo > 21) {
+            return { stay: true, message: 'Выбери клуб и число игроков (6–21).' };
         }
         const kluby = await poluchitKlubyDlyaIgr(tg_id);
         if (!kluby.some(k => k.id === klub_id)) {
@@ -2300,7 +2301,8 @@ const sostavy = {
     17: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     18: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
     19: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Любовница', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
-    20: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
+    20: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный'],
+    21: ['Дон', 'Эскортница', 'Мафия', 'Мафия', 'Мафия', 'Мафия', 'Консильери', 'Шериф', 'Доктор', 'Бессмертный', 'Стрелок', 'Любовница', 'Маньяк', 'Камикадзе', 'Шахид', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный', 'Мирный']
 };
 
 // ── ВИП (городская профессиональная) ─────────────
@@ -3994,9 +3996,46 @@ bot.onText(/\/admin/, async (msg) => {
         '📋 /club\\_roles\\_status — роли выбранного клуба\n\n' +
         '🏛 /sales — карточки клубов для продаж\n' +
         '📝 /scripts — скрипты продаж и отзывов\n' +
-        '📋 /ankety — анкеты клубов (Supabase)',
+        '📋 /ankety — анкеты клубов (Supabase)\n' +
+        '💾 /backup — снимок БД сейчас (+ список последних)',
         { parse_mode: 'Markdown' }
     );
+});
+
+bot.onText(/\/backup/, async (msg) => {
+    if (!etoLichnyyChat(msg)) return;
+    if (!isAdmin(msg.from.id)) {
+        bot.sendMessage(msg.chat.id, '💾 Бэкап доступен только администратору.');
+        return;
+    }
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, '💾 Делаю снимок…').catch(() => {});
+    const rez = await backup.sdelatLogicalBackup('admin');
+    if (!rez.ok) {
+        bot.sendMessage(chatId, '❌ Бэкап не удался: ' + (rez.error || 'unknown'));
+        return;
+    }
+    let t = '✅ *Снимок сохранён*\n\n';
+    t += 'id: `' + rez.id + '`\n';
+    t += 'время: ' + (rez.sozdan || '') + '\n';
+    t += 'храним последних: ' + backup.KEEP + '\n\n';
+    const tables = rez.meta?.tables || {};
+    const lines = Object.keys(tables).map((name) => {
+        const info = tables[name];
+        if (info.skipped) return '• ' + name + ' — пропуск';
+        return '• ' + name + ': ' + (info.rows || 0);
+    });
+    if (lines.length) t += '*Таблицы:*\n' + lines.join('\n') + '\n\n';
+    try {
+        const last = await backup.poslednieBekapy(5);
+        if (last.length) {
+            t += '*Последние:*\n';
+            last.forEach((b) => {
+                t += '• ' + (b.sozdan || '') + ' · ' + (b.istochnik || '') + '\n';
+            });
+        }
+    } catch (_) { /* ignore list errors */ }
+    bot.sendMessage(chatId, t, { parse_mode: 'Markdown' });
 });
 
 bot.onText(/\/sales/, async (msg) => {
@@ -6465,11 +6504,22 @@ async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
     return { ok: true, message: 'Ночь знакомства завершена. Выбери, кто начинает представление.' };
 }
 
-function razobratSpisokNikov(text) {
-    return String(text || '')
-        .split(/\n|[,;]+/)
-        .map(s => s.trim().replace(/^\d+[\).\-\s]+/, '').trim())
-        .filter(Boolean);
+function normalizovatSpisokVechera(igroki) {
+    return (igroki || [])
+        .map((p, idx) => {
+            const name = ochistitNikIzSpiska(p?.name);
+            if (!name) return null;
+            return {
+                telegram_id: p.telegram_id || null,
+                name,
+                nomer: idx + 1,
+                status: p.status || 'v_igre',
+                foly: p.foly || 0,
+                igrok_id: p.igrok_id || null
+            };
+        })
+        .filter(Boolean)
+        .map((p, idx) => ({ ...p, nomer: idx + 1 }));
 }
 
 function tekstVvodaRuchnogoProtokola() {
@@ -7162,6 +7212,7 @@ async function poluchitDannyeVecheraKluba(klub_id) {
     if (!spisok && nastroyki.vecher_data === today && Array.isArray(nastroyki.vecher_spisok) && nastroyki.vecher_spisok.length > 0) {
         spisok = nastroyki.vecher_spisok;
     }
+    if (Array.isArray(spisok)) spisok = normalizovatSpisokVechera(spisok);
     return { spisok, zavershen };
 }
 
@@ -7193,7 +7244,8 @@ async function poluchitSpisokVecheraKluba(klub_id) {
 
 async function sohranitSpisokVecheraKluba(klub_id, igroki) {
     if (!klub_id || !Array.isArray(igroki)) return;
-    const spisok = igroki.map(i => ({
+    const ochishchennye = normalizovatSpisokVechera(igroki);
+    const spisok = ochishchennye.map(i => ({
         name: i.name,
         igrok_id: i.igrok_id || null,
         telegram_id: i.telegram_id || null
@@ -7568,6 +7620,12 @@ async function obrabotatZavershenieVechera(klub_id) {
     const reyting = await vecherReyting.poluchitReytingVechera(supabase, klub_id, today);
     const stat = await vecherReyting.poluchitStatistikuPobedVechera(supabase, klub_id, today);
     await zavershitIgrovoyVecherKluba(klub_id);
+    // Убираем «висящие» лобби после закрытия вечера (миниапп ↔ бот)
+    try {
+        await zakrytLobbyKlubaBezRoley(klub_id);
+    } catch (e) {
+        console.error('[vecher finish lobby]', e?.message || e);
+    }
     await vecherReyting.sohranitReytingVechera(supabase, klub_id, today, reyting);
     const { data: klub } = await supabase.from('kluby').select('id, nazvaniye, nastroyki').eq('id', klub_id).single();
     await vecherReyting.obrabotatMesyachnyItog(supabase, bot, klub_id, klub?.nazvaniye);
@@ -7776,6 +7834,31 @@ async function ochistitLobbyVedushchegoBezRoley(telegram_id, opts = {}) {
     });
     for (const kod of kody) {
         try { stopTimer(kod); } catch (_) {}
+        delete igry[kod];
+        try { await zavershit_igru_v_db(kod); } catch (_) {}
+    }
+    return kody.length;
+}
+
+/** После завершения вечера закрыть лобби клуба без разданных ролей (в т.ч. на паузе). */
+async function zakrytLobbyKlubaBezRoley(klub_id) {
+    if (!klub_id) return 0;
+    const kody = Object.keys(igry).filter(kod => {
+        if (String(kod).startsWith('archive_') || String(kod).startsWith('preview_')) return false;
+        const igra = igry[kod];
+        if (!igra || String(igra.klub_id) !== String(klub_id)) return false;
+        if (igra.roli_razdany) return false;
+        const faza = igra.faza || 'ozhidanie';
+        if (['den', 'noch', 'golosovanie', 'opravdanie'].includes(faza)) return false;
+        // ozhidanie / registraciya / noch_znakomstvo без ролей — убрать
+        return true;
+    });
+    for (const kod of kody) {
+        try { stopTimer(kod); } catch (_) {}
+        const ved = igry[kod]?.vedushchii_id;
+        if (ved && sostoyanie[ved] && String(sostoyanie[ved]).includes(kod)) {
+            delete sostoyanie[ved];
+        }
         delete igry[kod];
         try { await zavershit_igru_v_db(kod); } catch (_) {}
     }
@@ -8120,9 +8203,10 @@ async function miniAppVecherAction(tg_id, user, body) {
 }
 
 async function zapolnitIgruIzSpiskaVechera(igra, spisok) {
+    const ochishchennye = normalizovatSpisokVechera(spisok);
     igra.igroki = [];
-    for (let i = 0; i < spisok.length; i++) {
-        const row = spisok[i];
+    for (let i = 0; i < ochishchennye.length; i++) {
+        const row = ochishchennye[i];
         const igrok = {
             telegram_id: row.telegram_id || null,
             name: row.name,
@@ -8134,6 +8218,7 @@ async function zapolnitIgruIzSpiskaVechera(igra, spisok) {
         await privyazatIgrokaIzBazy(igra, igrok);
         igra.igroki.push(igrok);
     }
+    if (ochishchennye.length) igra.kolichestvo = ochishchennye.length;
 }
 
 function tekstVvodaSpiskaIgrokov(igra, kod) {
@@ -12973,7 +13058,7 @@ bot.on('callback_query', async function(query) {
         // Сохраняем тип и переходим к выбору количества
         const { data: klub_it } = await supabase.from('kluby').select('nazvaniye').eq('id', klub_id_it).single();
         const kol_knopki = [];
-        const dostupnye = tip_it === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20];
+        const dostupnye = tip_it === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20,21];
         for (let i = 0; i < dostupnye.length; i += 4) {
             kol_knopki.push(dostupnye.slice(i, i+4).map(n => ({ text: String(n), callback_data: 'igra_tip_kol_' + klub_id_it + '_' + tip_it + '_' + n })));
         }
@@ -13186,7 +13271,7 @@ bot.on('callback_query', async function(query) {
         const { data: klub_bz } = await supabase.from('kluby').select('nazvaniye, sportivniy_rezhim, nastroyki').eq('id', klub_id).single();
         const tip_kluba_bz = klub_bz?.nastroyki?.tip_kluba || 'paskal';
         const kol_knopki = [];
-        const dostupnye = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+        const dostupnye = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
         for (let i = 0; i < dostupnye.length; i += 4) {
             kol_knopki.push(dostupnye.slice(i, i + 4).map(n => ({
                 text: String(n),
@@ -16562,7 +16647,7 @@ bot.on('callback_query', async function(query) {
             '\uD83C\uDFAE *Играть с друзьями*\n\n' +
             'Личная игра *бесплатно*: без клуба и без рейтинга. Создаёшь код, друзья подключаются, бот раздаёт роли.\n\n' +
             '\uD83C\uDFC6 *Спортивная* — классика на 10 ролей\n' +
-            '\uD83C\uDF06 *Городская* — любительская игра на 8–20 ролей\n\n' +
+            '\uD83C\uDF06 *Городская* — любительская игра на 8–21 ролей\n\n' +
             '_После игры можно включить анонсы клубов в твоём городе и при желании открыть свой клуб._', {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [
@@ -16591,7 +16676,7 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('druzya_tip_')) {
         const tip_d = data.replace('druzya_tip_', '');
         const tip_names_d = { gorodskaya: 'Городская', sportivniy: 'Спортивная' };
-        const vse_kol = tip_d === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20];
+        const vse_kol = tip_d === 'sportivniy' ? [10] : [8,9,10,11,12,13,14,15,16,17,18,19,20,21];
         const rows_d = [];
         for (let i = 0; i < vse_kol.length; i += 4) {
             rows_d.push(vse_kol.slice(i, i+4).map(n => ({ text: String(n), callback_data: 'druzya_kol_' + tip_d + '_' + n })));
@@ -19093,6 +19178,7 @@ async function napomnitObOplateRailway() {
         await zapustitPolling();
         console.log('🎴 PrimeMafia бот запущен (polling)');
         rassylka.zapustitWorker(bot);
+        backup.zapustitWorker();
     } catch (e) {
         if (etoOshibka409(e)) {
             await perezapuskPosle409();
