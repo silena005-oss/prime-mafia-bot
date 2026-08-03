@@ -65,7 +65,8 @@ const {
     poluchitTarifKluba,
     mozhnoFunktsiyuKluba,
     otkrytPolnyyDostupKluba,
-    otkrytPolnyyDostupDevKlubov
+    otkrytPolnyyDostupDevKlubov,
+    etoDevKlubPoNazvaniyu
 } = billing;
 
 const { otpravitQrVhodaVBota, ssylkaVhodaVIgru, knopkiPriglasheniyaVIgru, tekstPriglasheniyaVIgru } = invite;
@@ -3141,6 +3142,7 @@ async function sohranit_igru(kod) {
             data_igry: igra.data_igry || igra._nastroyki?.data_igry || null,
             nomer_igry: igra.nomer_igry || igra._nastroyki?.nomer_igry || null,
             _sostav_custom: Array.isArray(igra._sostav_custom) ? igra._sostav_custom : (igra._nastroyki?._sostav_custom || null),
+            _slot_oplaty: !!igra._slot_oplaty,
             _miniapp_intro: igra._miniapp_intro || null,
             _noch_guided_idx: Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null,
             _pick_first_faza: igra._pick_first_faza || null
@@ -3215,6 +3217,7 @@ async function zagruzit_aktivnye_igry() {
                     luchshie_hody: nastroyki.luchshie_hody || [],
                     ostanovlena: !!nastroyki.ostanovlena,
                     _sostav_custom: Array.isArray(nastroyki._sostav_custom) ? nastroyki._sostav_custom : null,
+                    _slot_oplaty: !!nastroyki._slot_oplaty,
                     _nastroyki: nastroyki,
                     _miniapp_intro: nastroyki._miniapp_intro || null,
                     _noch_guided_idx: Number.isFinite(nastroyki._noch_guided_idx) ? nastroyki._noch_guided_idx : null,
@@ -4062,18 +4065,34 @@ bot.onText(/\/grant(?:\s+(.+))?$/, async (msg, match) => {
     const q = String(match?.[1] || '').trim().toLowerCase();
     bot.sendMessage(chatId, '🔓 Открываю полный доступ…').catch(() => {});
 
+    const markGames = (klubIds) => {
+        let n = 0;
+        for (const [kod, igra] of Object.entries(igry)) {
+            if (String(kod).startsWith('archive_') || igra?._ne_sohranyat) continue;
+            if (!klubIds.has(String(igra.klub_id))) continue;
+            igra._slot_oplaty = true;
+            sohranit_igru(kod).catch(() => {});
+            n++;
+        }
+        return n;
+    };
+
     if (!q || q === 'dev' || q === 'all') {
         const rez = await otkrytPolnyyDostupDevKlubov();
         if (!rez.ok) {
             bot.sendMessage(chatId, '❌ ' + (rez.error || 'ошибка'));
             return;
         }
+        const { data: kluby } = await supabase.from('kluby').select('id, nazvaniye');
+        const ids = new Set((kluby || []).filter(k => etoDevKlubPoNazvaniyu(k.nazvaniye)).map(k => String(k.id)));
+        const games = markGames(ids);
         const list = rez.updated.length
             ? rez.updated.map(n => '• ' + n).join('\n')
             : '_Уже было открыто (или клубы не найдены)._';
         bot.sendMessage(chatId,
             '✅ *Полный доступ (Network)*\n\n' + list +
-            '\n\nТест снят. Можно снова начинать ночь знакомства.',
+            '\n\nАктивных игр разблокировано: *' + games + '*' +
+            '\n\nТест снят. Можно снова завершить ночь знакомства / начать круг.',
             { parse_mode: 'Markdown' }
         );
         return;
@@ -4085,11 +4104,14 @@ bot.onText(/\/grant(?:\s+(.+))?$/, async (msg, match) => {
         return;
     }
     const lines = [];
+    const ids = new Set();
     for (const k of kluby) {
         const rez = await otkrytPolnyyDostupKluba(k.id, { force: true });
+        ids.add(String(k.id));
         lines.push((rez.ok ? '✅ ' : '❌ ') + (k.nazvaniye || k.id) + (rez.error ? (' — ' + rez.error) : ''));
     }
-    bot.sendMessage(chatId, '*Готово:*\n\n' + lines.join('\n'), { parse_mode: 'Markdown' });
+    const games = markGames(ids);
+    bot.sendMessage(chatId, '*Готово:*\n\n' + lines.join('\n') + '\n\nИгр разблокировано: *' + games + '*', { parse_mode: 'Markdown' });
 });
 
 bot.onText(/\/backup/, async (msg) => {
