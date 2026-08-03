@@ -64,13 +64,14 @@ ALLOW_MINIAPP_DEV_BYPASS=... # только локально, если нуже�
 ## Данные и Supabase
 
 - Игры, рейтинг, клубы — в Supabase; перезапуск бота их не стирает.
-- **План Free:** встроенных daily backups / PITR у Supabase нет. Логический дамп:
-  ```bash
-  npm run backup
-  ```
-  Пишет JSON в `backups/<timestamp>/` (папка в `.gitignore`). Хранит последние 14 снимков (`BACKUP_KEEP`).
-  Запускать локально или по cron (ежедневно) с `SUPABASE_URL` + service_role.
-- **План Pro+:** Database → Backups / PITR в панели Supabase.
+- **План Free:** встроенных daily backups / PITR у Supabase нет. Два слоя логических снимков:
+  1. **В боте (Railway):** раз в сутки пишет в таблицу `pm_logical_backups` (держим `BACKUP_KEEP`, по умолчанию 7). Админ: `/backup` в личке.
+  2. **Локально / cron:**
+     ```bash
+     npm run backup
+     ```
+     Пишет JSON в `backups/<timestamp>/` (папка в `.gitignore`). Нужны `SUPABASE_URL` + **service_role** (anon упрётся в RLS).
+- **План Pro+:** Database → Backups / PITR в панели Supabase (рекомендуется, когда бюджет позволит).
 - Перед гостевыми клубами: RLS на всех public-таблицах, anon без доступа (бот только service_role).
 - В Railway `SUPABASE_KEY` = **service_role** (бот обходит RLS). Anon-ключ в боте — ошибка, процесс не стартует.
 - После миграции: Advisors → Security — `rls_disabled_in_public` не должно быть ERROR.
