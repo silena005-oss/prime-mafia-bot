@@ -1377,11 +1377,12 @@ function renderSeats(players, hostMeta) {
       seat.style.top = '';
     }
     const roleLine = player.role ? `<div class="seat-role">${escapeHtml(player.role)}</div>` : '';
+    const immuneMark = player.immunity ? ' 🛡' : '';
     seat.innerHTML = `
       <div class="seat-num">№${escapeHtml(player.nomer || index + 1)}</div>
-      <div class="seat-name">${escapeHtml(player.name || 'Игрок')}</div>
+      <div class="seat-name">${escapeHtml(player.name || 'Игрок')}${immuneMark}</div>
       ${roleLine}
-      <div class="seat-meta">${player.status === 'v_igre' ? 'в игре' : 'выбыл'} · фолы: ${escapeHtml(player.foly || 0)}</div>
+      <div class="seat-meta">${player.status === 'v_igre' ? 'в игре' : 'выбыл'} · фолы: ${escapeHtml(player.foly || 0)}${player.immunity ? ' · иммунитет' : ''}</div>
     `;
     if (player.role_card_url) {
       loadAuthImage(player.role_card_url).then((objectUrl) => {
