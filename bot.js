@@ -4993,10 +4993,15 @@ bot.on('message', async function(msg) {
         }
         igra_gc.golosa_dnya = igra_gc.golosa_dnya || {};
         igra_gc.golosa_dnya[nomer_gc] = count;
+        const avto = avtozapolnitOstatokGolosov(igra_gc);
         delete sostoyanie[tg_id];
         await sohranit_igru(kod_gc);
         const igrok_gc = igra_gc.igroki.find(i => i.nomer === nomer_gc);
-        await bot.sendMessage(chatId, '\u2705 За \u2116' + nomer_gc + ' ' + (igrok_gc?.name || '') + ': *' + count + '* голос(ов)', {
+        let msg = '\u2705 За \u2116' + nomer_gc + ' ' + (igrok_gc?.name || '') + ': *' + count + '* голос(ов)';
+        if (avto) {
+            msg += '\n\u2728 Остаток за \u2116' + avto.nomer + ' ' + avto.name + ': *' + avto.count + '*';
+        }
+        await bot.sendMessage(chatId, msg, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra_gc, kod_gc) }
         });
@@ -8368,24 +8373,36 @@ async function nachatGolosovanieIgry(igra, kod) {
 
 async function primeniItogGolosovaniyaMiniApp(igra, kod) {
     oznachitImmunitetVGolosovanii(igra);
+    avtozapolnitOstatokGolosov(igra);
     const naznacheny = naznachenyBezImmuniteta(igra);
     const golosa = igra.golosa_dnya || {};
     const neVneseny = naznacheny.filter(i => !Number.isFinite(golosa[i.nomer]));
     if (neVneseny.length > 0) {
-        return { ok: false, message: 'Внеси голоса за всех выставленных (кроме иммунитета)' };
+        return { ok: false, message: 'Внеси голоса за всех выставленных (кроме последнего — он считается сам)' };
     }
     if (!naznacheny.length) {
         return { ok: false, message: 'Все выставленные с иммунитетом — некого голосовать' };
     }
     const max = Math.max(...naznacheny.map(i => golosa[i.nomer] || 0));
     const lidery = naznacheny.filter(i => (golosa[i.nomer] || 0) === max);
-    if (lidery.length !== 1 || max === 0) {
+    if (max === 0) {
+        return { ok: false, message: 'Все получили 0 — нажми «Никто не выбывает» или внеси голоса' };
+    }
+    if (lidery.length !== 1) {
         if (!igra.peregolosovanie_aktivno) {
             igra.peregolosovanie_aktivno = true;
             igra.naznacheny_golos = lidery.map(i => i.nomer);
             igra.golosa_dnya = {};
+            igra.faza = 'opravdanie';
+            igra.poryadok_hoda = [...igra.naznacheny_golos];
+            igra.tekushchiy_nomer = null;
+            igra._krug_zavershen = true;
             await sohranit_igru(kod);
-            return { ok: true, message: 'Переголосование между лидерами', revote: true };
+            return {
+                ok: true,
+                message: 'Равенство — переголосование между №' + lidery.map(i => i.nomer).join(', '),
+                revote: true
+            };
         }
         return { ok: false, message: 'Равенство повторилось — решите за столом в боте' };
     }
@@ -10840,33 +10857,64 @@ function naznachenyBezImmuniteta(igra) {
     return nominirovannyePoPoryadku(igra).filter(i => !estImmunitetOtGolosovaniya(i, igra));
 }
 
-/** Если остался один выставленный без голосов — дописываем остаток автоматически */
+/** Если остался один выставленный без голосов — дописываем остаток автоматически.
+ * Предпочтительно — последний в порядке оправданий. */
 function avtozapolnitOstatokGolosov(igra) {
     oznachitImmunitetVGolosovanii(igra);
     const naznacheny = naznachenyBezImmuniteta(igra);
     if (naznacheny.length < 2) return null;
     igra.golosa_dnya = igra.golosa_dnya || {};
-    const bezGolosov = naznacheny.filter(i => !Number.isFinite(igra.golosa_dnya[i.nomer]));
-    if (bezGolosov.length !== 1) return null;
+
+    const last = naznacheny[naznacheny.length - 1];
+    const ostalnye = naznacheny.slice(0, -1);
+    const vseOstalnyeVneseny = ostalnye.every(i => Number.isFinite(igra.golosa_dnya[i.nomer]));
+    const lastPust = !Number.isFinite(igra.golosa_dnya[last.nomer]);
+
+    let target = null;
+    if (lastPust && vseOstalnyeVneseny) {
+        target = last;
+    } else {
+        const bezGolosov = naznacheny.filter(i => !Number.isFinite(igra.golosa_dnya[i.nomer]));
+        if (bezGolosov.length !== 1) return null;
+        target = bezGolosov[0];
+    }
+    if (!target) return null;
 
     const uzhe = naznacheny
-        .filter(i => Number.isFinite(igra.golosa_dnya[i.nomer]))
+        .filter(i => i.nomer !== target.nomer && Number.isFinite(igra.golosa_dnya[i.nomer]))
         .reduce((s, i) => s + (igra.golosa_dnya[i.nomer] || 0), 0);
     const vsego = chisloGolosuyushchihZaStolom(igra);
     const ostatok = Math.max(0, vsego - uzhe);
-    const last = bezGolosov[0];
-    igra.golosa_dnya[last.nomer] = ostatok;
-    return { nomer: last.nomer, name: last.name, count: ostatok, vsego, uzhe };
+    igra.golosa_dnya[target.nomer] = ostatok;
+    return { nomer: target.nomer, name: target.name, count: ostatok, vsego, uzhe, avto: true };
+}
+
+function previewOstatokGolosov(igra) {
+    oznachitImmunitetVGolosovanii(igra);
+    const naznacheny = naznachenyBezImmuniteta(igra);
+    if (naznacheny.length < 2) return null;
+    const golosa = igra.golosa_dnya || {};
+    const last = naznacheny[naznacheny.length - 1];
+    if (Number.isFinite(golosa[last.nomer])) return null;
+    const ostalnye = naznacheny.slice(0, -1);
+    if (!ostalnye.every(i => Number.isFinite(golosa[i.nomer]))) return null;
+    const uzhe = ostalnye.reduce((s, i) => s + (golosa[i.nomer] || 0), 0);
+    const vsego = chisloGolosuyushchihZaStolom(igra);
+    return { nomer: last.nomer, name: last.name, count: Math.max(0, vsego - uzhe), vsego };
 }
 
 function tekstGolosovaniyaSPodschetom(igra, kod) {
     oznachitImmunitetVGolosovanii(igra);
     const golosa = igra.golosa_dnya || {};
     const naznacheny = nominirovannyePoPoryadku(igra);
+    const bezImm = naznachenyBezImmuniteta(igra);
+    const lastNomer = bezImm.length ? bezImm[bezImm.length - 1].nomer : null;
     const vsego = chisloGolosuyushchihZaStolom(igra);
-    let t = '\uD83D\uDDF3 *Голосование* — Игра \u2116' + kod + '\n\n';
+    const revote = !!igra.peregolosovanie_aktivno;
+    let t = '\uD83D\uDDF3 *' + (revote ? 'Переголосование' : 'Голосование') + '* — Игра \u2116' + kod + '\n\n';
+    if (revote) t += '_Равенство — голосуем только между лидерами._\n';
     t += 'Внеси голоса за выставленных. Голосующих за столом: *' + vsego + '*.\n';
-    t += '_У последнего можно не вводить — остаток посчитается сам._\n';
+    t += '_У последнего в списке голоса считаются сами (остаток)._\n';
     t += '_Игроки с иммунитетом на оправдании были, но голоса за них не вводят._\n\n';
     if (naznacheny.length === 0) {
         t += '_Список на голосование пуст._';
@@ -10878,8 +10926,18 @@ function tekstGolosovaniyaSPodschetom(igra, kod) {
                 return;
             }
             const val = golosa[i.nomer];
-            t += (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + ' — *' + (Number.isFinite(val) ? val : 'не внесено') + '* голос(ов)\n';
+            if (Number.isFinite(val)) {
+                t += (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + ' — *' + val + '* голос(ов)\n';
+            } else {
+                t += (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name + ' — *не внесено*';
+                if (i.nomer === lastNomer) t += ' _(остаток)_';
+                t += '\n';
+            }
         });
+        const prev = previewOstatokGolosov(igra);
+        if (prev) {
+            t += '\n\u2728 Остаток за \u2116' + prev.nomer + ' ' + prev.name + ': *' + prev.count + '* (из ' + prev.vsego + ')\n';
+        }
     }
     return t;
 }
@@ -11698,8 +11756,11 @@ async function miniAppHostAction(tg_id, user, body) {
         }
         igra.golosa_dnya = igra.golosa_dnya || {};
         igra.golosa_dnya[nomer] = count;
+        const avto = avtozapolnitOstatokGolosov(igra);
         await sohranit_igru(kod);
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Голоса за №' + nomer + ': ' + count);
+        let msg = 'Голоса за №' + nomer + ': ' + count;
+        if (avto) msg += '. Остаток за №' + avto.nomer + ': ' + avto.count;
+        return otvetMiniAppPosleDeystviya(tg_id, user, msg);
     }
     if (sub === 'vote_finish') {
         const rez = await primeniItogGolosovaniyaMiniApp(igra, kod);
@@ -15754,11 +15815,16 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         oznachitImmunitetVGolosovanii(igra);
+        const avto = avtozapolnitOstatokGolosov(igra);
+        if (avto) await sohranit_igru(kod);
         const naznacheny = naznachenyBezImmuniteta(igra);
         const golosa = igra.golosa_dnya || {};
         const neVneseny = naznacheny.filter(i => !Number.isFinite(golosa[i.nomer]));
         if (neVneseny.length > 0) {
-            bot.answerCallbackQuery(query.id, { text: 'Внеси голоса за всех (кроме иммунитета).', show_alert: true });
+            bot.answerCallbackQuery(query.id, {
+                text: 'Внеси голоса за всех, кроме последнего — он посчитается сам.',
+                show_alert: true
+            });
             return;
         }
         if (!naznacheny.length) {
@@ -15768,9 +15834,17 @@ bot.on('callback_query', async function(query) {
         const max = Math.max(...naznacheny.map(i => golosa[i.nomer] || 0));
         const lidery = naznacheny.filter(i => (golosa[i.nomer] || 0) === max);
 
-        if (lidery.length !== 1 || max === 0) {
+        // Все 0 — никто не выбывает
+        if (max === 0) {
+            bot.answerCallbackQuery(query.id, { text: 'Все 0 — никто не выбывает' });
+            await primeniRuchnoyItogGolosovaniya(igra, kod, null, chatId, messageId);
+            return;
+        }
+
+        if (lidery.length !== 1) {
             let t_eq = '\uD83D\uDDF3 *Итог голосования:* равенство\n\n';
             lidery.forEach(i => { t_eq += '\u2116' + i.nomer + ' ' + i.name + ' — ' + (golosa[i.nomer] || 0) + ' голос(ов)\n'; });
+            if (avto) t_eq += '\n_Остаток за \u2116' + avto.nomer + ' учтён автоматически: ' + avto.count + '_\n';
 
             if (!igra.peregolosovanie_aktivno) {
                 igra.peregolosovanie_aktivno = true;
@@ -15781,12 +15855,16 @@ bot.on('callback_query', async function(query) {
                 igra.tekushchiy_nomer = igra.poryadok_hoda[0];
                 igra._krug_zavershen = false;
                 igra._krug_lock = false;
+                delete igra._taymer_ui_mode;
+                delete igra._picker_type;
                 await sohranit_igru(kod);
                 lidery.forEach(i => {
-                    if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Повторное оправдание!*\n\nРавенство голосов — у тебя есть время на короткую речь.', { parse_mode: 'Markdown' }).catch(() => {});
+                    if (i.telegram_id) bot.sendMessage(i.telegram_id, '\uD83D\uDCA5 *Повторное оправдание!*\n\nРавенство голосов — короткая речь, затем переголосование.', { parse_mode: 'Markdown' }).catch(() => {});
                 });
                 const sek_op_re = igra._nastroyki?.opravdanie_sek || 30;
-                t_eq += '\n\uD83D\uDD01 *Повторное оправдание* между игроками с равным результатом, затем — переголосование.';
+                t_eq += '\n\uD83D\uDD01 *Переголосование:* повторное оправдание лидеров, затем снова голоса.\n';
+                t_eq += '_У последнего в списке голоса снова посчитаются сами._';
+                bot.answerCallbackQuery(query.id, { text: 'Переголосование' });
                 await bot.editMessageText(t_eq + '\n\n' + buildPanelText(igra, kod), {
                     chat_id: chatId,
                     message_id: messageId,
@@ -15799,7 +15877,8 @@ bot.on('callback_query', async function(query) {
 
             igra.peregolosovanie_finalisty = lidery.map(i => i.nomer);
             await sohranit_igru(kod);
-            t_eq += '\n\u26A0\uFE0F Равенство повторилось. Стол должен решить: оставить всех или удалить всех спорных игроков.';
+            t_eq += '\n\u26A0\uFE0F Равенство повторилось. Стол решает: оставить всех или удалить всех спорных.';
+            bot.answerCallbackQuery(query.id, { text: 'Равенство снова' });
             bot.editMessageText(t_eq, {
                 chat_id: chatId,
                 message_id: messageId,
