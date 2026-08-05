@@ -6127,18 +6127,41 @@ async function pokazatPosleGolosovaniya(chatId, messageId, kod, nomerVybyv, opts
     }
 }
 
+/** Вечерние/ручные щиты — до 2-го дня. Промах ночи (immunitet_posle_nochi) оставляем на день после промаха. */
 function sbrositImmunitetyKDnyu2(igra) {
     if (!igra || (igra.den || 1) < 2) return;
     for (const i of igra.igroki || []) {
         delete i.immunitet_ruchnoy;
-        delete i.immunitet_posle_nochi;
         delete i.immunitet_golos;
         delete i.immunitet;
         delete i.immunitet_do;
         delete i.bonus_immunitet;
         delete i._immunitet_iz_pervoy_smerti;
-        delete i.immunitet_snyat_vedushchim;
+        // immunitet_posle_nochi не трогаем — сгорает при входе в следующую ночь
+        if (i.immunitet_snyat_vedushchim && !i.immunitet_posle_nochi) {
+            delete i.immunitet_snyat_vedushchim;
+        }
     }
+}
+
+/** После ночи: ждём «кто начинает день», не оставляем faza=noch. */
+function podgotovitVyborPervogoDlyaDnya(igra) {
+    if (!igra) return;
+    igra.faza = 'ozhidanie';
+    igra._pick_first_faza = 'den';
+    igra.tekushchiy_nomer = null;
+    igra._krug_zavershen = true;
+    igra._krug_lock = false;
+    igra.naznacheny_golos = [];
+    igra.vystavlenie_v_rechi = {};
+    igra.golosa_dnya = {};
+    igra.peregolosovanie_aktivno = false;
+    igra.peregolosovanie_finalisty = [];
+    igra._noch_guided_idx = null;
+    delete igra._taymer_ui_mode;
+    delete igra._picker_type;
+    delete igra._posle_golosa;
+    sbrositImmunitetyKDnyu2(igra);
 }
 
 function tekstIKnopkiTaymera(igra, kod) {
@@ -9905,8 +9928,7 @@ async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
 
     if (next === 'day') {
         igra.den = (igra.den || 1) + 1;
-        sbrositImmunitetyKDnyu2(igra);
-        igra._pick_first_faza = 'den';
+        podgotovitVyborPervogoDlyaDnya(igra);
         await sohranit_igru(kod);
         await bot.editMessageText('\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + igra.den + '.\n_Сначала выберешь, кто начинает дневные речи._', {
             chat_id: chatId,
@@ -10857,8 +10879,7 @@ function naznachenyBezImmuniteta(igra) {
     return nominirovannyePoPoryadku(igra).filter(i => !estImmunitetOtGolosovaniya(i, igra));
 }
 
-/** Если остался один выставленный без голосов — дописываем остаток автоматически.
- * Предпочтительно — последний в порядке оправданий. */
+/** Если по всем, кроме последнего, голоса внесены — последнему пишем остаток. */
 function avtozapolnitOstatokGolosov(igra) {
     oznachitImmunitetVGolosovanii(igra);
     const naznacheny = naznachenyBezImmuniteta(igra);
@@ -10868,10 +10889,10 @@ function avtozapolnitOstatokGolosov(igra) {
     const last = naznacheny[naznacheny.length - 1];
     const ostalnye = naznacheny.slice(0, -1);
     const vseOstalnyeVneseny = ostalnye.every(i => Number.isFinite(igra.golosa_dnya[i.nomer]));
-    const lastPust = !Number.isFinite(igra.golosa_dnya[last.nomer]);
 
     let target = null;
-    if (lastPust && vseOstalnyeVneseny) {
+    if (vseOstalnyeVneseny) {
+        // Всегда пересчитываем последнего — он «остаток»
         target = last;
     } else {
         const bezGolosov = naznacheny.filter(i => !Number.isFinite(igra.golosa_dnya[i.nomer]));
@@ -10885,8 +10906,9 @@ function avtozapolnitOstatokGolosov(igra) {
         .reduce((s, i) => s + (igra.golosa_dnya[i.nomer] || 0), 0);
     const vsego = chisloGolosuyushchihZaStolom(igra);
     const ostatok = Math.max(0, vsego - uzhe);
+    const prev = igra.golosa_dnya[target.nomer];
     igra.golosa_dnya[target.nomer] = ostatok;
-    return { nomer: target.nomer, name: target.name, count: ostatok, vsego, uzhe, avto: true };
+    return { nomer: target.nomer, name: target.name, count: ostatok, vsego, uzhe, avto: true, changed: prev !== ostatok };
 }
 
 function previewOstatokGolosov(igra) {
@@ -11480,8 +11502,6 @@ async function primeniItogiNochiMiniApp(igra, kod) {
     });
     zapisatIstoriyuDoktora(igra, d.doctor_tseli);
     igra.noch_deystviya = {};
-    igra.faza = 'den';
-    igra._noch_guided_idx = null;
     igra._miniapp_noch_itog = itog_t;
     const pobeditel = opredelitPobeditelya(igra);
     if (pobeditel) {
@@ -11489,7 +11509,7 @@ async function primeniItogiNochiMiniApp(igra, kod) {
         return { ok: true, message: 'Игра окончена', summary: itog_t, game_over: true, pobeditel };
     }
     igra.den = (igra.den || 1) + 1;
-    igra._pick_first_faza = 'den';
+    podgotovitVyborPervogoDlyaDnya(igra);
     await sohranit_igru(kod);
     return { ok: true, message: 'Ночь завершена. Выбери, кто начинает день ' + igra.den, summary: itog_t };
 }
@@ -11522,11 +11542,11 @@ async function miniAppHostAction(tg_id, user, body) {
         vote_finish: ['golosovanie', 'opravdanie'],
         vote_nobody: ['golosovanie', 'opravdanie'],
         vote_eliminate: ['golosovanie', 'opravdanie'],
-        pick_first: ['den', 'znakomstvo', 'lobby', ''],
-        pick_first_auto: ['den', 'znakomstvo', 'lobby', ''],
-        intro_start: ['lobby', 'registraciya', 'znakomstvo', ''],
-        intro_assign: ['lobby', 'registraciya', 'znakomstvo', ''],
-        intro_mirny: ['lobby', 'registraciya', 'znakomstvo', ''],
+        pick_first: ['den', 'znakomstvo', 'ozhidanie', 'lobby', ''],
+        pick_first_auto: ['den', 'znakomstvo', 'ozhidanie', 'lobby', ''],
+        intro_start: ['lobby', 'registraciya', 'znakomstvo', 'ozhidanie', ''],
+        intro_assign: ['lobby', 'registraciya', 'znakomstvo', 'ozhidanie', 'noch_znakomstvo', ''],
+        intro_mirny: ['lobby', 'registraciya', 'znakomstvo', 'ozhidanie', 'noch_znakomstvo', ''],
         give_foul: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
         immunity: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
         immunity_toggle: ['den', 'znakomstvo', 'noch', 'opravdanie', 'golosovanie'],
@@ -16758,6 +16778,7 @@ bot.on('callback_query', async function(query) {
         const pobeditel = opredelitPobeditelya(igra);
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.den = (igra.den || 1) + 1;
+        podgotovitVyborPervogoDlyaDnya(igra);
         await sohranit_igru(kod);
         bot.editMessageText(itog_t + '\n\n_Сначала выберешь, кто начинает дневные речи._', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
             [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
