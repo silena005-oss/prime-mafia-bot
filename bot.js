@@ -10072,7 +10072,7 @@ function tekstVyboraPervogoHoda(igra, kod, faza) {
     t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_\n';
     t += faza === 'znakomstvo'
         ? 'Круг представления пойдёт *по часовой* с этого места.\n\n'
-        : 'Дневные речи пойдут *против часовой* с этого места.\n\n';
+        : 'Дневные речи пойдут *по часовой* с этого места.\n\n';
     t += 'Можно выбрать вручную или нажать *«Назначить автоматически»*.\n\n';
     igra.igroki.filter(i => i.status === 'v_igre').forEach(i => {
         t += i.nomer + '. ' + i.name + '\n';
@@ -10166,7 +10166,7 @@ async function nachatFazuDen(chatId, messageId, kod) {
     stopTimer(kod);
     igra.faza = 'den';
     sbrositImmunitetyKDnyu2(igra);
-    igra.poryadok_hoda = poryadokHodaOtStarta(igra, igra.perviy_hod_nomer, false);
+    igra.poryadok_hoda = poryadokHodaOtStarta(igra, igra.perviy_hod_nomer, true);
     igra.tekushchiy_nomer = igra.poryadok_hoda[0] || null;
     igra.naznacheny_golos = [];
     igra.vystavlenie_v_rechi = {};
