@@ -10,6 +10,7 @@ const state = {
   nominateMode: null,
   foulArmed: false,
   immunityArmed: false,
+  introFixArmed: false,
   showEvening: false,
   /** Локальный тик таймера речи (сек), синхронизируется с сервером */
   localTimerSec: 0,
@@ -422,6 +423,7 @@ async function submitMirnyList() {
 }
 
 function hostClickMode(host) {
+  if (host?.intro?.phase === 'roles' && state.introFixArmed) return 'intro_clear';
   if (host?.intro?.phase === 'roles') return 'intro_assign';
   if (host?.intro?.phase === 'mirny') return 'intro_mirny';
   if (host?.can_pick_first) return 'pick_first';
@@ -1127,6 +1129,7 @@ function renderHostPanel(game) {
   el.hostRoster?.classList.toggle('hidden', !host.can_submit_roster);
   el.hostIntro?.classList.toggle('hidden', !host.intro || host.intro.phase === 'mirny');
   el.hostMirny?.classList.toggle('hidden', host.intro?.phase !== 'mirny');
+  if (host.intro?.phase !== 'roles') state.introFixArmed = false;
   el.hostSummary?.classList.toggle('hidden', !host.night_summary);
   if (host.night_summary && el.hostSummaryText) el.hostSummaryText.textContent = host.night_summary;
 
@@ -1147,6 +1150,12 @@ function renderHostPanel(game) {
   if (host.can_start_znakomstvo) {
     addBtn(host.club_auto_first ? '👋 Представление с №1' : '👋 Начать представление', () => hostAction('start_znakomstvo'), true);
   }
+  if (host.can_start_day) {
+    const dayLabel = host.pick_first_faza === 'znakomstvo'
+      ? '☀️ Сразу к дню (без представления)'
+      : ('☀️ Кто начинает день ' + (game.den || 1) + '?');
+    addBtn(dayLabel, () => hostAction('start_day'), !host.can_start_znakomstvo);
+  }
   if (host.can_pick_first && host.pick_first_faza === 'znakomstvo' && !host.can_start_znakomstvo) {
     addBtn('🎲 Кто начинает — случайно', () => hostAction('pick_first_auto', { faza: 'znakomstvo' }));
   }
@@ -1159,6 +1168,20 @@ function renderHostPanel(game) {
     });
   }
   if (host.can_start_voting) addBtn('🗳 Голосование', () => hostAction('start_voting'), true);
+  if (host.intro?.phase === 'roles' && (host.intro_assigned || []).length) {
+    if (state.introFixArmed) {
+      addBtn('✕ Отмена исправления', () => {
+        state.introFixArmed = false;
+        renderGame(game);
+      });
+    } else {
+      addBtn('✏️ Исправить внесённые роли', () => {
+        state.introFixArmed = true;
+        renderGame(game);
+        showToast('Нажми на игрока с ролью — снимем и внесёшь заново');
+      });
+    }
+  }
   if (host.intro?.phase === 'mirny') {
     const cands = host.intro.candidates || [];
     if (el.mirnyCandidates) {
@@ -1182,7 +1205,12 @@ function renderHostPanel(game) {
 
   if (host.can_start_intro) addBtn('🌙 Ночь знакомства', () => hostAction('intro_start'), true);
   if (host.can_pick_first) {
-    addBtn('🎲 Кто начинает — случайно', () => hostAction('pick_first_auto', { faza: host.pick_first_faza }), true);
+    const faza = host.pick_first_faza || 'den';
+    addBtn(
+      faza === 'znakomstvo' ? '🎲 Кто начинает представление — случайно' : '🎲 Кто начинает день — случайно',
+      () => hostAction('pick_first_auto', { faza }),
+      true
+    );
   }
   if (host.speaking_nomer) {
     addBtn('⏭ Пас (без выставления)', () => {
@@ -1331,24 +1359,33 @@ function seatFingerprint(player, clickMode) {
 
 function renderSeats(players, hostMeta) {
   const rectPad = 12;
-  const total = Math.max(players.length, 1);
   const clickMode = hostClickMode(hostMeta);
+  const hideDead = !hostMeta?.intro && (
+    hostMeta?.can_view_immunity ||
+    hostMeta?.can_night ||
+    hostMeta?.speaking_nomer ||
+    ['den', 'noch', 'golosovanie', 'opravdanie', 'znakomstvo'].includes(hostMeta?.faza)
+  );
+  const visible = hideDead ? players.filter((p) => p.status === 'v_igre') : players;
+  const dead = hideDead ? players.filter((p) => p.status !== 'v_igre') : [];
+  const total = Math.max(visible.length, 1);
   const listMode = (typeof window !== 'undefined' && window.innerWidth <= 760) || total > 12;
   el.table.classList.toggle('table-list', listMode);
 
-  const nextKeys = new Set(players.map((p) => String(p.nomer)));
+  const nextKeys = new Set(visible.map((p) => String(p.nomer)));
   el.table.querySelectorAll('.seat[data-nomer]').forEach((seat) => {
     if (!nextKeys.has(seat.dataset.nomer)) seat.remove();
   });
 
-  players.forEach((player, index) => {
+  visible.forEach((player, index) => {
     const nomerKey = String(player.nomer || index + 1);
     const angle = (Math.PI * 2 * index / total) - Math.PI / 2;
     const x = 50 + Math.cos(angle) * 37;
     const y = 50 + Math.sin(angle) * 39;
     const clickable = clickMode && player.status === 'v_igre' &&
       !(clickMode === 'nominate' && player.speaking) &&
-      !(clickMode === 'intro_assign' && player.role);
+      !(clickMode === 'intro_assign' && player.role) &&
+      !(clickMode === 'intro_clear' && !player.role);
     const fp = seatFingerprint(player, clickable ? clickMode : '');
     let seat = el.table.querySelector('.seat[data-nomer="' + nomerKey + '"]');
     if (seat && seat.dataset.fp === fp && seat.dataset.list === String(listMode)) {
@@ -1359,7 +1396,6 @@ function renderSeats(players, hostMeta) {
       return;
     }
 
-    const created = !seat;
     if (!seat) {
       seat = document.createElement('button');
       seat.type = 'button';
@@ -1400,6 +1436,10 @@ function renderSeats(players, hostMeta) {
       seat.addEventListener('click', () => {
         if (clickMode === 'pick_first') hostAction('pick_first', { nomer: player.nomer, faza: hostMeta.pick_first_faza });
         else if (clickMode === 'intro_assign') hostAction('intro_assign', { nomer: player.nomer });
+        else if (clickMode === 'intro_clear') {
+          state.introFixArmed = false;
+          hostAction('intro_clear', { nomer: player.nomer });
+        }
         else if (clickMode === 'intro_mirny') hostAction('intro_mirny', { nomer: player.nomer });
         else if (clickMode === 'nominate') {
           state.nominateArmed = false;
@@ -1420,7 +1460,7 @@ function renderSeats(players, hostMeta) {
           hostAction('immunity_toggle', { nomer: player.nomer });
         }
         else if (clickMode === 'night_pick') {
-          const nightTip = game.host?.night?.step_label || '';
+          const nightTip = hostMeta?.night?.step_label || '';
           const isEskort = /эскорт/i.test(nightTip);
           if (isEskort) {
             const rol = window.prompt('Эскортница назвала роль? (например: Шериф, Дон, Мирный)') || '';
@@ -1446,6 +1486,18 @@ function renderSeats(players, hostMeta) {
       });
     }
   });
+
+  let deadNote = el.table.querySelector('.dead-note');
+  if (dead.length) {
+    if (!deadNote) {
+      deadNote = document.createElement('div');
+      deadNote.className = 'dead-note muted';
+      el.table.appendChild(deadNote);
+    }
+    deadNote.textContent = 'Выбыли: ' + dead.map((p) => '№' + p.nomer + ' ' + (p.name || '')).join(', ');
+  } else if (deadNote) {
+    deadNote.remove();
+  }
 }
 
 function renderError(error) {
