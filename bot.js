@@ -571,7 +571,7 @@ function metaHostaMiniApp(igra, kod) {
             total: shagi.length,
             step_label: idx != null && shagi[idx] ? shagi[idx].label : null,
             step_tip: idx != null && shagi[idx] ? shagi[idx].tip : null,
-            can_skip: idx != null && shagi[idx]?.tip === 'strelok',
+            can_skip: idx != null && (shagi[idx]?.tip === 'strelok' || shagi[idx]?.tip === 'eskort'),
             done: nightDone
         } : null
     };
@@ -945,7 +945,7 @@ async function sostoyanieMiniApp(user, opts = {}) {
 }
 
 async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}, body = {}) {
-    const dmActions = new Set(['open_menu', 'support', 'roles', 'rating', 'profile_settings', 'join_game']);
+    const dmActions = new Set(['open_menu', 'support', 'roles', 'rating', 'profile_settings', 'join_game', 'open_privacy']);
     if (dmActions.has(action)) {
         const rlDm = proveritRateLimit('miniapp-dm:' + tg_id, 8, 60 * 1000);
         if (!rlDm.ok) {
@@ -1045,6 +1045,16 @@ async function obrabotatMiniAppAction(chatId, tg_id, action, user = {}, body = {
             reply_markup: { inline_keyboard: [[{ text: '⚙️ Настройки', callback_data: 'nastroyki_igroka' }]] }
         });
         return 'Настройки профиля открыты в боте';
+    }
+    if (action === 'open_privacy') {
+        await bot.sendMessage(chatId, tekstPrivacyKratko(), {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [
+                [{ text: '📄 Оферта', callback_data: 'legal_offerta' }],
+                [{ text: '🔒 Политика (кратко)', callback_data: 'legal_privacy' }]
+            ] }
+        });
+        return 'Политика отправлена в бот';
     }
 
     await bot.sendMessage(chatId, '✅ Данные из приложения получены.');
@@ -2518,7 +2528,7 @@ function tekstShkalyLuchshegoHoda(mafZaStolom, ballyConfig = BALLY_DEFAULT) {
         (minPorog > 1 ? '. Меньше ' + minPorog + ' — 0.' : '.');
 }
 
-const SOGLASIE_VERSIYA = '2026-05-29';
+const SOGLASIE_VERSIYA = '2026-08-11';
 
 function tekstEkranaSoglasiya() {
     return '👋 *Добро пожаловать в Prime Mafia!*\n\n' +
@@ -2530,8 +2540,10 @@ function tekstEkranaSoglasiya() {
         'Перед регистрацией ознакомься и прими:\n' +
         '• публичную оферту\n' +
         '• политику конфиденциальности\n\n' +
-        '_Мы обрабатываем данные только для игр, клубов, рейтинга и сервисных функций. ' +
-        'Материалы клуба используются только внутри Prime Mafia и не передаются другим клубам._';
+        '_Мы обрабатываем данные только для игр, клубов, рейтинга и сервисных функций ' +
+        '(в т.ч. mini app, игровые вечера, бэкапы). ' +
+        'Материалы клуба используются только внутри Prime Mafia и не передаются другим клубам._\n\n' +
+        '_Версия согласия: ' + SOGLASIE_VERSIYA + '_';
 }
 
 function knopkiEkranaSoglasiya() {
@@ -2953,12 +2965,17 @@ function tekstOffertaKratko() {
 
 function tekstPrivacyKratko() {
     return '🔒 *Политика конфиденциальности Prime Mafia*\n\n' +
+        'Версия: *' + SOGLASIE_VERSIYA + '*\n\n' +
         'Мы обрабатываем:\n' +
         '• Telegram ID, username, имя\n' +
-        '• игровой ник, телефон, город\n' +
-        '• данные игр, ролей, рейтинга и клубов\n\n' +
+        '• игровой ник, телефон, город, (опц.) день рождения\n' +
+        '• данные игр, ролей, вечеров, рейтинга и клубов\n' +
+        '• данные mini app (initData, аватар, состояние стола)\n' +
+        '• анкету клуба (для собственника)\n' +
+        '• логические бэкапы сервиса (ограниченный срок)\n\n' +
         'Данные хранятся в Supabase и используются только для работы Сервиса. ' +
         'Мы не продаём персональные данные.\n\n' +
+        'Полный текст: файл `PRIVACY_POLICY.md` в репозитории / по запросу.\n' +
         'Запрос на выгрузку или удаление: silena005@gmail.com\n' +
         'Тема письма: *PRIME MAFIA — DATA REQUEST*';
 }
@@ -5219,7 +5236,7 @@ bot.on('message', async function(msg) {
         igra.roli_razdany = true;
         igra.den = 1;
         delete sostoyanie[tg_id];
-        await podgruzitImmunitetIgrokam(igra);
+        await finalizirovatImmunitetyPriStarteIgry(igra, kod);
         await sohranit_igru(kod);
 
         let svodka = '\u2705 *Роли внесены вручную!*\n\n';
@@ -6298,12 +6315,25 @@ async function primenitVecherImmunitetNextKIgre(igra) {
             (info.name && String(i.name || '').toLowerCase() === String(info.name).toLowerCase())
         )
     );
-    await obnovitNastroykiVecheraKluba(igra.klub_id, { vecher_immunitet_next: null });
+    // Не сжигаем щит, пока игрока нет в составе — иначе правка лобби теряет иммунитет
     if (!match) return null;
     delete match.immunitet_snyat_vedushchim;
     match.immunitet_ruchnoy = true;
     match._immunitet_iz_pervoy_smerti = true;
     return match;
+}
+
+async function finalizirovatImmunitetyPriStarteIgry(igra, kod) {
+    if (!igra) return;
+    await primenitVecherImmunitetNextKIgre(igra);
+    if (igra.klub_id) await potrebitVecherImmunitetNext(igra.klub_id);
+    await podgruzitImmunitetIgrokam(igra);
+    for (const i of igra.igroki || []) {
+        if (i._bonus_immunitet_id) {
+            await bonusy.ispolzovatBonus(i._bonus_immunitet_id, { kod, den: 1 }).catch(() => {});
+            delete i._bonus_immunitet_id;
+        }
+    }
 }
 
 function sekundyTaymeraRechi(igra) {
@@ -6893,7 +6923,7 @@ async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
     const sReytingom = igra.igroki.filter(i => i.igrok_id).length;
     delete sostoyanie[igra.vedushchii_id];
     if (igra.klub_id) await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
-    await podgruzitImmunitetIgrokam(igra);
+    await finalizirovatImmunitetyPriStarteIgry(igra, kod);
     await sohranit_igru(kod);
 
     if (!silent && chatId) {
@@ -8229,10 +8259,12 @@ async function sostoyanieVecheraDlyaMiniApp(klub_id, tg_id) {
 
 async function ochistitLobbyVedushchegoBezRoley(telegram_id, opts = {}) {
     const tolkoPustye = !!opts.tolkoPustye;
+    const klub_id = opts.klub_id || null;
     const kody = Object.keys(igry).filter(kod => {
         if (String(kod).startsWith('archive_') || String(kod).startsWith('preview_')) return false;
         const igra = igry[kod];
         if (!igra || igra.vedushchii_id !== telegram_id) return false;
+        if (klub_id && String(igra.klub_id) !== String(klub_id)) return false;
         if (igra.roli_razdany) return false;
         const faza = igra.faza || 'ozhidanie';
         // Не трогаем уже начатую ночь знакомства / день / ночь / голосование
@@ -8318,7 +8350,7 @@ async function sozdatIgryIzVechera(tg_id, klub_id) {
     const spisok = await poluchitSpisokVecheraKluba(klub_id);
     if (!spisok?.length) return null;
     ochistitChernovikRuchnogoRezultata(tg_id);
-    await ochistitLobbyVedushchegoBezRoley(tg_id);
+    await ochistitLobbyVedushchegoBezRoley(tg_id, { klub_id });
     const kod = await sozdatNovuyuIgry(tg_id, klub_id, spisok.length);
     const igra = igry[kod];
     const today = dataIgrovoegoVechera();
@@ -11327,7 +11359,7 @@ function knopkiShagaNochiGuided(igra, kod, step, idx) {
             (step.tip === 'maf' && isMafiaRole(i.rol) ? ' (самострел)' : ''),
         callback_data: 'noch_g_pick_' + kod + '_' + idx + '_' + i.nomer
     }]);
-    if (step.tip === 'strelok') {
+    if (step.tip === 'strelok' || step.tip === 'eskort') {
         knopki.unshift([{ text: '\u23ED Пропустить выстрел', callback_data: 'noch_g_skip_' + kod + '_' + idx }]);
     }
     if (tekushchiyVyborNochi(igra, step.tip, step) != null) {
@@ -11716,10 +11748,18 @@ async function miniAppHostAction(tg_id, user, body) {
         const shagi = shagiNochiDeystviy(igra);
         const idx = Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : 0;
         const step = shagi[idx];
-        if (step?.tip !== 'strelok') return { stay: true, message: 'Пропуск только для Стрелка/Охотника' };
-        propustitStrelokNoch(igra);
-        await sohranit_igru(kod);
-        return otvetMiniAppPosleDeystviya(tg_id, user, 'Стрелок/Охотник пропустил выстрел');
+        if (step?.tip === 'strelok') {
+            propustitStrelokNoch(igra);
+            await sohranit_igru(kod);
+            return otvetMiniAppPosleDeystviya(tg_id, user, 'Стрелок/Охотник пропустил выстрел');
+        }
+        if (step?.tip === 'eskort') {
+            // Пропуск этого выстрела эскортницы — слот не заполняем, идём дальше
+            igra._noch_guided_idx = Math.min(idx + 1, shagi.length);
+            await sohranit_igru(kod);
+            return otvetMiniAppPosleDeystviya(tg_id, user, 'Эскортница/Путана пропустила выстрел');
+        }
+        return { stay: true, message: 'Пропуск только для Стрелка/Охотника или Эскортницы/Путаны' };
     }
     if (sub === 'night_next') {
         const shagi = shagiNochiDeystviy(igra);
@@ -14712,6 +14752,7 @@ bot.on('callback_query', async function(query) {
         }
         igra.roli_razdany = true;
         igra.den = 1;
+        await finalizirovatImmunitetyPriStarteIgry(igra, kod);
         await sohranit_igru(kod);
 
         for (const igrok of igra.igroki) {
@@ -16169,14 +16210,14 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         const step = shagiNochiDeystviy(igra)[idx];
-        if (!step || step.tip !== 'strelok') {
-            bot.answerCallbackQuery(query.id, { text: 'Не шаг стрелка', show_alert: true });
+        if (!step || (step.tip !== 'strelok' && step.tip !== 'eskort')) {
+            bot.answerCallbackQuery(query.id, { text: 'Нельзя пропустить этот шаг', show_alert: true });
             return;
         }
-        propustitStrelokNoch(igra);
+        if (step.tip === 'strelok') propustitStrelokNoch(igra);
         await sohranit_igru(kod);
         bot.answerCallbackQuery(query.id, { text: 'Выстрел пропущен' });
-        igra._noch_guided_idx = idx;
+        igra._noch_guided_idx = step.tip === 'eskort' ? Math.min(idx + 1, shagiNochiDeystviy(igra).length) : idx;
         await pokazatShagNochiGuided(chatId, messageId, kod);
     }
 

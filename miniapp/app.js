@@ -65,6 +65,7 @@ const el = {
   syncAvatarBtn: document.getElementById('syncAvatarBtn'),
   settingsThemeHint: document.getElementById('settingsThemeHint'),
   openBotSettingsBtn: document.getElementById('openBotSettingsBtn'),
+  openPrivacyBtn: document.getElementById('openPrivacyBtn'),
   posterDialog: document.getElementById('posterDialog'),
   posterCanvas: document.getElementById('posterCanvas'),
   posterClub: document.getElementById('posterClub'),
@@ -238,6 +239,13 @@ if (el.openBotSettingsBtn) {
   el.openBotSettingsBtn.addEventListener('click', () => {
     el.profileSettingsDialog?.close();
     sendAction('profile_settings');
+  });
+}
+if (el.openPrivacyBtn) {
+  el.openPrivacyBtn.addEventListener('click', () => {
+    el.profileSettingsDialog?.close();
+    showToast('Политика и согласие: версия 2026-08-11. Полный текст — в боте (кнопка «Политика») или PRIVACY_POLICY.md');
+    sendAction('open_privacy').catch(() => {});
   });
 }
 
@@ -1129,7 +1137,6 @@ function renderHostPanel(game) {
   el.hostRoster?.classList.toggle('hidden', !host.can_submit_roster);
   el.hostIntro?.classList.toggle('hidden', !host.intro || host.intro.phase === 'mirny');
   el.hostMirny?.classList.toggle('hidden', host.intro?.phase !== 'mirny');
-  if (host.intro?.phase !== 'roles') state.introFixArmed = false;
   el.hostSummary?.classList.toggle('hidden', !host.night_summary);
   if (host.night_summary && el.hostSummaryText) el.hostSummaryText.textContent = host.night_summary;
 
@@ -1360,12 +1367,9 @@ function seatFingerprint(player, clickMode) {
 function renderSeats(players, hostMeta) {
   const rectPad = 12;
   const clickMode = hostClickMode(hostMeta);
-  const hideDead = !hostMeta?.intro && (
-    hostMeta?.can_view_immunity ||
-    hostMeta?.can_night ||
-    hostMeta?.speaking_nomer ||
-    ['den', 'noch', 'golosovanie', 'opravdanie', 'znakomstvo'].includes(hostMeta?.faza)
-  );
+  // В живой игре выбывших убираем со стола (одна строка снизу)
+  const hideDead = !hostMeta?.intro && (hostMeta?.can_view_immunity || hostMeta?.can_night || hostMeta?.speaking_nomer ||
+    ['den', 'noch', 'golosovanie', 'opravdanie', 'znakomstvo'].includes(hostMeta?.faza));
   const visible = hideDead ? players.filter((p) => p.status === 'v_igre') : players;
   const dead = hideDead ? players.filter((p) => p.status !== 'v_igre') : [];
   const total = Math.max(visible.length, 1);
@@ -1396,6 +1400,7 @@ function renderSeats(players, hostMeta) {
       return;
     }
 
+    const created = !seat;
     if (!seat) {
       seat = document.createElement('button');
       seat.type = 'button';
@@ -1460,7 +1465,7 @@ function renderSeats(players, hostMeta) {
           hostAction('immunity_toggle', { nomer: player.nomer });
         }
         else if (clickMode === 'night_pick') {
-          const nightTip = hostMeta?.night?.step_label || '';
+          const nightTip = game.host?.night?.step_label || '';
           const isEskort = /эскорт/i.test(nightTip);
           if (isEskort) {
             const rol = window.prompt('Эскортница назвала роль? (например: Шериф, Дон, Мирный)') || '';
@@ -1486,18 +1491,6 @@ function renderSeats(players, hostMeta) {
       });
     }
   });
-
-  let deadNote = el.table.querySelector('.dead-note');
-  if (dead.length) {
-    if (!deadNote) {
-      deadNote = document.createElement('div');
-      deadNote.className = 'dead-note muted';
-      el.table.appendChild(deadNote);
-    }
-    deadNote.textContent = 'Выбыли: ' + dead.map((p) => '№' + p.nomer + ' ' + (p.name || '')).join(', ');
-  } else if (deadNote) {
-    deadNote.remove();
-  }
 }
 
 function renderError(error) {
