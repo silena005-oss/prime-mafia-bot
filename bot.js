@@ -6837,7 +6837,7 @@ function mirnySlotBezRoli(rol) {
 }
 
 function mirnyePoSostavu(igra) {
-    return poluchitSostavDlyaIgry(igra).filter(rol => rol === 'Мирный').length;
+    return poluchitSostavDlyaIgry(igra).filter(rol => rol === 'Мирный' || rol === 'Мирный житель').length;
 }
 
 function mirnyeOstalosVnesti(igra) {
@@ -7219,15 +7219,17 @@ async function podtverditVsehMirnyh(chatId, igra, kod) {
     const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
     const nuzhno = mirnyeOstalosVnesti(igra);
     if (bezRoli.length === 0 || nuzhno <= 0) {
-        await zavershitNochZnakomstva(chatId, kod);
+        const fin = await zavershitNochZnakomstva(chatId, kod);
+        if (fin?.ok === false) {
+            return { ok: false, message: fin.message || fin.paywall || 'Не удалось завершить ночь знакомства' };
+        }
         return { ok: true };
     }
+    // Кнопка «Да, все мирные» — явное подтверждение ведущего: ставим Мирный всем без роли,
+    // даже если кастомный состав после рестарта разошёлся с числом оставшихся.
     if (bezRoli.length !== nuzhno) {
-        return {
-            ok: false,
-            error: 'count',
-            message: 'Без роли ' + bezRoli.length + ', а мирных по составу нужно ' + nuzhno + '. Отредактируй роли.'
-        };
+        console.warn('[mirny_da] count mismatch bezRoli=%s nuzhno=%s kod=%s sostav=%j',
+            bezRoli.length, nuzhno, kod, poluchitSostavDlyaIgry(igra));
     }
     for (const igrok of bezRoli) {
         igrok.rol = 'Мирный';
@@ -7237,7 +7239,10 @@ async function podtverditVsehMirnyh(chatId, igra, kod) {
     }
     await sohranit_igru(kod);
     if (igra.vedushchii_id) delete sostoyanie[igra.vedushchii_id];
-    await zavershitNochZnakomstva(chatId, kod);
+    const fin = await zavershitNochZnakomstva(chatId, kod);
+    if (fin?.ok === false) {
+        return { ok: false, message: fin.message || fin.paywall || 'Не удалось завершить ночь знакомства' };
+    }
     return { ok: true, count: bezRoli.length };
 }
 
@@ -10630,7 +10635,7 @@ function tekstSpiskaPosleRoley(igra) {
     let t = '*Состав стола:*\n';
     [...(igra.igroki || [])].sort((a, b) => a.nomer - b.nomer).forEach(i => {
         const sh = estImmunitetOtGolosovaniya(i, igra) ? ' \uD83D\uDEE1' : '';
-        t += '\u2116' + i.nomer + ' ' + i.name + ' — *' + (i.rol || '?') + '*' + sh + '\n';
+        t += '\u2116' + i.nomer + ' ' + md(i.name) + ' — *' + md(i.rol || '?') + '*' + sh + '\n';
     });
     t += '\n' + tekstImmuniteta(igra);
     t += '_С иммунитетом можно выставить на оправдание (говорят), но голоса за них не вводят._';
@@ -15086,23 +15091,41 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('mirny_da_')) {
         const kod = data.replace('mirny_da_', '');
         const igra = igry[kod];
-        if (!igra) return;
-        const rez = await podtverditVsehMirnyh(chatId, igra, kod);
-        if (!rez.ok) {
-            bot.answerCallbackQuery(query.id, { text: rez.message || 'Ошибка', show_alert: true });
-            bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod), {
-                chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-                reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
-            });
+        if (!igra) {
+            await bot.sendMessage(chatId,
+                '❌ Игра №' + kod + ' не найдена в памяти бота (возможен рестарт). Открой «🎮 Мои игры» и продолжи ночь знакомства.',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
             return;
         }
-        bot.answerCallbackQuery(query.id, { text: 'Мирные подтверждены' });
         try {
-            await bot.editMessageText(
-                '\u2705 *Мирные жители подтверждены*\n\nВсем оставшимся без роли поставлена роль Мирный.',
-                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
-            );
-        } catch (_) {}
+            const rez = await podtverditVsehMirnyh(chatId, igra, kod);
+            if (!rez.ok) {
+                await bot.sendMessage(chatId, '❌ ' + (rez.message || 'Не удалось подтвердить мирных'), {
+                    parse_mode: 'Markdown',
+                    reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
+                }).catch(() => {});
+                try {
+                    await bot.editMessageText(tekstVvodaSpiskaMirnyh(igra, kod), {
+                        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
+                        reply_markup: knopkiMirnyhVvoda(igra, kod, 'edit')
+                    });
+                } catch (_) {}
+                return;
+            }
+            try {
+                await bot.editMessageText(
+                    '\u2705 *Мирные жители подтверждены*\n\nВсем оставшимся без роли поставлена роль Мирный.',
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+                );
+            } catch (_) {}
+        } catch (e) {
+            console.error('[mirny_da_]', kod, e?.message || e);
+            await bot.sendMessage(chatId,
+                '❌ Ошибка при подтверждении мирных: ' + (e?.message || e) + '\n\nПопробуй ещё раз или «✏️ Редактировать роли».',
+                { parse_mode: 'Markdown', reply_markup: knopkiMirnyhVvoda(igra, kod) }
+            ).catch(() => {});
+        }
     }
 
     else if (data.startsWith('mirny_edit_')) {
