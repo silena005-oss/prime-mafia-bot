@@ -6323,6 +6323,12 @@ async function primenitVecherImmunitetNextKIgre(igra) {
     return match;
 }
 
+/** Сжечь вечерний щит «первой смерти» после применения к стартующей игре. */
+async function potrebitVecherImmunitetNext(klub_id) {
+    if (!klub_id) return;
+    await obnovitNastroykiVecheraKluba(klub_id, { vecher_immunitet_next: null });
+}
+
 async function finalizirovatImmunitetyPriStarteIgry(igra, kod) {
     if (!igra) return;
     await primenitVecherImmunitetNextKIgre(igra);
@@ -10622,6 +10628,24 @@ async function podgruzitImmunitetIgrokam(igra) {
             .in('id', ids);
         if (error || !data) return;
         const map = Object.fromEntries(data.map(r => [r.id, r]));
+
+        // Один запрос вместо N вызовов poluchitBonusyIgroka (иначе «Завершить ночь» тормозит)
+        const bonusByIgrok = {};
+        try {
+            let q = supabase
+                .from('igrovye_bonusy')
+                .select('id, igrok_id, tip')
+                .in('igrok_id', ids)
+                .eq('status', 'active')
+                .eq('tip', 'immunitet_golos')
+                .limit(100);
+            if (igra.klub_id) q = q.eq('klub_id', igra.klub_id);
+            const { data: bonuses } = await q;
+            for (const b of bonuses || []) {
+                if (b?.igrok_id && !bonusByIgrok[b.igrok_id]) bonusByIgrok[b.igrok_id] = b;
+            }
+        } catch (_) {}
+
         for (const i of igra.igroki || []) {
             if (i.immunitet_snyat_vedushchim) continue;
             const row = i.igrok_id && map[i.igrok_id];
@@ -10631,9 +10655,7 @@ async function podgruzitImmunitetIgrokam(igra) {
                 if (row.immunitet_do) i.immunitet_do = row.immunitet_do;
                 if (row.bonus_immunitet) i.bonus_immunitet = row.bonus_immunitet;
             }
-            if (!i.igrok_id) continue;
-            const bonuses = await bonusy.poluchitBonusyIgroka(i.igrok_id, igra.klub_id).catch(() => []);
-            const imm = bonuses.find(b => b.tip === 'immunitet_golos');
+            const imm = i.igrok_id && bonusByIgrok[i.igrok_id];
             if (imm) {
                 i.immunitet_golos = true;
                 i._bonus_immunitet_id = imm.id;
@@ -15228,6 +15250,7 @@ bot.on('callback_query', async function(query) {
             return;
         }
         try {
+            await bot.sendMessage(chatId, '⏳ Завершаю ночь знакомства (игра №' + kod + ')…').catch(() => {});
             await bot.editMessageText('⏳ Завершаю ночь знакомства…', {
                 chat_id: chatId, message_id: messageId
             }).catch(() => {});
