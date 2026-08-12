@@ -6214,7 +6214,54 @@ function obnovitPanelTaymera(kod) {
         message_id: igra._taymer_message_id,
         parse_mode: 'Markdown',
         reply_markup: ui.reply_markup
-    }).catch(() => {});
+    }).catch(() => {
+        // Ник с _/* ломает Markdown — иначе панель «залипает» на одном игроке
+        bot.editMessageText(String(ui.text || '').replace(/[*_`]/g, ''), {
+            chat_id: igra._taymer_chat_id,
+            message_id: igra._taymer_message_id,
+            reply_markup: ui.reply_markup
+        }).catch(() => {});
+    });
+}
+
+/** Надёжное обновление панели хода: Markdown → plain → новое сообщение. */
+async function obnovitPanelHodaNadezhno(igra, kod, chatId, messageId, text, knopki) {
+    const chat_id = chatId || igra?._taymer_chat_id;
+    let message_id = messageId || igra?._taymer_message_id;
+    const markup = { inline_keyboard: knopki };
+    if (chat_id && message_id) {
+        try {
+            await bot.editMessageText(text, {
+                chat_id, message_id, parse_mode: 'Markdown', reply_markup: markup
+            });
+            if (igra) {
+                igra._taymer_chat_id = chat_id;
+                igra._taymer_message_id = message_id;
+            }
+            return { chat_id, message_id };
+        } catch (_) {
+            try {
+                await bot.editMessageText(String(text || '').replace(/[*_`]/g, ''), {
+                    chat_id, message_id, reply_markup: markup
+                });
+                if (igra) {
+                    igra._taymer_chat_id = chat_id;
+                    igra._taymer_message_id = message_id;
+                }
+                return { chat_id, message_id };
+            } catch (_) { /* ниже — новое сообщение */ }
+        }
+    }
+    if (!chat_id) return { chat_id: null, message_id: null };
+    const msg = await bot.sendMessage(chat_id, String(text || '').replace(/[*_`]/g, ''), {
+        reply_markup: markup
+    }).catch(() => null);
+    if (msg && igra) {
+        igra._taymer_chat_id = chat_id;
+        igra._taymer_message_id = msg.message_id;
+        return { chat_id, message_id: msg.message_id };
+    }
+    return { chat_id, message_id: message_id || null };
 }
 
 function idSoobshcheniyaTaymera(igra, chatId, messageId) {
@@ -10110,19 +10157,19 @@ function buildPanelText(igra, kod) {
     const dead = igra.igroki.filter(i => i.status !== 'v_igre');
     const faza_names = { ozhidanie: 'Ожидание', znakomstvo: 'Знакомство', den: 'День', noch: 'Ночь', golosovanie: 'Голосование', opravdanie: 'Оправдание' };
     let t = '\uD83C\uDFAE *Игра \u2116' + kod + '* | ' + (faza_names[igra.faza] || '') + ' ' + (igra.den || 1) + '\n';
-    if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + nazvanieKlubaIgry(igra) + '*\n';
+    if (nazvanieKlubaIgry(igra)) t += '\uD83C\uDFDB Клуб: *' + md(nazvanieKlubaIgry(igra)) + '*\n';
     t += '\uD83D\uDC65 За столом: *' + alive.length + '*/' + igra.kolichestvo + '\n';
     if (igra.taymer_aktiven && igra.taymer_sekundy > 0) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
-        t += '\u23F1 *' + formatTime(igra.taymer_sekundy) + '* — \u2116' + (cur ? cur.nomer : '?') + ' ' + (cur ? cur.name : '') + '\n';
+        t += '\u23F1 *' + formatTime(igra.taymer_sekundy) + '* — \u2116' + (cur ? cur.nomer : '?') + ' ' + (cur ? md(cur.name) : '') + '\n';
     } else if (igra.tekushchiy_nomer) {
         const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
-        t += '\u25B6\uFE0F Ход: \u2116' + (cur ? cur.nomer : '?') + ' *' + (cur ? cur.name : '') + '*\n';
+        t += '\u25B6\uFE0F Ход: \u2116' + (cur ? cur.nomer : '?') + ' *' + (cur ? md(cur.name) : '') + '*\n';
     }
     const vystavleny = nominirovannyePoPoryadku(igra);
     // В день/знакомство — одна строка; в оправдании/голосовании — только нумерованный список ниже
     if (vystavleny.length && (igra.faza === 'den' || igra.faza === 'znakomstvo')) {
-        t += '\n\uD83D\uDCA5 *На голосовании:* ' + vystavleny.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
+        t += '\n\uD83D\uDCA5 *На голосовании:* ' + vystavleny.map(i => '\u2116' + i.nomer + ' ' + md(i.name)).join(', ') + '\n';
     }
     t += '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
     if (igra.faza === 'opravdanie' || igra.faza === 'golosovanie') {
@@ -10131,7 +10178,7 @@ function buildPanelText(igra, kod) {
             vystavleny.forEach((i, idx) => {
                 let em = '\uD83D\uDCA5';
                 if (igra.tekushchiy_nomer === i.nomer) em = '\u25B6\uFE0F';
-                t += (idx + 1) + '. ' + em + ' \u2116' + i.nomer + ' *' + i.name + '*';
+                t += (idx + 1) + '. ' + em + ' \u2116' + i.nomer + ' *' + md(i.name) + '*';
                 if (i.foly > 0) t += ' [' + i.foly + '\uD83D\uDD34]';
                 t += '\n';
             });
@@ -10144,14 +10191,14 @@ function buildPanelText(igra, kod) {
             if (igra.tekushchiy_nomer === i.nomer) em = '\u25B6\uFE0F';
             if ((igra.naznacheny_golos || []).includes(i.nomer) &&
                 (igra.faza === 'opravdanie' || igra.faza === 'golosovanie')) em = '\uD83D\uDCA5';
-            t += em + ' \u2116' + i.nomer + ' *' + i.name + '*';
+            t += em + ' \u2116' + i.nomer + ' *' + md(i.name) + '*';
             if (i.foly > 0) t += ' [' + i.foly + '\uD83D\uDD34]';
             if (estImmunitetOtGolosovaniya(i, igra)) t += ' \uD83D\uDEE1';
             if (igra.zablokirovan_nomer === i.nomer) t += ' \uD83D\uDD07';
             t += '\n';
         });
         if (dead.length) {
-            t += '\n\uD83D\uDC80 _Выбыли:_ ' + dead.map(i => '\u2116' + i.nomer + ' ' + i.name).join(', ') + '\n';
+            t += '\n\uD83D\uDC80 _Выбыли:_ ' + dead.map(i => '\u2116' + i.nomer + ' ' + md(i.name)).join(', ') + '\n';
         }
     }
     return t;
@@ -10394,7 +10441,7 @@ async function zavershitKrugRechi(chatId, messageId, kod, opts = {}) {
     igra.tekushchiy_nomer = null;
     igra._krug_zavershen = true;
     const faza = igra.faza;
-    await sohranit_igru(kod);
+    await sohranit_igru(kod).catch(() => {});
 
     let t = buildPanelText(igra, kod);
     t += opts.skipped
@@ -10413,17 +10460,29 @@ async function zavershitKrugRechi(chatId, messageId, kod, opts = {}) {
     }
     knopki.push([knopkaImmuniteta(kod)]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
-    const { chat_id, message_id } = idSoobshcheniyaTaymera(igra, chatId, messageId);
-    if (chat_id && message_id) {
-        await bot.editMessageText(t, { chat_id, message_id, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } }).catch(() => {});
-    }
+    // Кнопка «Пас» нажата на конкретном сообщении — предпочитаем его id
+    await obnovitPanelHodaNadezhno(igra, kod, chatId, messageId, t, knopki);
+}
+
+function nomerGovoritVKruge(igra, nomer) {
+    if (nomer == null) return false;
+    if (igra.zablokirovan_nomer === nomer) return false;
+    const p = (igra.igroki || []).find(i => i.nomer === nomer);
+    return !!(p && p.status === 'v_igre');
 }
 
 async function sleduyushchiy(chatId, messageId, kod) {
     const igra = igry[kod];
-    if (!igra) return;
-    if (igra._krug_lock) return;
+    if (!igra) return { ok: false, reason: 'no_game' };
+    if (igra._krug_lock) {
+        // Зависший лок (рестарт/долгий await) — не глотаем «Пас» навсегда
+        if (igra._krug_lock_at && (Date.now() - igra._krug_lock_at) < 4000) {
+            return { ok: false, reason: 'busy' };
+        }
+        igra._krug_lock = false;
+    }
     igra._krug_lock = true;
+    igra._krug_lock_at = Date.now();
     try {
         stopTimer(kod);
         delete igra._taymer_ui_mode;
@@ -10432,33 +10491,45 @@ async function sleduyushchiy(chatId, messageId, kod) {
         // Круг уже закрыт или нет текущего — не начинаем заново с первого
         if (igra._krug_zavershen || !igra.tekushchiy_nomer) {
             await zavershitKrugRechi(chatId, messageId, kod);
-            return;
+            return { ok: true, done: true };
         }
 
         const alive = igra.igroki.filter(i => i.status === 'v_igre').map(i => i.nomer);
         const poryadok = igra.poryadok_hoda || alive;
         const idx = poryadok.indexOf(igra.tekushchiy_nomer);
-
-        if (idx < 0 || idx + 1 >= poryadok.length) {
+        if (idx < 0) {
             await zavershitKrugRechi(chatId, messageId, kod);
-            return;
+            return { ok: true, done: true };
         }
 
-        igra.tekushchiy_nomer = poryadok[idx + 1];
+        let nextIdx = idx + 1;
+        while (nextIdx < poryadok.length && !nomerGovoritVKruge(igra, poryadok[nextIdx])) {
+            nextIdx++;
+        }
+        if (nextIdx >= poryadok.length) {
+            await zavershitKrugRechi(chatId, messageId, kod);
+            return { ok: true, done: true };
+        }
+
+        igra.tekushchiy_nomer = poryadok[nextIdx];
         // Новый говорящий — всегда полный таймер, не остаток от предыдущего
         const sekundy = sekundyTaymeraRechi(igra);
         igra.taymer_sekundy = sekundy;
-        const { chat_id, message_id } = idSoobshcheniyaTaymera(igra, chatId, messageId);
-
-        if (chat_id && message_id) {
-            const t = buildPanelText(igra, kod);
-            const knopki = buildTimerKnopki(kod, igra.faza);
-            await bot.editMessageText(t, { chat_id, message_id, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } }).catch(() => {});
-        }
-        zapustitTaymer(chat_id || null, message_id || null, kod, sekundy);
-        await sohranit_igru(kod);
+        const t = buildPanelText(igra, kod);
+        const knopki = buildTimerKnopki(kod, igra.faza);
+        const panel = await obnovitPanelHodaNadezhno(igra, kod, chatId, messageId, t, knopki);
+        zapustitTaymer(panel.chat_id || null, panel.message_id || null, kod, sekundy);
+        await sohranit_igru(kod).catch(() => {});
+        const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
+        return { ok: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+    } catch (e) {
+        console.error('[sleduyushchiy]', kod, e?.message || e);
+        return { ok: false, reason: 'error', message: e?.message || String(e) };
     } finally {
-        if (igra) igra._krug_lock = false;
+        if (igra) {
+            igra._krug_lock = false;
+            delete igra._krug_lock_at;
+        }
     }
 }
 
@@ -15766,8 +15837,30 @@ bot.on('callback_query', async function(query) {
     // ===== ТАЙМЕР: ПАС =====
     else if (data.startsWith('pas_')) {
         const kod = data.replace('pas_', '');
-        bot.answerCallbackQuery(query.id, { text: '\u23ED\uFE0F Пас — следующий' });
-        sleduyushchiy(chatId, messageId, kod);
+        const igra = igry[kod];
+        if (!igra) {
+            await bot.sendMessage(chatId,
+                '❌ Игра не найдена (возможен рестарт). Открой «🎮 Мои игры».',
+                { reply_markup: { inline_keyboard: [[{ text: '🎮 Мои игры', callback_data: 'moi_igry' }]] } }
+            ).catch(() => {});
+            return;
+        }
+        const rez = await sleduyushchiy(chatId, messageId, kod);
+        if (rez?.reason === 'busy') {
+            await bot.sendMessage(chatId, '⏳ Ещё переключаю ход — нажми «Пас» через секунду.').catch(() => {});
+            return;
+        }
+        if (rez?.reason === 'no_game' || rez?.ok === false) {
+            await bot.sendMessage(chatId,
+                '❌ Не удалось перейти к следующему: ' + (rez?.message || rez?.reason || 'ошибка') +
+                '\n\nОткрой панель игры и нажми «Пас» ещё раз.',
+                { reply_markup: { inline_keyboard: [[{ text: '🎮 Панель', callback_data: 'panel_' + kod }]] } }
+            ).catch(() => {});
+            return;
+        }
+        if (rez?.done) {
+            await bot.sendMessage(chatId, '✅ Круг речи завершён — смотри кнопки на панели.').catch(() => {});
+        }
     }
 
     // ===== ТАЙМЕР: ПРОПУСТИТЬ ВЕСЬ КРУГ =====
