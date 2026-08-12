@@ -6894,55 +6894,73 @@ async function privyazatIgrokaIzBazy(igra, igrok) {
 async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
     const silent = !!opts.silent;
     const igra = igry[kod];
-    if (!igra) return;
-    if (!igra._slot_oplaty) {
-        const rezStart = await proveritStartPlatnoyIgry(igra, kod);
-        if (!rezStart.ok) {
-            if (!silent && chatId) await pokazatBlokStartaIgry(chatId, null, null, rezStart);
-            return {
-                ok: false,
-                message: rezStart.paywall || rezStart.text || 'Игра не может быть начата',
-                paywall: rezStart.paywall || null
-            };
+    if (!igra) return { ok: false, message: 'Игра не найдена' };
+    try {
+        if (!igra._slot_oplaty) {
+            const rezStart = await proveritStartPlatnoyIgry(igra, kod);
+            if (!rezStart.ok) {
+                if (!silent && chatId) await pokazatBlokStartaIgry(chatId, null, null, rezStart);
+                return {
+                    ok: false,
+                    message: rezStart.paywall || rezStart.text || 'Игра не может быть начата',
+                    paywall: rezStart.paywall || null
+                };
+            }
         }
-    }
-    igra.rezhim_rolei = 'karty';
-    igra.roli_razdany = true;
-    igra.den = 1;
-    // После интро — ждём выбор первого для представления (панель смотрит на ozhidanie / _pick_first_faza)
-    igra.faza = 'ozhidanie';
-    igra.tekushchiy_nomer = null;
-    igra.igroki.forEach(i => {
-        i.status = 'v_igre';
-        i.foly = i.foly || 0;
-        if (!i.rol) i.rol = 'Мирный';
-    });
-    delete igra._miniapp_intro;
-    igra._pick_first_faza = 'znakomstvo';
-    const mirnyeVsego = igra.igroki.filter(i => i.rol === 'Мирный').length;
-    const sReytingom = igra.igroki.filter(i => i.igrok_id).length;
-    delete sostoyanie[igra.vedushchii_id];
-    if (igra.klub_id) await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
-    await finalizirovatImmunitetyPriStarteIgry(igra, kod);
-    await sohranit_igru(kod);
-
-    if (!silent && chatId) {
-        let t = '\u2705 *Ночь знакомства завершена!*\n\n';
-        t += 'Активные роли и *' + mirnyeVsego + '* мирных внесены.\n';
-        t += 'В рейтинг попадут: *' + sReytingom + '/' + igra.igroki.length + '* игроков.\n';
-        t += '\n\n' + tekstSpiskaPosleRoley(igra);
-        t += '\n\n_Иммунитет: промах ночью → щит на день; первая смерть (ночь 1 / 1-е голосование) → щит на следующую игру вечера; плюс вручную._';
-        t += '\n\nНажми *«Кто начинает представление?»* — выберешь первого игрока, с которого пойдёт круг.';
-        await bot.sendMessage(chatId, t, {
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
-                [knopkaImmuniteta(kod)],
-                [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }]
-            ] }
+        igra.rezhim_rolei = 'karty';
+        igra.roli_razdany = true;
+        igra.den = 1;
+        // После интро — ждём выбор первого для представления (панель смотрит на ozhidanie / _pick_first_faza)
+        igra.faza = 'ozhidanie';
+        igra.tekushchiy_nomer = null;
+        igra.igroki.forEach(i => {
+            i.status = 'v_igre';
+            i.foly = i.foly || 0;
+            if (!i.rol) i.rol = 'Мирный';
         });
+        delete igra._miniapp_intro;
+        igra._pick_first_faza = 'znakomstvo';
+        const mirnyeVsego = igra.igroki.filter(i => i.rol === 'Мирный').length;
+        const sReytingom = igra.igroki.filter(i => i.igrok_id).length;
+        delete sostoyanie[igra.vedushchii_id];
+        if (igra.klub_id) await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
+        await finalizirovatImmunitetyPriStarteIgry(igra, kod);
+        await sohranit_igru(kod);
+
+        if (!silent && chatId) {
+            let t = '\u2705 *Ночь знакомства завершена!*\n\n';
+            t += 'Активные роли и *' + mirnyeVsego + '* мирных внесены.\n';
+            t += 'В рейтинг попадут: *' + sReytingom + '/' + igra.igroki.length + '* игроков.\n';
+            t += '\n\n' + tekstSpiskaPosleRoley(igra);
+            t += '\n\n_Иммунитет: промах ночью → щит на день; первая смерть (ночь 1 / 1-е голосование) → щит на следующую игру вечера; плюс вручную._';
+            t += '\n\nНажми *«Кто начинает представление?»* — выберешь первого игрока, с которого пойдёт круг.';
+            try {
+                await bot.sendMessage(chatId, t, {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [
+                        [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
+                        [knopkaImmuniteta(kod)],
+                        [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }]
+                    ] }
+                });
+            } catch (sendErr) {
+                console.error('[zavershitNoch] sendMessage', kod, sendErr?.message || sendErr);
+                await bot.sendMessage(chatId,
+                    '✅ Ночь знакомства завершена.\n\nНажми «Кто начинает представление?» ниже.',
+                    {
+                        reply_markup: { inline_keyboard: [
+                            [{ text: knopkaKtoNachinaet('znakomstvo'), callback_data: 'faza_znakomstvo_' + kod }],
+                            [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }]
+                        ] }
+                    }
+                ).catch(() => {});
+            }
+        }
+        return { ok: true, message: 'Ночь знакомства завершена. Выбери, кто начинает представление.' };
+    } catch (e) {
+        console.error('[zavershitNoch]', kod, e?.message || e);
+        return { ok: false, message: e?.message || String(e) };
     }
-    return { ok: true, message: 'Ночь знакомства завершена. Выбери, кто начинает представление.' };
 }
 
 function normalizovatSpisokVechera(igroki) {
@@ -7209,7 +7227,8 @@ function knopkiMirnyhVvoda(igra, kod, rezhim) {
         knopki.push([{ text: '\u2705 Да, все мирные', callback_data: 'mirny_da_' + kod }]);
     }
     knopki.push([{ text: '\u270F\uFE0F Редактировать роли', callback_data: 'mirny_edit_' + kod }]);
-    if (nuzhno <= 0) {
+    // Завершить можно, если мирных по составу хватает ИЛИ все места уже с ролями
+    if (nuzhno <= 0 || bezRoli.length === 0) {
         knopki.push([{ text: '\u2705 Завершить ночь', callback_data: 'mirny_done_' + kod }]);
     }
     return { inline_keyboard: knopki };
@@ -11484,10 +11503,8 @@ async function primeniIntroMirnyhVseh(igra, kod) {
         return { ok: true, message: fin?.message || 'Готово', done: true };
     }
     if (bezRoli.length !== nuzhno) {
-        return {
-            ok: false,
-            message: 'Без роли ' + bezRoli.length + ', мирных по составу нужно ' + nuzhno + '. Исправь активные роли.'
-        };
+        console.warn('[intro_mirny confirm_all] count mismatch bezRoli=%s nuzhno=%s kod=%s',
+            bezRoli.length, nuzhno, kod);
     }
     for (const igrok of bezRoli) {
         igrok.rol = 'Мирный';
@@ -15192,17 +15209,66 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('mirny_done_')) {
         const kod = data.replace('mirny_done_', '');
         const igra = igry[kod];
-        if (!igra) return;
-        const ostalos_md = mirnyeOstalosVnesti(igra);
-        if (ostalos_md > 0) {
-            bot.answerCallbackQuery(query.id, {
-                text: 'Осталось мирных: ' + ostalos_md + '. Добавь всех или введи списком.',
-                show_alert: true
-            });
+        if (!igra) {
+            await bot.sendMessage(chatId,
+                '❌ Игра №' + kod + ' не найдена (возможен рестарт бота). Открой «🎮 Мои игры» и продолжи.',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
             return;
         }
-        bot.answerCallbackQuery(query.id, { text: 'Завершаем ночь' });
-        await zavershitNochZnakomstva(chatId, kod);
+        const ostalos_md = mirnyeOstalosVnesti(igra);
+        const bezRoli = igrokiBezRoliDlyaMirnyh(igra);
+        // Если мест без роли нет — завершаем, даже если состав «ждёт» больше мирных
+        if (ostalos_md > 0 && bezRoli.length > 0) {
+            await bot.sendMessage(chatId,
+                '❌ Осталось мирных: *' + ostalos_md + '*.\n\n' +
+                'Добавь всех без роли или нажми «✏️ Редактировать роли».',
+                { parse_mode: 'Markdown', reply_markup: knopkiMirnyhVvoda(igra, kod) }
+            ).catch(() => {});
+            return;
+        }
+        try {
+            await bot.editMessageText('⏳ Завершаю ночь знакомства…', {
+                chat_id: chatId, message_id: messageId
+            }).catch(() => {});
+            const fin = await zavershitNochZnakomstva(chatId, kod);
+            if (fin?.ok === false) {
+                const errText = String(fin.message || fin.paywall || 'Не удалось завершить ночь')
+                    .replace(/\*/g, '')
+                    .slice(0, 800);
+                await bot.sendMessage(chatId, '❌ ' + errText, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '✅ Повторить «Завершить ночь»', callback_data: 'mirny_done_' + kod }],
+                            [{ text: '✏️ Редактировать роли', callback_data: 'mirny_edit_' + kod }],
+                            [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }]
+                        ]
+                    }
+                }).catch(() => {});
+                return;
+            }
+            try {
+                await bot.editMessageText(
+                    '✅ *Ночь знакомства завершена.*\n\nДальше — выбор, кто начинает представление (сообщение ниже).',
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+                );
+            } catch (_) {}
+        } catch (e) {
+            console.error('[mirny_done_]', kod, e?.message || e);
+            await bot.sendMessage(chatId,
+                '❌ Ошибка завершения ночи: ' + (e?.message || e) +
+                '\n\nНажми «Завершить ночь» ещё раз или открой панель игры.',
+                {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '✅ Завершить ночь', callback_data: 'mirny_done_' + kod }],
+                            [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }]
+                        ]
+                    }
+                }
+            ).catch(() => {});
+        }
     }
 
     else if (data.startsWith('panel_foly_')) {
