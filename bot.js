@@ -12505,13 +12505,20 @@ async function miniAppHostAction(tg_id, user, body) {
             await sohranit_igru(kod);
             return otvetMiniAppPosleDeystviya(tg_id, user, 'Стрелок/Охотник пропустил выстрел');
         }
+        if (step?.tip === 'kami') {
+            igra.noch_deystviya = igra.noch_deystviya || {};
+            delete igra.noch_deystviya.kamikadze_tseli;
+            igra.noch_deystviya.kamikadze_propustil = true;
+            await sohranit_igru(kod);
+            return otvetMiniAppPosleDeystviya(tg_id, user, 'Камикадзе пропустил визит');
+        }
         if (step?.tip === 'eskort') {
             // Пропуск этого выстрела эскортницы — слот не заполняем, идём дальше
             igra._noch_guided_idx = Math.min(idx + 1, shagi.length);
             await sohranit_igru(kod);
             return otvetMiniAppPosleDeystviya(tg_id, user, 'Эскортница/Путана пропустила выстрел');
         }
-        return { stay: true, message: 'Пропуск только для Стрелка/Охотника или Эскортницы/Путаны' };
+        return { stay: true, message: 'Пропуск только для Стрелка/Охотника, Камикадзе или Эскортницы/Путаны' };
     }
     if (sub === 'night_next') {
         const shagi = shagiNochiDeystviy(igra);
