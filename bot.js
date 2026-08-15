@@ -10478,13 +10478,18 @@ function poluchitLuchshiyHod(igra, nomer, source) {
 
 function knopkiLuchshegoHoda(igra, kod, nomer, source, next) {
     const hod = poluchitLuchshiyHod(igra, nomer, source);
+    // Все места стола, кроме самого убитого — можно назвать и уже выбывших
     const seatBtns = (igra.igroki || [])
-        .filter(i => i.nomer !== nomer && i.status === 'v_igre')
+        .filter(i => i.nomer !== nomer)
         .sort((a, b) => a.nomer - b.nomer)
-        .map(i => ({
-            text: ((hod.nazvannye.includes(i.nomer) ? '\u2705 ' : '') + '\u2116' + i.nomer + ' ' + String(i.name || '')).slice(0, 40),
-            callback_data: 'lh_toggle_' + kod + '_' + nomer + '_' + i.nomer + '_' + source + '_' + next
-        }));
+        .map(i => {
+            const dead = i.status !== 'v_igre' ? '\uD83D\uDC80 ' : '';
+            const mark = hod.nazvannye.includes(i.nomer) ? '\u2705 ' : '';
+            return {
+                text: (mark + dead + '\u2116' + i.nomer + ' ' + String(i.name || '')).slice(0, 40),
+                callback_data: 'lh_toggle_' + kod + '_' + nomer + '_' + i.nomer + '_' + source + '_' + next
+            };
+        });
     const knopki = ryadyKnopokPoN(seatBtns, 2);
     knopki.push([{ text: '\u2705 Сохранить лучший ход', callback_data: 'lh_done_' + kod + '_' + nomer + '_' + source + '_' + next }]);
     knopki.push([{ text: '\u23ED\uFE0F Пропустить', callback_data: 'lh_skip_' + kod + '_' + nomer + '_' + source + '_' + next }]);
