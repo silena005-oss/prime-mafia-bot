@@ -6515,6 +6515,8 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
     igra.taymer_aktiven = true;
     igra._taymer_ends_at = Date.now() + sek * 1000;
     igra._taymer_save_tick = 0;
+    igra._taymer_gen = (igra._taymer_gen || 0) + 1;
+    const myGen = igra._taymer_gen;
     if (chatId) {
         igra._taymer_chat_id = chatId;
         igra._taymer_message_id = messageId;
@@ -6524,7 +6526,7 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
 
     igra._interval = setInterval(() => {
         const ig = igry[kod];
-        if (!ig || !ig.taymer_aktiven) {
+        if (!ig || !ig.taymer_aktiven || ig._taymer_gen !== myGen) {
             if (ig?._interval) { clearInterval(ig._interval); ig._interval = null; }
             return;
         }
@@ -6538,9 +6540,15 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
         ig._taymer_save_tick = (ig._taymer_save_tick || 0) + 1;
         if (ig._taymer_save_tick % 5 === 0) sohranit_igru(kod).catch(() => {});
         if (ig.taymer_sekundy <= 0) {
+            // Не запускать второй переход, если уже идёт Пас / другой тик
+            if (ig._advance_inflight) {
+                stopTimer(kod);
+                return;
+            }
             stopTimer(kod);
             sohranit_igru(kod).catch(() => {});
-            sleduyushchiy(ig._taymer_chat_id || null, ig._taymer_message_id || null, kod);
+            sleduyushchiy(ig._taymer_chat_id || null, ig._taymer_message_id || null, kod)
+                .catch(e => console.error('[timer→sleduyushchiy]', kod, e?.message || e));
         }
     }, 1000);
 }
@@ -10978,17 +10986,34 @@ function nomerGovoritVKruge(igra, nomer) {
 async function sleduyushchiy(chatId, messageId, kod) {
     const igra = igry[kod];
     if (!igra) return { ok: false, reason: 'no_game' };
-    if (igra._krug_lock) {
-        // Зависший лок (рестарт/долгий await) — не глотаем «Пас» навсегда
-        if (igra._krug_lock_at && (Date.now() - igra._krug_lock_at) < 4000) {
+
+    // Сначала стоп таймера — иначе тик «0» и Пас оба дергают переход
+    stopTimer(kod);
+
+    const fromNomer = igra.tekushchiy_nomer;
+    const now = Date.now();
+    // Анти-двойной Пас / Пас+таймер: один переход с одного места за 2.5 сек
+    if (
+        fromNomer != null &&
+        igra._last_advanced_from === fromNomer &&
+        igra._last_advanced_at &&
+        (now - igra._last_advanced_at) < 2500
+    ) {
+        const cur = (igra.igroki || []).find(i => i.nomer === igra.tekushchiy_nomer);
+        return { ok: true, deduped: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+    }
+    if (igra._advance_inflight || igra._krug_lock) {
+        if (igra._krug_lock_at && (now - igra._krug_lock_at) < 4000) {
             return { ok: false, reason: 'busy' };
         }
+        // Зависший лок
+        igra._advance_inflight = false;
         igra._krug_lock = false;
     }
+    igra._advance_inflight = true;
     igra._krug_lock = true;
-    igra._krug_lock_at = Date.now();
+    igra._krug_lock_at = now;
     try {
-        stopTimer(kod);
         delete igra._taymer_ui_mode;
         delete igra._picker_type;
 
@@ -11011,11 +11036,21 @@ async function sleduyushchiy(chatId, messageId, kod) {
             nextIdx++;
         }
         if (nextIdx >= poryadok.length) {
+            igra._last_advanced_from = fromNomer;
+            igra._last_advanced_at = Date.now();
             await zavershitKrugRechi(chatId, messageId, kod);
             return { ok: true, done: true };
         }
 
+        // Повторная проверка: пока ждали, другой вызов уже сдвинул ход
+        if (igra.tekushchiy_nomer !== fromNomer) {
+            const cur = (igra.igroki || []).find(i => i.nomer === igra.tekushchiy_nomer);
+            return { ok: true, deduped: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+        }
+
         igra.tekushchiy_nomer = poryadok[nextIdx];
+        igra._last_advanced_from = fromNomer;
+        igra._last_advanced_at = Date.now();
         // Новый говорящий — всегда полный таймер, не остаток от предыдущего
         const sekundy = sekundyTaymeraRechi(igra);
         igra.taymer_sekundy = sekundy;
@@ -11031,6 +11066,7 @@ async function sleduyushchiy(chatId, messageId, kod) {
         return { ok: false, reason: 'error', message: e?.message || String(e) };
     } finally {
         if (igra) {
+            igra._advance_inflight = false;
             igra._krug_lock = false;
             delete igra._krug_lock_at;
         }
@@ -16547,9 +16583,20 @@ bot.on('callback_query', async function(query) {
             ).catch(() => {});
             return;
         }
+        // Сразу гасим таймер в обработчике — до await, чтобы тик «0» не успел
+        stopTimer(kod);
+        const ot = igra.tekushchiy_nomer;
         const rez = await sleduyushchiy(chatId, messageId, kod);
         if (rez?.reason === 'busy') {
-            await bot.sendMessage(chatId, '⏳ Ещё переключаю ход — нажми «Пас» через секунду.').catch(() => {});
+            await soobshitPosleKnopki(chatId, '⏳ Ещё переключаю ход — нажми «Пас» через секунду.');
+            return;
+        }
+        if (rez?.deduped) {
+            // Уже перешли (таймер или двойной тап) — не пугаем, просто кто сейчас говорит
+            if (rez.nomer) {
+                await soobshitPosleKnopki(chatId,
+                    '▶️ Сейчас говорит №' + rez.nomer + (rez.name ? ' ' + rez.name : ''));
+            }
             return;
         }
         if (rez?.reason === 'no_game' || rez?.ok === false) {
@@ -16561,7 +16608,12 @@ bot.on('callback_query', async function(query) {
             return;
         }
         if (rez?.done) {
-            await bot.sendMessage(chatId, '✅ Круг речи завершён — смотри кнопки на панели.').catch(() => {});
+            await soobshitPosleKnopki(chatId, '✅ Круг речи завершён — смотри кнопки на панели.');
+            return;
+        }
+        if (rez?.nomer && rez.nomer !== ot) {
+            await soobshitPosleKnopki(chatId,
+                '⏭ Пас №' + (ot || '?') + ' → сейчас №' + rez.nomer + (rez.name ? ' ' + rez.name : ''));
         }
     }
 
