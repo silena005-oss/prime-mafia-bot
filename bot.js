@@ -6837,7 +6837,7 @@ const PORYADOK_ROLEY_ZNAKOMSTVA = [
 /** Порядок остальных ночных действий после мафии / дона / эскортницы. */
 const PORYADOK_NOCHI_OSTALNYE = [
     'Консильери', 'Шериф', 'Комиссар', 'Детектив', 'Маньяк', 'Доктор',
-    'Стрелок', 'Охотник', 'Затычка'
+    'Стрелок', 'Охотник', 'Камикадзе', 'Шахид', 'Затычка'
 ];
 
 function poluchitSostavDlyaIgry(igra) {
@@ -10396,6 +10396,32 @@ function primenitNochnyeVystrely(igra, d) {
         }
     }
 
+    // Камикадзе: к мафии — оба выбывают; к мирному/маньяку — ничего
+    const kamiTsel = d.kamikadze_tseli ?? null;
+    const kamikadze = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Камикадзе');
+    if (d.kamikadze_propustil && kamikadze) {
+        lines.push('_Камикадзе пропустил визит_\n');
+    } else if (kamiTsel != null && kamikadze) {
+        const tselKami = igra.igroki.find(x => x.nomer === kamiTsel && x.status === 'v_igre');
+        if (!tselKami) {
+            lines.push('_Камикадзе пошёл к \u2116' + kamiTsel + ', цель уже не за столом_\n');
+        } else if (isMafiaRole(tselKami.rol)) {
+            kamikadze.status = 'vybyl';
+            tselKami.status = 'vybyl';
+            dobavitUnikalnoPoNomeru(ubity_t, kamikadze);
+            dobavitUnikalnoPoNomeru(ubity_t, tselKami);
+            lines.push('\uD83D\uDCA5 Камикадзе пошёл к мафии: \u2116' + kamikadze.nomer + ' *' + kamikadze.name +
+                '* и \u2116' + tselKami.nomer + ' *' + tselKami.name + '* (' + tselKami.rol + ') выбывают\n');
+            dobavitAvtoBonus(igra, kamikadze.nomer, 'bonus_kamikadze_mafiya', BALLY_DEFAULT.bonus_kamikadze_mafiya,
+                'Камикадзе нашёл мафию', { tsel: tselKami.nomer });
+            lines.push(primenitSmertShahida(igra, kamikadze, 'noch', ubity_t));
+            lines.push(primenitSmertShahida(igra, tselKami, 'noch', ubity_t));
+        } else {
+            lines.push('\uD83D\uDEE1 Камикадзе пошёл к \u2116' + tselKami.nomer + ' *' + tselKami.name +
+                '* (' + tselKami.rol + ') — не мафия, оба остаются\n');
+        }
+    }
+
     if (maf == null && !(d.mafiya_tseli || []).length) lines.push('_Мафия не выбрала цель_\n');
     if (d.strelok_propustil && strelok) lines.push('_Стрелок/Охотник пропустил выстрел_\n');
     return { lines, ubity_t, mishni_nochi };
@@ -11763,6 +11789,7 @@ function tipNochiPoRoli(rol) {
     if (rol === 'Маньяк') return 'manyak';
     if (rol === 'Доктор') return 'doc';
     if (rolStrelyayushchegoZaMirnyh(rol)) return 'strelok';
+    if (rol === 'Камикадзе') return 'kami';
     if (rol === 'Шахид') return 'shahid';
     if (rol === 'Затычка') return 'zat';
     return null;
@@ -11831,16 +11858,23 @@ function shagiNochiDeystviy(igra) {
             if (!(igra.igroki || []).some(i => i.status === 'v_igre' && isSheriffRole(i.rol))) continue;
         } else if (tip === 'strelok') {
             if (!(igra.igroki || []).some(i => i.status === 'v_igre' && rolStrelyayushchegoZaMirnyh(i.rol))) continue;
+        } else if (tip === 'shahid') {
+            const den = igra.den || 1;
+            if (den !== 1 && den !== 2) continue;
+            if (!igraEstZhivayaRol(igra, 'Шахид')) continue;
         } else if (!igraEstZhivayaRol(igra, rol)) {
             continue;
         }
         if (rol === 'Консильери' && !mozhetKonsilyeriVerbovat(igra)) continue;
+        const label = tip === 'shahid'
+            ? ((igra.den || 1) === 1 ? 'Шахид минирует' : 'Шахид переминирует')
+            : labelShagaNochi(rol, 1, 1);
         steps.push({
             rol,
             tip,
             variant: 1,
             vsego: 1,
-            label: labelShagaNochi(rol, 1, 1)
+            label
         });
         seenTip.add(tip);
     }
@@ -11860,6 +11894,8 @@ function kandidatyDlyaShagaNochi(igra, step) {
         return alive.filter(i => i.nomer !== strelok?.nomer);
     }
     if (step.tip === 'zat') return alive.filter(i => i.rol !== 'Затычка');
+    if (step.tip === 'kami') return alive.filter(i => i.rol !== 'Камикадзе');
+    if (step.tip === 'shahid') return alive.filter(i => i.rol !== 'Шахид');
     if (step.tip === 'eskort') {
         const eskort = alive.find(i => i.rol === 'Эскортница');
         const uzhe = new Set(eskortVyboryNochi(igra).map(v => v.nomer));
@@ -11877,6 +11913,13 @@ function tekstVyboraNochiGuided(igra, kod, step, idx, vsego) {
     t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_';
     if (step.tip === 'maf') t += '\n_Можно свою мафию или самострел — для отвода глаз._';
     if (step.tip === 'strelok') t += '\n_Можно пропустить выстрел этой ночью._';
+    if (step.tip === 'kami') t += '\n_Пошёл к мафии — оба выбывают. К мирному/маньяку — ничего. Можно пропустить._';
+    if (step.tip === 'shahid') {
+        const limit = limitMinShahida(igra);
+        const miny = (igra.noch_deystviya || {}).shahid_miny_tseli || [];
+        t += '\n_Мины: до *' + limit + '* игроков (~30% стола). Сейчас: *' + miny.length + '/' + limit + '*._';
+        t += '\n_Отметь кнопками, затем «Далее»._';
+    }
     if (step.tip === 'eskort') {
         t += '\n_После выбора игрока назови роль — угадала = убийство._';
         t += '\n_Выстрелов эскортницы: ' + limitVystrelovEskort(igra) + ' (9–11 → 1, 12–14 → 2, 15+ → 3)._';
@@ -11895,10 +11938,11 @@ function tekushchiyVyborNochi(igra, tip, step = null) {
     if (tip === 'sher') return d.sherif_tseli ?? null;
     if (tip === 'manyak') return d.manyak_tseli ?? null;
     if (tip === 'strelok') return d.strelok_propustil ? 'пропуск' : (d.strelok_tseli ?? null);
+    if (tip === 'kami') return d.kamikadze_propustil ? 'пропуск' : (d.kamikadze_tseli ?? null);
     if (tip === 'zat') return d.zatychka_tseli ?? null;
     if (tip === 'shahid') {
-        const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
-        return miny.length ? miny.join(', ') : null;
+        const miny = d.shahid_miny_tseli || [];
+        return miny.length ? miny.map(n => '№' + n).join(', ') : null;
     }
     if (tip === 'eskort') {
         const v = eskortVyboryNochi(igra);
@@ -11920,6 +11964,7 @@ function sbrNochnoeDeystvie(igra, tip, step = null) {
     else if (tip === 'sher') delete d.sherif_tseli;
     else if (tip === 'manyak') delete d.manyak_tseli;
     else if (tip === 'strelok') { delete d.strelok_tseli; delete d.strelok_propustil; }
+    else if (tip === 'kami') { delete d.kamikadze_tseli; delete d.kamikadze_propustil; }
     else if (tip === 'zat') { delete d.zatychka_tseli; delete igra.zablokirovan_nomer; }
     else if (tip === 'shahid') delete d.shahid_miny_tseli;
     else if (tip === 'eskort') {
@@ -11981,6 +12026,11 @@ async function primeniNochnoeDeystvie(igra, tip, nomer, chatId, opts = {}) {
         igra.noch_deystviya.strelok_tseli = nomer;
         return { ok: true, text: 'Стрелок → №' + nomer };
     }
+    if (tip === 'kami') {
+        delete igra.noch_deystviya.kamikadze_propustil;
+        igra.noch_deystviya.kamikadze_tseli = nomer;
+        return { ok: true, text: 'Камикадзе → №' + nomer };
+    }
     if (tip === 'zat') {
         igra.noch_deystviya.zatychka_tseli = nomer;
         igra.zablokirovan_nomer = nomer;
@@ -11991,6 +12041,27 @@ async function primeniNochnoeDeystvie(igra, tip, nomer, chatId, opts = {}) {
             ).catch(() => {});
         }
         return { ok: true, text: 'Затычка → №' + nomer };
+    }
+    if (tip === 'shahid') {
+        const den = igra.den || 1;
+        if (den !== 1 && den !== 2) return { ok: false, text: 'Шахид минирует только в ночи 1 и 2.' };
+        const limit = limitMinShahida(igra);
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        let vybrany = igra.noch_deystviya.shahid_miny_tseli;
+        if (!Array.isArray(vybrany)) {
+            vybrany = den === 2 ? [...(igra.shahid_miny || [])] : [];
+            igra.noch_deystviya.shahid_miny_tseli = vybrany;
+        }
+        const idx = vybrany.indexOf(nomer);
+        if (idx >= 0) {
+            vybrany.splice(idx, 1);
+            return { ok: true, text: 'Шахид: снята мина с №' + nomer + ' (' + vybrany.length + '/' + limit + ')', toggle: true };
+        }
+        if (vybrany.length >= limit) {
+            return { ok: false, text: 'Лимит мин Шахида: ' + limit };
+        }
+        vybrany.push(nomer);
+        return { ok: true, text: 'Шахид: мина на №' + nomer + ' (' + vybrany.length + '/' + limit + ')', toggle: true };
     }
     if (tip === 'eskort') {
         const ugadannaya = opts.ugadannaya_rol;
@@ -12016,12 +12087,31 @@ async function primeniNochnoeDeystvie(igra, tip, nomer, chatId, opts = {}) {
 }
 
 function knopkiShagaNochiGuided(igra, kod, step, idx) {
+    igra.noch_deystviya = igra.noch_deystviya || {};
+    if (step.tip === 'shahid') {
+        const den = igra.den || 1;
+        let vybrany = igra.noch_deystviya.shahid_miny_tseli;
+        if (!Array.isArray(vybrany)) {
+            vybrany = den === 2 ? [...(igra.shahid_miny || [])] : [];
+            igra.noch_deystviya.shahid_miny_tseli = vybrany;
+        }
+        const limit = limitMinShahida(igra);
+        const seatBtns = kandidatyDlyaShagaNochi(igra, step).map(i => ({
+            text: ((vybrany.includes(i.nomer) ? '\u2705 ' : '') + '\u2116' + i.nomer + ' ' + String(i.name || '')).slice(0, 40),
+            callback_data: 'noch_g_pick_' + kod + '_' + idx + '_' + i.nomer
+        }));
+        const knopki = ryadyKnopokPoN(seatBtns, 2);
+        knopki.push([{ text: '\u23ED Далее (' + vybrany.length + '/' + limit + ')', callback_data: 'noch_g_next_' + kod }]);
+        if (idx > 0) knopki.push([{ text: '\u2B05 Предыдущая роль', callback_data: 'noch_g_prev_' + kod }]);
+        knopki.push([{ text: '\uD83D\uDCCB Классическая панель', callback_data: 'noch_panel_' + kod }]);
+        return knopki;
+    }
     const knopki = kandidatyDlyaShagaNochi(igra, step).map(i => [{
         text: '\u2116' + i.nomer + ' ' + i.name +
             (step.tip === 'maf' && isMafiaRole(i.rol) ? ' (самострел)' : ''),
         callback_data: 'noch_g_pick_' + kod + '_' + idx + '_' + i.nomer
     }]);
-    if (step.tip === 'strelok' || step.tip === 'eskort') {
+    if (step.tip === 'strelok' || step.tip === 'eskort' || step.tip === 'kami') {
         knopki.unshift([{ text: '\u23ED Пропустить выстрел', callback_data: 'noch_g_skip_' + kod + '_' + idx }]);
     }
     if (tekushchiyVyborNochi(igra, step.tip, step) != null) {
@@ -12072,14 +12162,16 @@ async function pokazatSvodkuNochiGuided(chatId, messageId, kod) {
         const cur = tekushchiyVyborNochi(igra, step.tip, step);
         t += (cur != null ? '\u2705' : '\u25A1') + ' ' + step.label;
         if (cur != null) {
-            if (step.tip === 'strelok') t += ' → ' + (cur === 'пропуск' ? 'пропуск' : '№' + cur);
-            else if (step.tip === 'eskort') t += ' → ' + cur;
+            if (step.tip === 'strelok' || step.tip === 'kami') t += ' → ' + (cur === 'пропуск' ? 'пропуск' : '№' + cur);
+            else if (step.tip === 'eskort' || step.tip === 'shahid') t += ' → ' + cur;
             else t += ' → №' + cur;
         }
         t += '\n';
     });
-    t += '\n_Шахид — на классической панели ночи._';
     t += '\n_Лимит эскортницы: ' + limitVystrelovEskort(igra) + ' (9–11 → 1, 12–14 → 2, 15+ → 3)._';
+    if ((igra.den || 1) === 1 || (igra.den || 1) === 2) {
+        t += '\n_Шахид: до ' + limitMinShahida(igra) + ' мин (~30% стола)._';
+    }
     const knopki = shagi.map((step, idx) => [{
         text: (tekushchiyVyborNochi(igra, step.tip, step) != null ? '\u2705 ' : '') + step.label,
         callback_data: 'noch_g_redo_' + kod + '_' + idx
@@ -12640,6 +12732,10 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
             t += '\uD83D\uDC80 Стрелок/Охотник: выбыл (\u2116' + strDead.nomer + ' ' + md(strDead.name || '') + ')\n';
         }
     }
+    if (roli_alive.includes('Камикадзе')) {
+        const kamiTxt = d.kamikadze_propustil ? 'пропуск' : (d.kamikadze_tseli ? '\u2116' + d.kamikadze_tseli : 'не выбрал');
+        t += ((d.kamikadze_tseli || d.kamikadze_propustil) ? '\u2705' : '\u25A1') + ' Камикадзе: ' + kamiTxt + '\n';
+    }
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
         const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
@@ -12667,6 +12763,12 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
             knopki.push([{ text: '\u23ED Стрелок пропускает выстрел', callback_data: 'noch_strelok_pass_' + kod }]);
         }
     }
+    if (roli_alive.includes('Камикадзе')) {
+        knopki.push([{ text: '\uD83D\uDCA3 Камикадзе идёт к игроку', callback_data: 'noch_vybor_kami_' + kod }]);
+        if (!d.kamikadze_tseli && !d.kamikadze_propustil) {
+            knopki.push([{ text: '\u23ED Камикадзе пропускает', callback_data: 'noch_kami_pass_' + kod }]);
+        }
+    }
     if (roli_alive.includes('Затычка')) knopki.push([{ text: '\uD83D\uDD07 Затычка блокирует', callback_data: 'noch_vybor_zat_' + kod }]);
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
         knopki.push([{ text: igra.den === 1 ? '\uD83D\uDCA3 Шахид минирует' : '\uD83D\uDCA3 Шахид переминирует', callback_data: 'noch_vybor_shahid_' + kod }]);
@@ -12679,6 +12781,7 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (d.sherif_tseli) knopki.push([{ text: '\u274C Сброс: шериф', callback_data: 'noch_sbr_sher_' + kod }]);
     if (d.manyak_tseli) knopki.push([{ text: '\u274C Сброс: маньяк', callback_data: 'noch_sbr_manyak_' + kod }]);
     if (strelokNochZavershen(d)) knopki.push([{ text: '\u274C Сброс: стрелок', callback_data: 'noch_sbr_strelok_' + kod }]);
+    if (d.kamikadze_tseli || d.kamikadze_propustil) knopki.push([{ text: '\u274C Сброс: камикадзе', callback_data: 'noch_sbr_kami_' + kod }]);
     if (d.zatychka_tseli) knopki.push([{ text: '\u274C Сброс: затычка', callback_data: 'noch_sbr_zat_' + kod }]);
     knopki.push([{ text: '\uD83C\uDF19 Пошаговая ночь', callback_data: 'noch_guided_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
@@ -17182,11 +17285,16 @@ bot.on('callback_query', async function(query) {
         const igra = igry[kod];
         if (!igra) return;
         const step = shagiNochiDeystviy(igra)[idx];
-        if (!step || (step.tip !== 'strelok' && step.tip !== 'eskort')) {
+        if (!step || (step.tip !== 'strelok' && step.tip !== 'eskort' && step.tip !== 'kami')) {
             bot.answerCallbackQuery(query.id, { text: 'Нельзя пропустить этот шаг', show_alert: true });
             return;
         }
         if (step.tip === 'strelok') propustitStrelokNoch(igra);
+        if (step.tip === 'kami') {
+            igra.noch_deystviya = igra.noch_deystviya || {};
+            delete igra.noch_deystviya.kamikadze_tseli;
+            igra.noch_deystviya.kamikadze_propustil = true;
+        }
         await sohranit_igru(kod);
         bot.answerCallbackQuery(query.id, { text: 'Выстрел пропущен' });
         igra._noch_guided_idx = step.tip === 'eskort' ? Math.min(idx + 1, shagiNochiDeystviy(igra).length) : idx;
@@ -17506,6 +17614,51 @@ bot.on('callback_query', async function(query) {
         bot.answerCallbackQuery(query.id, { text: '\uD83C\uDFAF Цель: ' + (zhertva_nm?.name || '') });
         await sohranit_igru(kod);
         await pokazat_noch_panel(chatId, messageId, kod, '\uD83C\uDFAF Маньяк выбрал \u2116' + nomer_nm);
+    }
+
+    // ===== НОЧЬ: Камикадзе =====
+    else if (data.startsWith('noch_vybor_kami_')) {
+        const kod = data.replace('noch_vybor_kami_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        const alive_kami = igra.igroki.filter(i => i.status === 'v_igre' && i.rol !== 'Камикадзе');
+        const knopki_kami = alive_kami.map(i => [{
+            text: '\uD83D\uDCA3 \u2116' + i.nomer + ' ' + i.name,
+            callback_data: 'noch_kami_' + kod + '_' + i.nomer
+        }]);
+        knopki_kami.push([{ text: '\u23ED Пропустить', callback_data: 'noch_kami_pass_' + kod }]);
+        knopki_kami.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
+        bot.editMessageText(
+            '\uD83D\uDCA3 *Камикадзе: к кому идёт?*\n\n_К мафии — оба выбывают. К мирному/маньяку — ничего._',
+            { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_kami } }
+        );
+    }
+
+    else if (data.startsWith('noch_kami_pass_')) {
+        const kod = data.replace('noch_kami_pass_', '');
+        const igra = igry[kod];
+        if (!igra) return;
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        delete igra.noch_deystviya.kamikadze_tseli;
+        igra.noch_deystviya.kamikadze_propustil = true;
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: 'Камикадзе пропустил' }).catch(() => {});
+        await pokazat_noch_panel(chatId, messageId, kod, '\u23ED Камикадзе пропустил визит');
+    }
+
+    else if (data.startsWith('noch_kami_')) {
+        const parts_nk = data.replace('noch_kami_', '').split('_');
+        const kod = parts_nk[0];
+        const nomer_nk = parseInt(parts_nk[1], 10);
+        const igra = igry[kod];
+        if (!igra) return;
+        igra.noch_deystviya = igra.noch_deystviya || {};
+        delete igra.noch_deystviya.kamikadze_propustil;
+        igra.noch_deystviya.kamikadze_tseli = nomer_nk;
+        const zhertva_nk = igra.igroki.find(i => i.nomer === nomer_nk);
+        bot.answerCallbackQuery(query.id, { text: 'Камикадзе → ' + (zhertva_nk?.name || '') }).catch(() => {});
+        await sohranit_igru(kod);
+        await pokazat_noch_panel(chatId, messageId, kod, '\uD83D\uDCA3 Камикадзе идёт к \u2116' + nomer_nk);
     }
 
     // ===== НОЧЬ: выбор цели Стрелка/Охотника =====
