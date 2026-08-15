@@ -10626,24 +10626,33 @@ async function zavershitIgruAvto(chatId, messageId, kod, pobeditel) {
     const mafN = alive.filter(i => isMafiaRole(i.rol)).length;
     const manyakN = alive.filter(i => i.rol === 'Маньяк').length;
     const mirN = alive.length - mafN - manyakN;
-    svodka += '_За столом: мафия ' + mafN + ' / мирные ' + mirN + (manyakN ? ' / маньяк ' + manyakN : '') + '_\n\n';
-    svodka += 'Игра *не завершена автоматически*, рейтинг не записан.\n';
+    svodka += '_За столом: мафия ' + mafN + ' / мирные ' + mirN + (manyakN ? ' / маньяк ' + manyakN : '') + '_\n';
+    if (alive.some(i => i.rol === 'Эскортница' || i.rol === 'Путана')) {
+        svodka += '_Эскортница/Путана считается за мафию в подсчёте победы._\n';
+    }
+    svodka += '\nИгра *не завершена автоматически*, рейтинг не записан.\n';
     svodka += 'Подтверди итог вручную, если игра действительно закончилась.\n\n';
     svodka += '*Сейчас за столом:*\n';
     igra.igroki.forEach(i => {
         const em = i.status === 'v_igre' ? '✅' : '💀';
-        svodka += em + ' №' + i.nomer + ' ' + i.name + ' — ' + i.rol + '\n';
+        svodka += em + ' №' + i.nomer + ' ' + md(i.name) + ' — ' + (i.rol || '?') + '\n';
     });
 
-    await bot.editMessageText(svodka, {
-        chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [
-            [{ text: '🏁 Подтвердить итог игры', callback_data: 'konec_' + kod }],
-            [{ text: '🎮 Продолжить игру', callback_data: igra._posle_golosa ? ('posle_golosa_' + kod) : ('panel_' + kod) }],
-            [{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }],
-            [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
-        ]}
-    });
+    const knopki = [
+        [{ text: '🏁 Подтвердить итог игры', callback_data: 'konec_' + kod }],
+        [{ text: '🎮 Продолжить игру', callback_data: 'prodolzhit_igru_' + kod }],
+        [{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }],
+        [{ text: '🏠 В меню', callback_data: 'menu_vedushchego' }]
+    ];
+    const payload = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
+    try {
+        await bot.editMessageText(svodka, { chat_id: chatId, message_id: messageId, ...payload });
+    } catch (e) {
+        console.error('[zavershitIgruAvto]', kod, e?.message || e);
+        await bot.sendMessage(chatId, svodka, payload).catch(() =>
+            bot.sendMessage(chatId, svodka.replace(/[*_`]/g, ''), { reply_markup: payload.reply_markup })
+        );
+    }
     return true;
 }
 
@@ -12573,10 +12582,22 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Консильери')) t += (d.kons_tseli ? '\u2705' : '\u25A1') + ' Консильери: ' + (d.kons_tseli ? '\u2116' + d.kons_tseli + ' завербован' : (mozhetKonsilyeriVerbovat(igra) ? 'может вербовать' : 'ждёт условия <30%')) + '\n';
     if (roli_alive.some(isSheriffRole)) t += (d.sherif_tseli ? '\u2705' : '\u25A1') + ' Шериф/Комиссар: ' + (d.sherif_tseli ? '\u2116' + d.sherif_tseli + ' проверен' : 'не проверял') + '\n';
     if (roli_alive.includes('Маньяк')) t += (d.manyak_tseli ? '\u2705' : '\u25A1') + ' Маньяк: ' + (d.manyak_tseli ? '\u2116' + d.manyak_tseli : 'не выбрал') + '\n';
-    if (roli_alive.includes('Доктор')) t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
+    if (roli_alive.includes('Доктор')) {
+        t += (d.doctor_tseli ? '\u2705' : '\u25A1') + ' Доктор: ' + (d.doctor_tseli ? '\u2116' + d.doctor_tseli : 'не выбрал') + '\n';
+    } else {
+        const docDead = (igra.igroki || []).find(i => i.rol === 'Доктор');
+        if (docDead) {
+            t += '\uD83D\uDC80 Доктор: выбыл (\u2116' + docDead.nomer + ' ' + md(docDead.name || '') + ') — этой ночью не лечит\n';
+        }
+    }
     if (roli_alive.some(rolStrelyayushchegoZaMirnyh)) {
         const stTxt = tekstStrelokNochi(d);
         t += (strelokNochZavershen(d) ? '\u2705' : '\u25A1') + ' Стрелок/Охотник: ' + stTxt + '\n';
+    } else {
+        const strDead = (igra.igroki || []).find(i => rolStrelyayushchegoZaMirnyh(i.rol));
+        if (strDead && strDead.status !== 'v_igre') {
+            t += '\uD83D\uDC80 Стрелок/Охотник: выбыл (\u2116' + strDead.nomer + ' ' + md(strDead.name || '') + ')\n';
+        }
     }
     if (roli_alive.includes('Затычка')) t += (d.zatychka_tseli ? '\u2705' : '\u25A1') + ' Затычка: ' + (d.zatychka_tseli ? '\u2116' + d.zatychka_tseli + ' заблокирован' : 'не выбрала') + '\n';
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
@@ -12621,7 +12642,15 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     knopki.push([{ text: '\uD83C\uDF19 Пошаговая ночь', callback_data: 'noch_guided_' + kod }]);
     knopki.push([{ text: '\uD83D\uDCCB Состав', callback_data: 'panel_' + kod }]);
 
-    bot.editMessageText(t, { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } });
+    const optsNoch = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
+    try {
+        await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, ...optsNoch });
+    } catch (e) {
+        console.error('[pokazat_noch_panel]', kod, e?.message || e);
+        await bot.sendMessage(chatId, t, optsNoch).catch(() =>
+            bot.sendMessage(chatId, t.replace(/[*_`]/g, ''), { reply_markup: optsNoch.reply_markup })
+        );
+    }
 }
 
 
@@ -16053,6 +16082,39 @@ bot.on('callback_query', async function(query) {
         });
     }
 
+    // ===== ПРОДОЛЖИТЬ ПОСЛЕ «ВОЗМОЖНОГО ИТОГА» =====
+    else if (data.startsWith('prodolzhit_igru_')) {
+        const kod = data.replace('prodolzhit_igru_', '');
+        const igra = igry[kod];
+        if (!igra) {
+            await soobshitPosleKnopki(chatId, '❌ Игра не найдена. Открой «Мои игры».');
+            return;
+        }
+        if (igra._posle_golosa) {
+            const st = igra._posle_golosa;
+            await pokazatPosleGolosovaniya(chatId, messageId, kod, st.nomer, {
+                shahidEffect: st.shahid,
+                logMsg: st.log
+            });
+            return;
+        }
+        if (igra.faza === 'noch') {
+            await pokazat_noch_panel(chatId, messageId, kod, '▶️ Игра продолжается — ночь.');
+            return;
+        }
+        await bot.sendMessage(chatId,
+            '▶️ *Игра продолжается.*\n\nФаза: *' + (igra.faza || '?') + '* · день ' + (igra.den || 1),
+            {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: '🎮 Панель игры', callback_data: 'panel_' + kod }],
+                    [{ text: '\uD83C\uDF19 К ночи', callback_data: 'faza_noch_' + kod }],
+                    [{ text: knopkaKtoNachinaet('den', igra.den || 1), callback_data: 'faza_den_' + kod }]
+                ] }
+            }
+        ).catch(() => {});
+    }
+
     // ===== ОТМЕТИТЬ ВЫБЫВШЕГО =====
     else if (data.startsWith('vybyl_')) {
         const parts = data.replace('vybyl_', '').split('_');
@@ -17671,9 +17733,13 @@ bot.on('callback_query', async function(query) {
             return;
         }
         if (!igra._noch_itogi_primeneny && igra.faza === 'noch') {
-            await soobshitPosleKnopki(chatId,
-                '⚠️ Сначала нажми «Итоги ночи» на панели ночи — или открой панель ночи снова.');
-            return;
+            const emptyActs = Object.keys(igra.noch_deystviya || {}).length === 0;
+            const estUbitye = (igra.igroki || []).some(i => i.status !== 'v_igre');
+            if (!((igra.den || 1) === 1 && emptyActs && estUbitye)) {
+                await soobshitPosleKnopki(chatId,
+                    '⚠️ Сначала нажми «Итоги ночи» на панели ночи — или открой панель ночи снова.');
+                return;
+            }
         }
         igra.den = (igra.den || 1) + 1;
         await otpravitVyborNachalaDnya(chatId, messageId, kod,
