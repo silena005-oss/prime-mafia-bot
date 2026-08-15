@@ -3087,6 +3087,24 @@ async function sohranitSoglasiePolzovatelya(igrok_id, tg_id) {
 const sostoyanie = {}; // { telegram_id: 'vvodit_kod' | 'baza_poisk_<klub_id>' }
 const igry = {};
 const miniappEvents = new Map();
+/** Выбор кто за столом в эту игру: tg_id → { klub_id, selected: Set<number> } (индексы пула вечера) */
+const vecherStolPick = {};
+
+/** После раннего answerCallbackQuery show_alert молчит — пишем в чат. */
+async function soobshitPosleKnopki(chatId, text) {
+    if (!chatId || text == null || text === '') return;
+    await bot.sendMessage(chatId, String(text).slice(0, 3500)).catch(() => {});
+}
+
+/** Кнопки по N в ряд (для 20 мест — не упираться в лимит рядов Telegram). */
+function ryadyKnopokPoN(knopkiOdnoi, n = 2) {
+    const rows = [];
+    const list = knopkiOdnoi || [];
+    for (let i = 0; i < list.length; i += n) {
+        rows.push(list.slice(i, i + n));
+    }
+    return rows;
+}
 
 function uvedomitMiniAppPobedu(igra, kod, pobeditel) {
     itogFrazy.uvedomitMiniApp(igra, kod, pobeditel, miniappEvents);
@@ -5501,6 +5519,7 @@ bot.on('message', async function(msg) {
         const d = ozhidanie_registracii[tg_id];
         const shag = d.anketa_shag ?? 0;
         const pole = klubAnketa.SHAGI[shag];
+        d.otvety = d.otvety || {};
         if (pole && (pole.tip === 'text' || pole.tip === 'text_skip')) {
             if (pole.tip === 'text' && text.length < 2 && !/^пропуст/i.test(text)) {
                 bot.sendMessage(chatId, '❌ Напиши ответ или «пропустить».');
@@ -5516,6 +5535,9 @@ bot.on('message', async function(msg) {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: klubAnketa.knopkiShaga(d.anketa_shag) }
             });
+        } else if (pole) {
+            // Кнопочный шаг: игрок написал текст — подсказываем выбрать кнопкой
+            bot.sendMessage(chatId, '👆 На этом шаге выбери вариант кнопкой под вопросом (или «⏭ Пропустить анкету»).');
         }
         return;
     }
@@ -6967,10 +6989,11 @@ function knopkiShagaNochiZnakomstva(igra, kod, idx) {
         .filter(i => i.status === 'v_igre' && mirnySlotBezRoli(i.rol))
         .sort((a, b) => a.nomer - b.nomer);
     // Кнопки мест — чтобы не гадать ник («Красавчик» vs как записан в составе)
-    bezRoli.forEach(i => {
-        const label = ('№' + i.nomer + ' ' + String(i.name || '')).slice(0, 64);
-        knopki.push([{ text: label, callback_data: 'nz_seat_' + kod + '_' + i.nomer }]);
-    });
+    const seatBtns = bezRoli.map(i => ({
+        text: ('№' + i.nomer + ' ' + String(i.name || '')).slice(0, 32),
+        callback_data: 'nz_seat_' + kod + '_' + i.nomer
+    }));
+    knopki.push(...ryadyKnopokPoN(seatBtns, 2));
     const sRolyami = (igra.igroki || []).filter(i => i.rol && i.rol !== 'Мирный');
     if (sRolyami.length) {
         knopki.push([{ text: '✏️ Исправить внесённые роли', callback_data: 'nz_fix_' + kod }]);
@@ -7104,7 +7127,14 @@ async function zavershitNochZnakomstva(chatId, kod, opts = {}) {
         const mirnyeVsego = igra.igroki.filter(i => i.rol === 'Мирный').length;
         const sReytingom = igra.igroki.filter(i => i.igrok_id).length;
         delete sostoyanie[igra.vedushchii_id];
-        if (igra.klub_id) await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
+        // Не затираем пул вечера (20 чел.), если за столом только часть
+        if (igra.klub_id) {
+            const pool = await poluchitSpisokVecheraKluba(igra.klub_id);
+            const zaStolom = (igra.igroki || []).length;
+            if (!pool?.length || pool.length <= zaStolom) {
+                await sohranitSpisokVecheraKluba(igra.klub_id, igra.igroki);
+            }
+        }
         await finalizirovatImmunitetyPriStarteIgry(igra, kod);
         await sohranit_igru(kod);
 
@@ -7763,10 +7793,11 @@ async function pokazatVyborMestaVechera(chatId, messageId, klub_id, rezhim) {
         : '🔄 *Заменить игрока*\n\nКого меняем за столом? Нажми место, затем пришли новый ник:\n\n';
     t += await tekstSpiskaVecheraKorotkiy(klub_id);
     const prefix = del ? 'vecher_delpick_' : 'vecher_reppick_';
-    const knopki = spisok.map((p, i) => [{
-        text: (del ? '🗑 ' : '🔄 ') + '№' + (i + 1) + ' ' + String(p.name || '').slice(0, 40),
+    const seatBtns = spisok.map((p, i) => ({
+        text: (del ? '🗑 ' : '🔄 ') + '№' + (i + 1) + ' ' + String(p.name || '').slice(0, 28),
         callback_data: prefix + klub_id + '_' + (i + 1)
-    }]);
+    }));
+    const knopki = ryadyKnopokPoN(seatBtns, 2);
     knopki.push([{ text: '⬅️ Назад', callback_data: 'vecher_klub_' + klub_id }]);
     const opts = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
     if (messageId) {
@@ -7797,6 +7828,97 @@ function knopkiPravkiSostavaVechera(klub_id) {
         [{ text: '🔄 Заменить игрока', callback_data: 'vecher_replace_' + klub_id }],
         [{ text: '🗑 Удалить игрока', callback_data: 'vecher_delete_' + klub_id }]
     ];
+}
+
+function poluchitIliSozdatVyborStola(tg_id, klub_id, spisokLen) {
+    let st = vecherStolPick[tg_id];
+    if (!st || String(st.klub_id) !== String(klub_id)) {
+        st = {
+            klub_id,
+            selected: new Set(Array.from({ length: spisokLen }, (_, i) => i))
+        };
+        vecherStolPick[tg_id] = st;
+    }
+    // Убрать индексы вне текущего пула
+    for (const idx of [...st.selected]) {
+        if (idx < 0 || idx >= spisokLen) st.selected.delete(idx);
+    }
+    return st;
+}
+
+async function pokazatVyborStolaIgry(chatId, messageId, klub_id, tg_id) {
+    const spisok = await poluchitSpisokVecheraKluba(klub_id);
+    if (!spisok?.length) {
+        await soobshitPosleKnopki(chatId, '❌ Сначала зафиксируй состав вечера.');
+        return false;
+    }
+    const st = poluchitIliSozdatVyborStola(tg_id, klub_id, spisok.length);
+    const nSel = st.selected.size;
+    let t = '🎲 *Кто играет в эту игру?*\n\n';
+    t += 'Пул вечера: *' + spisok.length + '*. Выбрано за стол: *' + nSel + '*.\n';
+    t += '_Отметь тех, кто садится сейчас. Остальные остаются в пуле на следующие игры._\n';
+    t += '_Состав ролей — на следующем шаге (от 8 игроков)._\n\n';
+    spisok.forEach((p, i) => {
+        const mark = st.selected.has(i) ? '✅' : '⬜';
+        t += mark + ' №' + (i + 1) + ' ' + md(p.name || '') + '\n';
+    });
+    const seatBtns = spisok.map((p, i) => ({
+        text: (st.selected.has(i) ? '✅' : '⬜') + ' №' + (i + 1) + ' ' + String(p.name || '').slice(0, 22),
+        callback_data: 'vecher_stol_tog_' + klub_id + '_' + i
+    }));
+    const knopki = ryadyKnopokPoN(seatBtns, 2);
+    knopki.push([
+        { text: '✅ Все', callback_data: 'vecher_stol_all_' + klub_id },
+        { text: '⬜ Снять', callback_data: 'vecher_stol_clr_' + klub_id }
+    ]);
+    knopki.push([{ text: '▶️ Дальше · ' + nSel + ' за столом', callback_data: 'vecher_stol_ok_' + klub_id }]);
+    knopki.push([{ text: '⬅️ Назад', callback_data: 'vecher_klub_' + klub_id }]);
+    const opts = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
+    if (messageId) {
+        await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, ...opts })
+            .catch(() => bot.sendMessage(chatId, t, opts));
+    } else {
+        await bot.sendMessage(chatId, t, opts);
+    }
+    return true;
+}
+
+async function pereytiKPreviewIzVyborStola(chatId, messageId, klub_id, tg_id) {
+    const spisok = await poluchitSpisokVecheraKluba(klub_id);
+    if (!spisok?.length) {
+        await soobshitPosleKnopki(chatId, '❌ Состав вечера пуст.');
+        return false;
+    }
+    const st = poluchitIliSozdatVyborStola(tg_id, klub_id, spisok.length);
+    const selected = [...st.selected].sort((a, b) => a - b).map(i => spisok[i]).filter(Boolean);
+    const kolichestvo = selected.length;
+    if (kolichestvo < 8) {
+        await soobshitPosleKnopki(chatId, '❌ Нужно минимум 8 игроков за столом (сейчас ' + kolichestvo + ').');
+        return false;
+    }
+    const { data: klub } = await supabase
+        .from('kluby')
+        .select('id, nazvaniye, nastroyki')
+        .eq('id', klub_id)
+        .single();
+    const tip = klub?.nastroyki?.tip_kluba || 'paskal';
+    const preview = pokazat_sostav_preview(kolichestvo, tip, klub?.nastroyki, klub?.nazvaniye || '');
+    if (!preview) {
+        await soobshitPosleKnopki(chatId, '❌ Нет состава на ' + kolichestvo + ' игроков.');
+        return false;
+    }
+    const previewId = sozdatPreviewSostava({
+        sostav: preview.sostav,
+        klub_id,
+        klub_nazvaniye: klub?.nazvaniye || '',
+        tip_kluba: tip,
+        kolichestvo,
+        from_vecher: true,
+        vecher_igroki: selected,
+        nazad_callback: 'vecher_stol_' + klub_id
+    });
+    await pokazatEkranPreviewSostava(chatId, messageId, previewId);
+    return true;
 }
 
 function knopkaZavershitVecher(klub_id) {
@@ -8687,6 +8809,11 @@ async function obnovitLobbyVecheraIzSpiska(telegram_id, klub_id) {
     });
     if (!lobby) return null;
     const [kod, igra] = lobby;
+    const lobbyLen = (igra.igroki || []).length;
+    // Стол уже собран из части пула (напр. 10 из 20) — не раздуваем лобби всем вечером
+    if (lobbyLen > 0 && spisok?.length > lobbyLen) {
+        return kod;
+    }
     if (!spisok?.length) {
         igra.kolichestvo = 0;
         igra.igroki = [];
@@ -8713,9 +8840,13 @@ async function sohranitKastomnyySostavKluba(klub_id, kolichestvo, sostav) {
     }
 }
 
-async function sozdatIgryIzVechera(tg_id, klub_id) {
-    const spisok = await poluchitSpisokVecheraKluba(klub_id);
-    if (!spisok?.length) return null;
+async function sozdatIgryIzVechera(tg_id, klub_id, opts = {}) {
+    const polnyy = await poluchitSpisokVecheraKluba(klub_id);
+    if (!polnyy?.length) return null;
+    const spisok = Array.isArray(opts.igroki) && opts.igroki.length
+        ? normalizovatSpisokVechera(opts.igroki)
+        : polnyy;
+    if (!spisok.length) return null;
     ochistitChernovikRuchnogoRezultata(tg_id);
     await ochistitLobbyVedushchegoBezRoley(tg_id, { klub_id });
     const kod = await sozdatNovuyuIgry(tg_id, klub_id, spisok.length);
@@ -8737,6 +8868,7 @@ async function sozdatIgryIzVechera(tg_id, klub_id) {
         if (pred) igra._sostav_custom = [...pred._sostav_custom];
     }
     await zapolnitIgruIzSpiskaVechera(igra, spisok);
+    // Пул вечера не трогаем — за столом может быть только часть из 20
     await sohranit_igru(kod);
     return kod;
 }
@@ -9221,8 +9353,15 @@ async function pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod) {
         knopki.push([{ text: '\u2699\uFE0F Состав ролей', callback_data: 'igra_sostav_' + kod }]);
     }
     if (igra.klub_id) {
-        knopki.push(...knopkiPravkiSostavaVechera(igra.klub_id));
-        knopki.push([{ text: '✍️ Заменить весь состав', callback_data: 'vecher_edit_' + kod }]);
+        const pool = await poluchitSpisokVecheraKluba(igra.klub_id);
+        const zaStolom = (igra.igroki || []).length;
+        if (pool && pool.length > zaStolom) {
+            knopki.push([{ text: '🌙 Пул вечера (' + pool.length + ') — кто приедет/уйдёт', callback_data: 'vecher_klub_' + igra.klub_id }]);
+            knopki.push([{ text: '✍️ Заменить состав ЭТОЙ игры', callback_data: 'vecher_edit_' + kod }]);
+        } else {
+            knopki.push(...knopkiPravkiSostavaVechera(igra.klub_id));
+            knopki.push([{ text: '✍️ Заменить весь состав', callback_data: 'vecher_edit_' + kod }]);
+        }
         knopki.push([{ text: '🌙 Игровой вечер', callback_data: 'vecher_klub_' + igra.klub_id }]);
     } else {
         knopki.push([{ text: '\u270F\uFE0F Редактировать состав', callback_data: 'vecher_edit_' + kod }]);
@@ -9795,7 +9934,7 @@ async function pokazatIgrovoyVecher(chatId, messageId, klub, telegram_id) {
     const knopki = [];
     if (spisok?.length && !zavershen) {
         const nextN = await predlozhennyyNomerIgryVechera(klubInfo.id, today);
-        knopki.push([{ text: '▶️ Следующая игра вечера (№' + nextN + ', ' + spisok.length + ' чел.)', callback_data: 'vecher_sozdat_igru_' + klubInfo.id }]);
+        knopki.push([{ text: '▶️ Следующая игра (№' + nextN + ') · выбрать стол', callback_data: 'vecher_sozdat_igru_' + klubInfo.id }]);
     }
 
     if (!zavershen) {
@@ -12664,6 +12803,7 @@ function sozdatPreviewSostava(opts) {
         tip_kluba: opts.tip_kluba || 'paskal',
         kolichestvo: opts.kolichestvo,
         from_vecher: !!opts.from_vecher,
+        vecher_igroki: Array.isArray(opts.vecher_igroki) ? opts.vecher_igroki : null,
         igra_kod: opts.igra_kod || null,
         nazad_callback: opts.nazad_callback || null,
         _ne_sohranyat: true
@@ -13131,32 +13271,56 @@ bot.on('callback_query', async function(query) {
         const klub_id = data.replace('vecher_sozdat_igru_', '');
         const spisok = await poluchitSpisokVecheraKluba(klub_id);
         if (!spisok?.length) {
-            bot.answerCallbackQuery(query.id, { text: 'Сначала зафиксируй состав вечера', show_alert: true });
+            await soobshitPosleKnopki(chatId, '❌ Сначала зафиксируй состав вечера.');
             return;
         }
-        const { data: klub } = await supabase
-            .from('kluby')
-            .select('id, nazvaniye, nastroyki')
-            .eq('id', klub_id)
-            .single();
-        const tip = klub?.nastroyki?.tip_kluba || 'paskal';
-        const kolichestvo = spisok.length;
-        const preview = pokazat_sostav_preview(kolichestvo, tip, klub?.nastroyki, klub?.nazvaniye || '');
-        if (!preview) {
-            bot.answerCallbackQuery(query.id, { text: 'Нет состава на ' + kolichestvo + ' игроков', show_alert: true });
-            return;
-        }
-        const previewId = sozdatPreviewSostava({
-            sostav: preview.sostav,
+        // Всегда выбор «кто за столом» — при 20 в пуле не все играют игру 1
+        delete vecherStolPick[telegram_id];
+        await pokazatVyborStolaIgry(chatId, messageId, klub_id, telegram_id);
+    }
+
+    else if (data.startsWith('vecher_stol_tog_')) {
+        const rest = data.replace('vecher_stol_tog_', '');
+        const idxSep = rest.lastIndexOf('_');
+        if (idxSep < 0) return;
+        const klub_id = rest.slice(0, idxSep);
+        const idx = parseInt(rest.slice(idxSep + 1), 10);
+        const spisok = await poluchitSpisokVecheraKluba(klub_id);
+        if (!spisok?.length || !Number.isFinite(idx) || idx < 0 || idx >= spisok.length) return;
+        const st = poluchitIliSozdatVyborStola(telegram_id, klub_id, spisok.length);
+        if (st.selected.has(idx)) st.selected.delete(idx);
+        else st.selected.add(idx);
+        await pokazatVyborStolaIgry(chatId, messageId, klub_id, telegram_id);
+    }
+
+    else if (data.startsWith('vecher_stol_all_')) {
+        const klub_id = data.replace('vecher_stol_all_', '');
+        const spisok = await poluchitSpisokVecheraKluba(klub_id);
+        if (!spisok?.length) return;
+        vecherStolPick[telegram_id] = {
             klub_id,
-            klub_nazvaniye: klub?.nazvaniye || '',
-            tip_kluba: tip,
-            kolichestvo,
-            from_vecher: true,
-            nazad_callback: 'vecher_klub_' + klub_id
-        });
-        bot.answerCallbackQuery(query.id).catch(() => {});
-        await pokazatEkranPreviewSostava(chatId, messageId, previewId);
+            selected: new Set(Array.from({ length: spisok.length }, (_, i) => i))
+        };
+        await pokazatVyborStolaIgry(chatId, messageId, klub_id, telegram_id);
+    }
+
+    else if (data.startsWith('vecher_stol_clr_')) {
+        const klub_id = data.replace('vecher_stol_clr_', '');
+        const spisok = await poluchitSpisokVecheraKluba(klub_id);
+        if (!spisok?.length) return;
+        vecherStolPick[telegram_id] = { klub_id, selected: new Set() };
+        await pokazatVyborStolaIgry(chatId, messageId, klub_id, telegram_id);
+    }
+
+    else if (data.startsWith('vecher_stol_ok_')) {
+        const klub_id = data.replace('vecher_stol_ok_', '');
+        await pereytiKPreviewIzVyborStola(chatId, messageId, klub_id, telegram_id);
+    }
+
+    else if (data.startsWith('vecher_stol_')) {
+        // Назад с превью ролей к выбору стола
+        const klub_id = data.replace('vecher_stol_', '');
+        await pokazatVyborStolaIgry(chatId, messageId, klub_id, telegram_id);
     }
 
     else if (data.startsWith('poe_tg_')) {
@@ -14341,20 +14505,23 @@ bot.on('callback_query', async function(query) {
             return;
         }
 
-        // Следующая игра вечера — создать с выбранным составом ролей
+        // Следующая игра вечера — создать с выбранным составом ролей и столом
         if (preview_data.from_vecher && preview_data.klub_id) {
-            const kod = await sozdatIgryIzVechera(telegram_id, preview_data.klub_id);
+            const kod = await sozdatIgryIzVechera(telegram_id, preview_data.klub_id, {
+                igroki: preview_data.vecher_igroki || null
+            });
             if (!kod) {
-                bot.answerCallbackQuery(query.id, { text: 'Сначала зафиксируй состав вечера', show_alert: true });
+                await soobshitPosleKnopki(chatId, '❌ Сначала зафиксируй состав вечера / выбери кто за столом.');
                 return;
             }
             igry[kod]._sostav_custom = [...preview_data.sostav];
             await sohranitKastomnyySostavKluba(preview_data.klub_id, preview_data.kolichestvo, preview_data.sostav);
             await sohranit_igru(kod);
             delete igry['preview_' + preview_key];
-            bot.answerCallbackQuery(query.id, {
-                text: 'Игра вечера №' + (igry[kod]?.nomer_igry || '?') + ' создана'
-            }).catch(() => {});
+            delete vecherStolPick[telegram_id];
+            await soobshitPosleKnopki(chatId,
+                '✅ Игра вечера №' + (igry[kod]?.nomer_igry || '?') +
+                ' создана · за столом ' + (igry[kod]?.igroki?.length || preview_data.kolichestvo));
             await pokazatSostavSleduyushcheyIgryVechera(chatId, messageId, kod);
             return;
         }
@@ -16448,12 +16615,14 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('faza_opravdanie_')) {
         const kod = data.replace('faza_opravdanie_', '');
         const igra = igry[kod];
-        if (!igra) return;
-        if (!igra.naznacheny_golos || igra.naznacheny_golos.length === 0) {
-            bot.answerCallbackQuery(query.id, { text: '\u274C Никто не выставлен', show_alert: true });
+        if (!igra) {
+            await soobshitPosleKnopki(chatId, '❌ Игра не найдена. Открой «Мои игры».');
             return;
         }
-        bot.answerCallbackQuery(query.id);
+        if (!igra.naznacheny_golos || igra.naznacheny_golos.length === 0) {
+            await soobshitPosleKnopki(chatId, '❌ Никто не выставлен — сначала номинации в круге речи.');
+            return;
+        }
         // Назад из голосования / повторный вход — не рестартим круг с нуля
         if (igra.faza === 'golosovanie' || (igra.faza === 'opravdanie' && igra._krug_zavershen)) {
             stopTimer(kod);
@@ -16474,7 +16643,7 @@ bot.on('callback_query', async function(query) {
         }
         const ok = await nachatFazuOpravdanie(chatId, messageId, kod);
         if (!ok) {
-            bot.sendMessage(chatId, '❌ Не удалось начать оправдание. Проверь список выставленных.').catch(() => {});
+            await soobshitPosleKnopki(chatId, '❌ Не удалось начать оправдание. Проверь список выставленных или открой панель.');
         }
     }
 
@@ -16482,7 +16651,10 @@ bot.on('callback_query', async function(query) {
     else if (data.startsWith('faza_golosovanie_')) {
         const kod = data.replace('faza_golosovanie_', '');
         const igra = igry[kod];
-        if (!igra) return;
+        if (!igra) {
+            await soobshitPosleKnopki(chatId, '❌ Игра не найдена. Открой «Мои игры».');
+            return;
+        }
         stopTimer(kod);
         const uzheGolosovanie = igra.faza === 'golosovanie';
         igra.faza = 'golosovanie';
@@ -16494,16 +16666,21 @@ bot.on('callback_query', async function(query) {
         }
         const naznacheny_v = (igra.naznacheny_golos || []).map(n => igra.igroki.find(x => x.nomer === n)).filter(Boolean);
         if (naznacheny_v.length === 0) {
-            bot.answerCallbackQuery(query.id, { text: 'Некого выводить на голосование', show_alert: true });
+            await soobshitPosleKnopki(chatId, '❌ Некого выводить на голосование — сначала выставь игроков.');
             return;
         }
         await sohranit_igru(kod);
-        bot.editMessageText(tekstGolosovaniyaSPodschetom(igra, kod), {
-            chat_id: chatId,
-            message_id: messageId,
+        const textG = tekstGolosovaniyaSPodschetom(igra, kod);
+        const optsG = {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopkiGolosovaniyaSPodschetom(igra, kod) }
-        });
+        };
+        try {
+            await bot.editMessageText(textG, { chat_id: chatId, message_id: messageId, ...optsG });
+        } catch (e) {
+            console.error('[faza_golosovanie_]', kod, e?.message || e);
+            await bot.sendMessage(chatId, textG, optsG).catch(() => {});
+        }
     }
 
     // ===== ГОЛОСОВАНИЕ: внести количество голосов =====
@@ -16516,10 +16693,7 @@ bot.on('callback_query', async function(query) {
         const igrok_gc = igra.igroki.find(i => i.nomer === nomer_gc);
         if (!igrok_gc) return;
         if (estImmunitetOtGolosovaniya(igrok_gc, igra)) {
-            bot.answerCallbackQuery(query.id, {
-                text: 'У игрока иммунитет — голоса за него не вводят',
-                show_alert: true
-            });
+            await soobshitPosleKnopki(chatId, '🛡 У игрока иммунитет — голоса за него не вводят.');
             return;
         }
         sostoyanie[telegram_id] = 'golos_count_' + kod + '_' + nomer_gc;
@@ -16532,7 +16706,10 @@ bot.on('callback_query', async function(query) {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: [[{ text: '\u2B05\uFE0F Назад к голосованию', callback_data: 'faza_golosovanie_' + kod }]] }
             }
-        );
+        ).catch(() => bot.sendMessage(chatId,
+            '🔢 Голоса за №' + nomer_gc + ' ' + igrok_gc.name + '\n\nВведи число голосов одним сообщением.',
+            { reply_markup: { inline_keyboard: [[{ text: '⬅️ Назад к голосованию', callback_data: 'faza_golosovanie_' + kod }]] } }
+        ));
     }
 
     // ===== ГОЛОСОВАНИЕ: итог вручную — выбор выбывшего =====
@@ -16560,14 +16737,12 @@ bot.on('callback_query', async function(query) {
         const golosa = igra.golosa_dnya || {};
         const neVneseny = naznacheny.filter(i => !Number.isFinite(golosa[i.nomer]));
         if (neVneseny.length > 0) {
-            bot.answerCallbackQuery(query.id, {
-                text: 'Внеси голоса за всех, кроме последнего — он посчитается сам.',
-                show_alert: true
-            });
+            await soobshitPosleKnopki(chatId,
+                '⚠️ Внеси голоса за всех, кроме последнего — он посчитается сам.');
             return;
         }
         if (!naznacheny.length) {
-            bot.answerCallbackQuery(query.id, { text: 'Все выставленные с иммунитетом — некого голосовать', show_alert: true });
+            await soobshitPosleKnopki(chatId, '⚠️ Все выставленные с иммунитетом — некого голосовать.');
             return;
         }
         const max = Math.max(...naznacheny.map(i => golosa[i.nomer] || 0));
@@ -18932,7 +19107,13 @@ bot.on('callback_query', async function(query) {
         }
         const shag = parseInt(m[1], 10);
         const idx = parseInt(m[2], 10);
+        // Защита от нажатия на кнопки уже пройденного шага (старое сообщение в чате)
+        if (shag !== (d.anketa_shag ?? 0)) {
+            bot.answerCallbackQuery(query.id, { text: 'Этот шаг уже пройден' });
+            return;
+        }
         const pole = klubAnketa.SHAGI[shag];
+        d.otvety = d.otvety || {};
         d.otvety[pole.key] = pole.varianty[idx];
         d.anketa_shag = shag + 1;
         bot.answerCallbackQuery(query.id);
