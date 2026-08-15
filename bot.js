@@ -1276,6 +1276,13 @@ http.createServer((req, res) => {
     res.end('PrimeMafia bot OK\nHealth: /health\nMini app: ' + MINI_APP_PATH + '\n');
 }).listen(PORT, '0.0.0.0', () => {
     console.log('🌐 Health check слушает порт', PORT, '→ /health');
+    // Guard: состояние игр — в памяти одного процесса. Несколько реплик = рассинхрон
+    // мини-аппа и бота. Railway явно не сообщает число реплик, поэтому логируем replica id
+    // для диагностики (если в логах видно >1 разных id — значит масштабирование включено).
+    if (process.env.RAILWAY_REPLICA_ID) {
+        console.log('🧩 Инстанс (replica):', process.env.RAILWAY_REPLICA_ID,
+            '— напоминание: приложение рассчитано на 1 реплику (numReplicas=1).');
+    }
 });
 
 const bot = new TelegramBot(token, { polling: false });
@@ -3193,6 +3200,9 @@ async function sohranit_igru(kod) {
             _miniapp_intro: igra._miniapp_intro || null,
             _noch_guided_idx: Number.isFinite(igra._noch_guided_idx) ? igra._noch_guided_idx : null,
             _pick_first_faza: igra._pick_first_faza || null,
+            _zhdi_lh: igra._zhdi_lh || null,
+            _noch_itogi_primeneny: !!igra._noch_itogi_primeneny,
+            _lh_ochered: Array.isArray(igra._lh_ochered) ? igra._lh_ochered : null,
             // Процесс за столом — чтобы после сворачивания/рестарта игра не «обнулялась»
             tekushchiy_nomer: igra.tekushchiy_nomer || null,
             poryadok_hoda: Array.isArray(igra.poryadok_hoda) ? igra.poryadok_hoda : null,
@@ -3283,6 +3293,9 @@ async function zagruzit_aktivnye_igry() {
                     _miniapp_intro: nastroyki._miniapp_intro || null,
                     _noch_guided_idx: Number.isFinite(nastroyki._noch_guided_idx) ? nastroyki._noch_guided_idx : null,
                     _pick_first_faza: nastroyki._pick_first_faza || null,
+                    _zhdi_lh: nastroyki._zhdi_lh || null,
+                    _noch_itogi_primeneny: !!nastroyki._noch_itogi_primeneny,
+                    _lh_ochered: Array.isArray(nastroyki._lh_ochered) ? nastroyki._lh_ochered : null,
                     tekushchiy_nomer: nastroyki.tekushchiy_nomer || null,
                     poryadok_hoda: Array.isArray(nastroyki.poryadok_hoda) ? nastroyki.poryadok_hoda : null,
                     perviy_hod_nomer: nastroyki.perviy_hod_nomer || null,
@@ -6276,6 +6289,8 @@ function podgotovitVyborPervogoDlyaDnya(igra) {
     delete igra._taymer_ui_mode;
     delete igra._picker_type;
     delete igra._posle_golosa;
+    delete igra._noch_itogi_primeneny;
+    delete igra._zhdi_lh;
     sbrositImmunitetyKDnyu2(igra);
 }
 
@@ -10455,36 +10470,89 @@ function poluchitLuchshiyHod(igra, nomer, source) {
 
 function knopkiLuchshegoHoda(igra, kod, nomer, source, next) {
     const hod = poluchitLuchshiyHod(igra, nomer, source);
-    const knopki = (igra.igroki || [])
-        .filter(i => i.nomer !== nomer)
-        .map(i => [{
-            text: (hod.nazvannye.includes(i.nomer) ? '\u2705 ' : '\u25AB\uFE0F ') + '\u2116' + i.nomer + ' ' + i.name,
+    const seatBtns = (igra.igroki || [])
+        .filter(i => i.nomer !== nomer && i.status === 'v_igre')
+        .sort((a, b) => a.nomer - b.nomer)
+        .map(i => ({
+            text: ((hod.nazvannye.includes(i.nomer) ? '\u2705 ' : '') + '\u2116' + i.nomer + ' ' + String(i.name || '')).slice(0, 40),
             callback_data: 'lh_toggle_' + kod + '_' + nomer + '_' + i.nomer + '_' + source + '_' + next
-        }]);
+        }));
+    const knopki = ryadyKnopokPoN(seatBtns, 2);
     knopki.push([{ text: '\u2705 Сохранить лучший ход', callback_data: 'lh_done_' + kod + '_' + nomer + '_' + source + '_' + next }]);
     knopki.push([{ text: '\u23ED\uFE0F Пропустить', callback_data: 'lh_skip_' + kod + '_' + nomer + '_' + source + '_' + next }]);
     return knopki;
 }
 
-async function pokazatLuchshiyHod(chatId, messageId, kod, nomer, source, next) {
+async function pokazatLuchshiyHod(chatId, messageId, kod, nomer, source, next, opts = {}) {
     const igra = igry[kod];
-    if (!igra) return;
+    if (!igra) return false;
     const igrok = igra.igroki.find(i => i.nomer === nomer);
-    if (!igrok) return;
+    if (!igrok) return false;
+    igra._zhdi_lh = { nomer, source, next };
     const hod = poluchitLuchshiyHod(igra, nomer, source);
     const maf = kolichestvoMafiiZaStolom(igra);
     const ballyCfg = { ...BALLY_DEFAULT, ...(igra._nastroyki?.bally || {}) };
-    let t = '\uD83C\uDFC6 *Лучший ход*\n\n';
-    t += '\u2116' + igrok.nomer + ' *' + igrok.name + '* — ' + hod.prichina + '\n\n';
+    let t = opts.prefix ? (String(opts.prefix) + '\n\n') : '';
+    t += '\uD83C\uDFC6 *Лучший ход*\n\n';
+    t += '\u2116' + igrok.nomer + ' *' + md(igrok.name) + '* — ' + hod.prichina + '\n\n';
     t += 'Отметь игроков, которых он назвал мафией на последнем слове.\n';
     t += tekstShkalyLuchshegoHoda(maf, ballyCfg) + '\n\n';
     t += 'Выбрано: ' + (hod.nazvannye.length ? hod.nazvannye.map(n => '\u2116' + n).join(', ') : '_никого_');
-    await bot.editMessageText(t, {
-        chat_id: chatId,
-        message_id: messageId,
+    const knopki = knopkiLuchshegoHoda(igra, kod, nomer, source, next);
+    const payload = {
         parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: knopkiLuchshegoHoda(igra, kod, nomer, source, next) }
-    });
+        reply_markup: { inline_keyboard: knopki }
+    };
+    try {
+        if (messageId) {
+            await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, ...payload });
+        } else {
+            await bot.sendMessage(chatId, t, payload);
+        }
+        return true;
+    } catch (e) {
+        console.error('[pokazatLuchshiyHod]', kod, e?.message || e);
+        try {
+            await bot.sendMessage(chatId, t, payload);
+            return true;
+        } catch (e2) {
+            await bot.sendMessage(chatId,
+                '🏆 Лучший ход №' + igrok.nomer + ' ' + (igrok.name || '') +
+                ' — отметь кого назвал мафией или пропусти.',
+                { reply_markup: { inline_keyboard: knopki } }
+            ).catch(() => {});
+            return false;
+        }
+    }
+}
+
+async function otpravitVyborNachalaDnya(chatId, messageId, kod, itogPrefix) {
+    const igra = igry[kod];
+    if (!igra) return;
+    podgotovitVyborPervogoDlyaDnya(igra);
+    delete igra._zhdi_lh;
+    await sohranit_igru(kod);
+    const t = (itogPrefix ? String(itogPrefix) + '\n\n' : '') +
+        '_Сначала выберешь, кто начинает дневные речи._';
+    const knopki = [
+        [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
+        [{ text: '\uD83C\uDFAE Панель игры', callback_data: 'panel_' + kod }],
+        [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
+    ];
+    const payload = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki } };
+    try {
+        if (messageId) {
+            await bot.editMessageText(t, { chat_id: chatId, message_id: messageId, ...payload });
+        } else {
+            await bot.sendMessage(chatId, t, payload);
+        }
+    } catch (e) {
+        console.error('[otpravitVyborNachalaDnya]', kod, e?.message || e);
+        await bot.sendMessage(chatId,
+            '✅ Итоги ночи учтены. День ' + (igra.den || 1) + ' — выбери, кто начинает речи.',
+            { reply_markup: { inline_keyboard: knopki } }
+        ).catch(() => {});
+    }
 }
 
 async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
@@ -10500,6 +10568,7 @@ async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
     }
 
     delete igra._posle_golosa;
+    delete igra._zhdi_lh;
 
     const pobeditel = opredelitPobeditelya(igra);
     if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
@@ -10514,17 +10583,8 @@ async function prodolzhitPosleLuchshegoHoda(chatId, messageId, kod, next) {
 
     if (next === 'day') {
         igra.den = (igra.den || 1) + 1;
-        podgotovitVyborPervogoDlyaDnya(igra);
-        await sohranit_igru(kod);
-        await bot.editMessageText('\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + igra.den + '.\n_Сначала выберешь, кто начинает дневные речи._', {
-            chat_id: chatId,
-            message_id: messageId,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [
-                [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
-                [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
-            ] }
-        });
+        await otpravitVyborNachalaDnya(chatId, messageId, kod,
+            '\uD83C\uDF19 *Итоги ночи сохранены.*\n\nМожно начинать день ' + ((igra.den || 1)));
     }
 }
 
@@ -15604,6 +15664,42 @@ bot.on('callback_query', async function(query) {
             knopki.push([{ text: '\u2B05\uFE0F К оправданию', callback_data: 'faza_opravdanie_' + kod }]);
         } else if (igra.faza === 'noch') {
             knopki.push([{ text: '\uD83C\uDF19 Панель ночи', callback_data: 'noch_panel_' + kod }]);
+            // Восстановление: итоги уже ушли, а кнопки «Лучший ход» / день потерялись
+            if (igra._zhdi_lh && igra._zhdi_lh.nomer != null) {
+                const p = igra._zhdi_lh;
+                knopki.unshift([{
+                    text: '\uD83C\uDFC6 Лучший ход (продолжить)',
+                    callback_data: 'lh_start_' + kod + '_' + p.nomer + '_' + p.source + '_' + p.next
+                }]);
+                knopki.splice(1, 0, [{
+                    text: '\u23ED\uFE0F Пропустить лучший ход \u2192 день',
+                    callback_data: 'lh_skip_' + kod + '_' + p.nomer + '_' + p.source + '_' + p.next
+                }]);
+            } else if (igra._noch_itogi_primeneny) {
+                knopki.unshift([{
+                    text: knopkaKtoNachinaet('den', (igra.den || 1) + 1),
+                    callback_data: 'noch_k_dnyu_' + kod
+                }]);
+            } else if (
+                (igra.den || 1) === 1 &&
+                Object.keys(igra.noch_deystviya || {}).length === 0 &&
+                (igra.igroki || []).some(i => i.status !== 'v_igre' && mozhetBytLuchshiyHod(i))
+            ) {
+                // Старый баг: итоги ночи 1 ушли без кнопок — даём продолжить с панели
+                const p = (igra.igroki || []).find(i => i.status !== 'v_igre' && mozhetBytLuchshiyHod(i));
+                knopki.unshift([{
+                    text: '\uD83C\uDFC6 Лучший ход №' + p.nomer,
+                    callback_data: 'lh_start_' + kod + '_' + p.nomer + '_night1_day'
+                }]);
+                knopki.splice(1, 0, [{
+                    text: '\u23ED\uFE0F Пропустить \u2192 день 2',
+                    callback_data: 'lh_skip_' + kod + '_' + p.nomer + '_night1_day'
+                }]);
+                knopki.splice(2, 0, [{
+                    text: knopkaKtoNachinaet('den', 2),
+                    callback_data: 'noch_k_dnyu_' + kod
+                }]);
+            }
         }
         if (igra.rezhim_rolei === 'karty' && !igra.roli_razdany && mirnyeOstalosVnesti(igra) > 0
             && (igra.igroki || []).some(i => i.rol && i.rol !== 'Мирный')) {
@@ -17561,6 +17657,29 @@ bot.on('callback_query', async function(query) {
         );
     }
 
+    // ===== НОЧЬ: к дню после потерянных кнопок итогов =====
+    else if (data.startsWith('noch_k_dnyu_')) {
+        const kod = data.replace('noch_k_dnyu_', '');
+        const igra = igry[kod];
+        if (!igra) {
+            await soobshitPosleKnopki(chatId, '❌ Игра не найдена.');
+            return;
+        }
+        if (igra._zhdi_lh && igra._zhdi_lh.nomer != null) {
+            const p = igra._zhdi_lh;
+            await pokazatLuchshiyHod(chatId, messageId, kod, p.nomer, p.source || 'night1', p.next || 'day');
+            return;
+        }
+        if (!igra._noch_itogi_primeneny && igra.faza === 'noch') {
+            await soobshitPosleKnopki(chatId,
+                '⚠️ Сначала нажми «Итоги ночи» на панели ночи — или открой панель ночи снова.');
+            return;
+        }
+        igra.den = (igra.den || 1) + 1;
+        await otpravitVyborNachalaDnya(chatId, messageId, kod,
+            '\uD83C\uDF19 *Продолжаем после ночи.*\n\nДень ' + igra.den);
+    }
+
     // ===== НОЧЬ: итоги =====
     else if (data.startsWith('noch_itog_')) {
         const kod = data.replace('noch_itog_', '');
@@ -17654,30 +17773,47 @@ bot.on('callback_query', async function(query) {
         });
         const v_igre_t = igra.igroki.filter(i => i.status === 'v_igre');
         itog_t += '\n\uD83D\uDC65 *За столом: ' + v_igre_t.length + '*\n';
-        v_igre_t.forEach(i => { itog_t += '\u2705 \u2116' + i.nomer + ' ' + i.name + '\n'; });
+        v_igre_t.forEach(i => { itog_t += '\u2705 \u2116' + i.nomer + ' ' + md(i.name) + '\n'; });
         if ((igra.den || 1) === 1 && ubity_t[0]) {
             await otmetitPervuyuSmertDlyaImmuniteta(igra, ubity_t[0], 'noch1');
         }
-        ubity_t.forEach(i => { bot.sendMessage(i.telegram_id, '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*', { parse_mode: 'Markdown' }).catch(() => {}); });
+        for (const i of ubity_t) {
+            if (!i?.telegram_id) continue;
+            bot.sendMessage(i.telegram_id,
+                '\uD83D\uDC80 *Тебя убили ночью.*\n\nТвоя роль: *' + i.rol + '*',
+                { parse_mode: 'Markdown' }
+            ).catch(() => {});
+        }
         zapisatIstoriyuDoktora(igra, doc_t);
         igra.noch_deystviya = {};
+        igra._noch_itogi_primeneny = true;
         const kandidatyLh = (igra.den || 1) === 1 ? ubity_t.filter(mozhetBytLuchshiyHod) : [];
         if (kandidatyLh.length) {
             const pervyj = postavitOcheredLuchshihHodov(igra, kandidatyLh, 'night1', 'day');
+            igra._zhdi_lh = { nomer: pervyj.nomer, source: 'night1', next: 'day' };
             await sohranit_igru(kod);
-            await bot.sendMessage(chatId, itog_t, { parse_mode: 'Markdown' }).catch(() => {});
-            await pokazatLuchshiyHod(chatId, messageId, kod, pervyj.nomer, 'night1', 'day');
+            // Кнопки — на НОВОМ сообщении внизу (не правим старую панель ночи выше)
+            let mid = messageId;
+            try {
+                const sent = await bot.sendMessage(chatId, itog_t, { parse_mode: 'Markdown' });
+                if (sent?.message_id) mid = sent.message_id;
+            } catch (e) {
+                console.error('[noch_itog_ send]', kod, e?.message || e);
+                await bot.sendMessage(chatId, itog_t.replace(/[*_`]/g, '')).catch(() => {});
+            }
+            const okLh = await pokazatLuchshiyHod(chatId, mid, kod, pervyj.nomer, 'night1', 'day', {
+                prefix: itog_t
+            });
+            if (!okLh) {
+                await soobshitPosleKnopki(chatId,
+                    '⚠️ Открой «🎮 Мои игры» → панель — там кнопки лучшего хода / дня.');
+            }
             return;
         }
         const pobeditel = opredelitPobeditelya(igra);
         if (pobeditel && await zavershitIgruAvto(chatId, messageId, kod, pobeditel)) return;
         igra.den = (igra.den || 1) + 1;
-        podgotovitVyborPervogoDlyaDnya(igra);
-        await sohranit_igru(kod);
-        bot.editMessageText(itog_t + '\n\n_Сначала выберешь, кто начинает дневные речи._', { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-            [{ text: knopkaKtoNachinaet('den', igra.den), callback_data: 'faza_den_' + kod }],
-            [{ text: '\uD83C\uDFC1 Завершить игру', callback_data: 'konec_' + kod }]
-        ]}});
+        await otpravitVyborNachalaDnya(chatId, messageId, kod, itog_t);
     }
 
     // ===== НОЧЬ: панель =====
