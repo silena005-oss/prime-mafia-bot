@@ -6179,6 +6179,23 @@ function stopTimer(kod) {
     if (igra._interval) { clearInterval(igra._interval); igra._interval = null; }
 }
 
+/** Если речь идёт, а интервал сбит (гонка Пас/таймер) — вернуть отсчёт. */
+function obespechitTaymerRechi(igra, kod, chatId, messageId) {
+    if (!igra || !igra.tekushchiy_nomer || igra._krug_zavershen) return;
+    if (!fazaKRuchiRechi(igra.faza)) return;
+    if (igra.taymer_aktiven && igra._interval) return;
+    const { chat_id, message_id } = idSoobshcheniyaTaymera(igra, chatId, messageId);
+    const ostalos = (igra.taymer_sekundy > 0)
+        ? igra.taymer_sekundy
+        : sekundyTaymeraRechi(igra);
+    zapustitTaymer(chat_id || null, message_id || null, kod, ostalos);
+}
+
+function istochnikPassTaymera(a, b) {
+    const set = new Set([a, b]);
+    return set.has('timer') && (set.has('pass') || set.has('miniapp'));
+}
+
 /** Во время речи открываем оверлей (фол/иммунитет/список), не трогая таймер. */
 function otkrytOverlayTaymera(igra, tip) {
     if (!igra) return;
@@ -6547,7 +6564,7 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
             }
             stopTimer(kod);
             sohranit_igru(kod).catch(() => {});
-            sleduyushchiy(ig._taymer_chat_id || null, ig._taymer_message_id || null, kod)
+            sleduyushchiy(ig._taymer_chat_id || null, ig._taymer_message_id || null, kod, { source: 'timer' })
                 .catch(e => console.error('[timer→sleduyushchiy]', kod, e?.message || e));
         }
     }, 1000);
@@ -6574,7 +6591,7 @@ async function vosstanovitTaymeryPosleRestarta() {
         try {
             // Дедлайн уже прошёл, пока бот был выключен — переходим к следующему
             if (!Number.isFinite(sek) || sek <= 0) {
-                await sleduyushchiy(chatId, msgId, kod);
+                await sleduyushchiy(chatId, msgId, kod, { source: 'timer' });
                 n++;
                 continue;
             }
@@ -11023,24 +11040,37 @@ function nomerGovoritVKruge(igra, nomer) {
     return !!(p && p.status === 'v_igre');
 }
 
-async function sleduyushchiy(chatId, messageId, kod) {
+async function sleduyushchiy(chatId, messageId, kod, opts = {}) {
     const igra = igry[kod];
     if (!igra) return { ok: false, reason: 'no_game' };
 
-    // Сначала стоп таймера — иначе тик «0» и Пас оба дергают переход
-    stopTimer(kod);
-
-    const fromNomer = igra.tekushchiy_nomer;
+    const source = opts.source || 'other';
     const now = Date.now();
-    // Анти-двойной Пас / Пас+таймер: один переход с одного места за 2.5 сек
+    const fromNomer = igra.tekushchiy_nomer;
+
+    const dedupeOtvet = () => {
+        const cur = (igra.igroki || []).find(i => i.nomer === igra.tekushchiy_nomer);
+        // Важно: не оставлять речь без таймера после гонки Пас/тик
+        obespechitTaymerRechi(igra, kod, chatId, messageId);
+        return { ok: true, deduped: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+    };
+
+    // Анти-гонка ДО stopTimer: иначе второй вызов гасит таймер уже следующего игрока
+    if (
+        fromNomer != null &&
+        igra._last_advanced_at &&
+        (now - igra._last_advanced_at) < 1200 &&
+        istochnikPassTaymera(source, igra._last_advance_source)
+    ) {
+        return dedupeOtvet();
+    }
     if (
         fromNomer != null &&
         igra._last_advanced_from === fromNomer &&
         igra._last_advanced_at &&
         (now - igra._last_advanced_at) < 2500
     ) {
-        const cur = (igra.igroki || []).find(i => i.nomer === igra.tekushchiy_nomer);
-        return { ok: true, deduped: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+        return dedupeOtvet();
     }
     if (igra._advance_inflight || igra._krug_lock) {
         if (igra._krug_lock_at && (now - igra._krug_lock_at) < 4000) {
@@ -11054,6 +11084,28 @@ async function sleduyushchiy(chatId, messageId, kod) {
     igra._krug_lock = true;
     igra._krug_lock_at = now;
     try {
+        // Повторная проверка под локом (второй вызов мог уже перейти)
+        const fromLocked = igra.tekushchiy_nomer;
+        if (
+            fromLocked != null &&
+            igra._last_advanced_at &&
+            (Date.now() - igra._last_advanced_at) < 1200 &&
+            istochnikPassTaymera(source, igra._last_advance_source)
+        ) {
+            return dedupeOtvet();
+        }
+        if (
+            fromLocked != null &&
+            igra._last_advanced_from === fromLocked &&
+            igra._last_advanced_at &&
+            (Date.now() - igra._last_advanced_at) < 2500
+        ) {
+            return dedupeOtvet();
+        }
+
+        // Сначала стоп таймера — иначе тик «0» и Пас оба держат интервал
+        stopTimer(kod);
+
         delete igra._taymer_ui_mode;
         delete igra._picker_type;
 
@@ -11076,21 +11128,22 @@ async function sleduyushchiy(chatId, messageId, kod) {
             nextIdx++;
         }
         if (nextIdx >= poryadok.length) {
-            igra._last_advanced_from = fromNomer;
+            igra._last_advanced_from = fromLocked;
             igra._last_advanced_at = Date.now();
+            igra._last_advance_source = source;
             await zavershitKrugRechi(chatId, messageId, kod);
             return { ok: true, done: true };
         }
 
         // Повторная проверка: пока ждали, другой вызов уже сдвинул ход
-        if (igra.tekushchiy_nomer !== fromNomer) {
-            const cur = (igra.igroki || []).find(i => i.nomer === igra.tekushchiy_nomer);
-            return { ok: true, deduped: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
+        if (igra.tekushchiy_nomer !== fromLocked) {
+            return dedupeOtvet();
         }
 
         igra.tekushchiy_nomer = poryadok[nextIdx];
-        igra._last_advanced_from = fromNomer;
+        igra._last_advanced_from = fromLocked;
         igra._last_advanced_at = Date.now();
+        igra._last_advance_source = source;
         // Новый говорящий — всегда полный таймер, не остаток от предыдущего
         const sekundy = sekundyTaymeraRechi(igra);
         igra.taymer_sekundy = sekundy;
@@ -11103,6 +11156,7 @@ async function sleduyushchiy(chatId, messageId, kod) {
         return { ok: true, nomer: igra.tekushchiy_nomer, name: cur?.name || '' };
     } catch (e) {
         console.error('[sleduyushchiy]', kod, e?.message || e);
+        obespechitTaymerRechi(igra, kod, chatId, messageId);
         return { ok: false, reason: 'error', message: e?.message || String(e) };
     } finally {
         if (igra) {
@@ -12705,7 +12759,7 @@ async function miniAppHostAction(tg_id, user, body) {
 }
 
 async function hostPasBezPaneli(igra, kod) {
-    await sleduyushchiy(igra._taymer_chat_id || null, igra._taymer_message_id || null, kod);
+    await sleduyushchiy(igra._taymer_chat_id || null, igra._taymer_message_id || null, kod, { source: 'miniapp' });
 }
 
 
@@ -16386,7 +16440,7 @@ bot.on('callback_query', async function(query) {
         if (fazaKRuchiRechi(igra.faza) && igra.tekushchiy_nomer && !igra._krug_zavershen) {
             const cur = igra.igroki.find(i => i.nomer === igra.tekushchiy_nomer);
             if (!cur || cur.status !== 'v_igre') {
-                await sleduyushchiy(chatId, messageId, kod);
+                await sleduyushchiy(chatId, messageId, kod, { source: 'other' });
                 return;
             }
             await vernutPanelTaymera(igra, kod, chatId, messageId, {
@@ -16713,11 +16767,12 @@ bot.on('callback_query', async function(query) {
             ).catch(() => {});
             return;
         }
-        // Сразу гасим таймер в обработчике — до await, чтобы тик «0» не успел
-        stopTimer(kod);
+        // Не гасим таймер здесь: sleduyushchiy сам стопает после анти-гонки.
+        // Иначе «Пас» на тике 0 убивает уже запущенный таймер следующего игрока.
         const ot = igra.tekushchiy_nomer;
-        const rez = await sleduyushchiy(chatId, messageId, kod);
+        const rez = await sleduyushchiy(chatId, messageId, kod, { source: 'pass' });
         if (rez?.reason === 'busy') {
+            obespechitTaymerRechi(igra, kod, chatId, messageId);
             await soobshitPosleKnopki(chatId, '⏳ Ещё переключаю ход — нажми «Пас» через секунду.');
             return;
         }
@@ -16730,6 +16785,7 @@ bot.on('callback_query', async function(query) {
             return;
         }
         if (rez?.reason === 'no_game' || rez?.ok === false) {
+            obespechitTaymerRechi(igra, kod, chatId, messageId);
             await bot.sendMessage(chatId,
                 '❌ Не удалось перейти к следующему: ' + (rez?.message || rez?.reason || 'ошибка') +
                 '\n\nОткрой панель игры и нажми «Пас» ещё раз.',
