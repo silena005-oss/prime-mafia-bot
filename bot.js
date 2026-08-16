@@ -6328,6 +6328,11 @@ function obnovitPanelTaymera(kod) {
     const igra = igry[kod];
     if (!igra || !igra._taymer_chat_id || !igra._taymer_message_id) return;
     if (igra._taymer_ui_mode === 'picker' && igra._picker_type !== 'vystav') return;
+    // Telegram rate-limit: не долбить edit каждую секунду, иначе панель «замирает»
+    const sec = igra.taymer_sekundy || 0;
+    const now = Date.now();
+    if (sec > 10 && igra._last_timer_ui_at && (now - igra._last_timer_ui_at) < 2000) return;
+    igra._last_timer_ui_at = now;
     const ui = tekstIKnopkiTaymera(igra, kod);
     bot.editMessageText(ui.text, {
         chat_id: igra._taymer_chat_id,
@@ -6559,7 +6564,7 @@ function zapustitTaymer(chatId, messageId, kod, sekundy) {
         if (ig.taymer_sekundy <= 0) {
             // Не запускать второй переход, если уже идёт Пас / другой тик
             if (ig._advance_inflight) {
-                stopTimer(kod);
+                // Не stopTimer здесь: Пас как раз переключает и сам запустит новый отсчёт
                 return;
             }
             stopTimer(kod);
