@@ -2443,9 +2443,9 @@ const roli_opisaniya = {
     'Охотник': '\uD83D\uDFE2 *Охотник (Стрелок)*\n\nКаждую ночь можешь выстрелить в игрока или пропустить выстрел. Убил 2 мирных — выбываешь сам.',
     'Стрелок': '\uD83D\uDFE2 *Стрелок*\n\nКаждую ночь можешь выстрелить или пропустить выстрел. Убил 2 мирных — выбываешь. За правильный отстрел мафии +0.5 балла.',
     'Стрелочник': '\uD83D\uDFE2 *Стрелочник*\n\nЕсли в тебя стреляли ночью — можешь перекинуть выстрел на другого. Попал в мафию — уходит мафия. Попал в мирного — уходишь ты.',
-    'Камикадзе': '\uD83D\uDFE2 *Камикадзе*\n\nКаждую ночь идёшь к игроку. Пошёл к мафии — вы оба выбываете. К мирному/маньяку — ничего.',
+    'Камикадзе': '\uD83D\uDFE2 *Камикадзе*\n\nКаждую ночь идёшь к игроку (проверка, не защита).\n\nПошёл к мафии — вы оба выбываете.\nК мирному/маньяку — оба остаются за столом.\n\n\u274C Визит не спасает цель от убийства той же ночью.',
     'Бессмертный': '\uD83D\uDFE2 *Бессмертный — Мирный житель*\n\nПросыпаешься только в первую ночь для знакомства с ведущим.\n\n\uD83D\uDEE1\uFE0F Не умирает от выстрела мафии и стрелка.\n\u274C Умирает от: эскортницы (если угадали роль), выстрела маньяка, голосования днём.\n\n\uD83C\uDFAF Задача: притягивай выстрелы мафии на себя.',
-    'Шахид': '\uD83D\uDFE2 *Шахид*\n\nВ ночи 1 и 2 минируешь ~30% стола (на 21 игрока — до 7 человек). При выбывании заминированные уходят с тобой.\n\nЕсли тебя выголосовали в День 1 — дополнительно уходят оба соседа по номерам.',
+    'Шахид': '\uD83D\uDFE2 *Шахид*\n\nМинирование только в ночи 1 и 2 (~30% стола). После Н2 мины остаются до конца игры.\n\nЕсли Шахид выбывает (убийство или голосование) — все заминированные уходят с ним.\n\nЕсли выголосовали в День 1 — дополнительно уходят оба соседа по номерам.',
     'Затычка': '\uD83D\uDFE2 *Затычка — Мирный житель*\n\nКаждую ночь просыпаешься и выбираешь одного игрока.\n\n\uD83D\uDD07 Заблокированный игрок:\n— лишается своей минуты речи на дне\n— не может голосовать\n— но может быть выставлен на голосование другими\n\n\uD83C\uDFAF Задача: найди мафию и лишай её голоса.\n\u2B50 За правильный ход: *+0.5 балла*',
     'Любовница': '\uD83D\uDFE2 *Любовница*\n\nМожешь заблокировать роль одного игрока на голосовании.',
     'Ведьма': '\uD83D\uDFE2 *Ведьма*\n\nОдин раз за игру можешь воскресить выбывшего игрока. Просыпаешься каждую ночь до воскрешения. Если выбываешь до — вскрой карту и остаёшься за столом.',
@@ -10396,29 +10396,38 @@ function primenitNochnyeVystrely(igra, d) {
         }
     }
 
-    // Камикадзе: к мафии — оба выбывают; к мирному/маньяку — ничего
+    // Камикадзе: проверка каждую ночь (не защита). К мафии — оба выбывают; иначе камикадзе остаётся.
     const kamiTsel = d.kamikadze_tseli ?? null;
     const kamikadze = igra.igroki.find(x => x.status === 'v_igre' && x.rol === 'Камикадзе');
     if (d.kamikadze_propustil && kamikadze) {
         lines.push('_Камикадзе пропустил визит_\n');
     } else if (kamiTsel != null && kamikadze) {
-        const tselKami = igra.igroki.find(x => x.nomer === kamiTsel && x.status === 'v_igre');
+        // Роль смотрим даже если цель уже убита этой ночью — визит не спасает, но проверка срабатывает.
+        const tselKami = igra.igroki.find(x => x.nomer === kamiTsel);
         if (!tselKami) {
-            lines.push('_Камикадзе пошёл к \u2116' + kamiTsel + ', цель уже не за столом_\n');
+            lines.push('_Камикадзе пошёл к \u2116' + kamiTsel + ', игрок не найден_\n');
         } else if (isMafiaRole(tselKami.rol)) {
             kamikadze.status = 'vybyl';
-            tselKami.status = 'vybyl';
             dobavitUnikalnoPoNomeru(ubity_t, kamikadze);
-            dobavitUnikalnoPoNomeru(ubity_t, tselKami);
-            lines.push('\uD83D\uDCA5 Камикадзе пошёл к мафии: \u2116' + kamikadze.nomer + ' *' + kamikadze.name +
-                '* и \u2116' + tselKami.nomer + ' *' + tselKami.name + '* (' + tselKami.rol + ') выбывают\n');
+            if (tselKami.status === 'v_igre') {
+                tselKami.status = 'vybyl';
+                dobavitUnikalnoPoNomeru(ubity_t, tselKami);
+                lines.push('\uD83D\uDCA5 Камикадзе пошёл к мафии: \u2116' + kamikadze.nomer + ' *' + kamikadze.name +
+                    '* и \u2116' + tselKami.nomer + ' *' + tselKami.name + '* (' + tselKami.rol + ') выбывают\n');
+            } else {
+                lines.push('\uD83D\uDCA5 Камикадзе пошёл к мафии \u2116' + tselKami.nomer + ' *' + tselKami.name +
+                    '* (' + tselKami.rol + ') — цель уже убита этой ночью, Камикадзе тоже выбывает\n');
+            }
             dobavitAvtoBonus(igra, kamikadze.nomer, 'bonus_kamikadze_mafiya', BALLY_DEFAULT.bonus_kamikadze_mafiya,
                 'Камикадзе нашёл мафию', { tsel: tselKami.nomer });
             lines.push(primenitSmertShahida(igra, kamikadze, 'noch', ubity_t));
             lines.push(primenitSmertShahida(igra, tselKami, 'noch', ubity_t));
+        } else if (tselKami.status === 'v_igre') {
+            lines.push('\uD83D\uDEE1 Камикадзе пошёл к \u2116' + tselKami.nomer + ' *' + tselKami.name +
+                '* (' + tselKami.rol + ') — не мафия, оба остаются. _Проверка не защищает от убийства._\n');
         } else {
             lines.push('\uD83D\uDEE1 Камикадзе пошёл к \u2116' + tselKami.nomer + ' *' + tselKami.name +
-                '* (' + tselKami.rol + ') — не мафия, оба остаются\n');
+                '* (' + tselKami.rol + ') — не мафия; цель уже убита этой ночью, Камикадзе остаётся. _Проверка не спасает._\n');
         }
     }
 
@@ -11913,7 +11922,7 @@ function tekstVyboraNochiGuided(igra, kod, step, idx, vsego) {
     t += '_' + tekstPodskazkiPoiskaIgroka().replace(/\n/g, ' ') + '_';
     if (step.tip === 'maf') t += '\n_Можно свою мафию или самострел — для отвода глаз._';
     if (step.tip === 'strelok') t += '\n_Можно пропустить выстрел этой ночью._';
-    if (step.tip === 'kami') t += '\n_Пошёл к мафии — оба выбывают. К мирному/маньяку — ничего. Можно пропустить._';
+    if (step.tip === 'kami') t += '\n_Проверка, не защита. К мафии — оба выбывают. К мирному/маньяку — оба остаются. Можно пропустить._';
     if (step.tip === 'shahid') {
         const limit = limitMinShahida(igra);
         const miny = (igra.noch_deystviya || {}).shahid_miny_tseli || [];
@@ -12324,6 +12333,7 @@ async function primeniItogiNochiMiniApp(igra, kod) {
             tselEsk.status = 'vybyl';
             dobavitUnikalnoPoNomeru(ubity_t, tselEsk);
             itog_t += 'Эскортница угадала №' + tselEsk.nomer + '\n';
+            itog_t += primenitSmertShahida(igra, tselEsk, 'noch', ubity_t).replace(/\*/g, '');
         }
     });
     if ((igra.den || 1) === 1 && ubity_t[0]) {
@@ -12747,6 +12757,9 @@ async function pokazat_noch_panel(chatId, messageId, kod, log_msg) {
     if (roli_alive.includes('Шахид') && (igra.den === 1 || igra.den === 2)) {
         const miny = d.shahid_miny_tseli || igra.shahid_miny || [];
         t += (miny.length ? '\u2705' : '\u25A1') + ' Шахид: ' + (miny.length ? miny.map(n => '\u2116' + n).join(', ') : 'не минировал') + '\n';
+    } else if ((igra.shahid_miny || []).length) {
+        // После Н2 мины висят до конца — напоминание ведущему, пока Шахид ещё за столом или уже нет.
+        t += '\uD83D\uDCA3 Мины Шахида: ' + igra.shahid_miny.map(n => '\u2116' + n).join(', ') + '\n';
     }
 
     const knopki = [
@@ -17636,7 +17649,7 @@ bot.on('callback_query', async function(query) {
         knopki_kami.push([{ text: '\u23ED Пропустить', callback_data: 'noch_kami_pass_' + kod }]);
         knopki_kami.push([{ text: '\u2B05\uFE0F Назад', callback_data: 'noch_panel_' + kod }]);
         bot.editMessageText(
-            '\uD83D\uDCA3 *Камикадзе: к кому идёт?*\n\n_К мафии — оба выбывают. К мирному/маньяку — ничего._',
+            '\uD83D\uDCA3 *Камикадзе: к кому идёт?*\n\n_Проверка, не защита. К мафии — оба выбывают. К мирному/маньяку — оба остаются._',
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: knopki_kami } }
         );
     }
