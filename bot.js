@@ -12179,7 +12179,9 @@ async function pokazatSvodkuNochiGuided(chatId, messageId, kod) {
     });
     t += '\n_Лимит эскортницы: ' + limitVystrelovEskort(igra) + ' (9–11 → 1, 12–14 → 2, 15+ → 3)._';
     if ((igra.den || 1) === 1 || (igra.den || 1) === 2) {
-        t += '\n_Шахид: до ' + limitMinShahida(igra) + ' мин (~30% стола)._';
+        t += '\n_Шахид минирует только Н1–Н2 (до ' + limitMinShahida(igra) + '). Дальше мины висят до конца игры._';
+    } else if ((igra.shahid_miny || []).length) {
+        t += '\n_Мины Шахида до конца: ' + igra.shahid_miny.map(n => '№' + n).join(', ') + '._';
     }
     const knopki = shagi.map((step, idx) => [{
         text: (tekushchiyVyborNochi(igra, step.tip, step) != null ? '\u2705 ' : '') + step.label,
