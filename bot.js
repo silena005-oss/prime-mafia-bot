@@ -17515,15 +17515,17 @@ bot.on('callback_query', async function(query) {
             bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: true });
             return;
         }
-        await sohranit_igru(kod);
-        bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: !!rez.alert });
         if (rez.toggle) {
             igra._noch_guided_idx = idx;
+            await sohranit_igru(kod);
+            bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: !!rez.alert });
             await pokazatShagNochiGuided(chatId, messageId, kod);
             return;
         }
         igra._noch_last_ok = rez.text;
         igra._noch_guided_idx = idxPervogoNezavershennogoShaga(igra, idx + 1);
+        await sohranit_igru(kod);
+        bot.answerCallbackQuery(query.id, { text: rez.text, show_alert: !!rez.alert });
         await pokazatShagNochiGuided(chatId, messageId, kod);
     }
 
