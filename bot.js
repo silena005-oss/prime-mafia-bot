@@ -11521,15 +11521,15 @@ function tekstSpiskaNominacii(igra) {
         t += '\u23F1 Речь идёт: *' + formatTime(igra.taymer_sekundy) + '* — \u2116' + (cur?.nomer || '?') + ' ' + (cur?.name || '') + '\n';
         t += '_Таймер не остановлен — можно править список._\n\n';
     }
-    t += '_Можно корректировать: добавить пропущенного, убрать лишнего и поменять порядок оправданий._\n\n';
+    t += '_Имя — отдельной строкой. Ниже: убрать или сдвинуть порядок._\n\n';
     if (nom.length === 0) {
         t += '_Пока никто не выставлен._\n';
         t += '_Номинируй во время речи или нажми «Добавить пропущенного»._';
     } else {
-        t += '*Порядок оправданий:*\n';
+        t += '*Порядок оправданий:*\n\n';
         nom.forEach((i, idx) => {
             const sh = estImmunitetOtGolosovaniya(i, igra) ? ' \uD83D\uDEE1' : '';
-            t += (idx + 1) + '. \u2116' + i.nomer + ' *' + i.name + '*' + sh + '\n';
+            t += '*' + (idx + 1) + '.* \u2116' + i.nomer + '  *' + i.name + '*' + sh + '\n\n';
         });
     }
     return t;
@@ -11539,14 +11539,18 @@ function knopkiSpiskaNominacii(igra, kod) {
     const nom = nominirovannyePoPoryadku(igra);
     const knopki = [];
     nom.forEach((i, idx) => {
-        const row = [];
-        row.push({
-            text: '\u274C ' + (idx + 1) + '. \u2116' + i.nomer + ' ' + i.name,
+        const sh = estImmunitetOtGolosovaniya(i, igra) ? ' \uD83D\uDEE1' : '';
+        knopki.push([{
+            text: (idx + 1) + '. \u2116' + i.nomer + '  ' + i.name + sh,
+            callback_data: 'golos_info_' + kod + '_' + i.nomer
+        }]);
+        const ctrl = [{
+            text: '\u274C Убрать',
             callback_data: 'golos_toggle_' + kod + '_' + i.nomer
-        });
-        if (idx > 0) row.push({ text: '\u2B06\uFE0F', callback_data: 'golos_up_' + kod + '_' + i.nomer });
-        if (idx < nom.length - 1) row.push({ text: '\u2B07\uFE0F', callback_data: 'golos_down_' + kod + '_' + i.nomer });
-        knopki.push(row);
+        }];
+        if (idx > 0) ctrl.push({ text: '\u2B06\uFE0F выше', callback_data: 'golos_up_' + kod + '_' + i.nomer });
+        if (idx < nom.length - 1) ctrl.push({ text: '\u2B07\uFE0F ниже', callback_data: 'golos_down_' + kod + '_' + i.nomer });
+        knopki.push(ctrl);
     });
     if (kandidatyDobavitNaGolos(igra).length > 0) {
         knopki.push([{ text: '\u2795 Добавить пропущенного игрока', callback_data: 'golos_dobavit_' + kod }]);
@@ -17023,6 +17027,21 @@ bot.on('callback_query', async function(query) {
             chat_id: chatId, message_id: messageId, parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: knopkiDobavitNaGolos(igra, kod) }
         });
+    }
+
+    else if (data.startsWith('golos_info_')) {
+        const parts_info = data.replace('golos_info_', '').split('_');
+        const kod_info = parts_info[0];
+        const nomer_info = parseInt(parts_info[1], 10);
+        const igra_info = igry[kod_info];
+        const igrok_info = igra_info?.igroki?.find(i => i.nomer === nomer_info);
+        const sh_info = igrok_info && estImmunitetOtGolosovaniya(igrok_info, igra_info) ? ' \uD83D\uDEE1' : '';
+        bot.answerCallbackQuery(query.id, {
+            text: igrok_info
+                ? '\u2116' + igrok_info.nomer + '  ' + igrok_info.name + sh_info
+                : 'Игрок не найден'
+        });
+        return;
     }
 
     // ===== НАЗНАЧИТЬ НА ГОЛОСОВАНИЕ (убрать из списка) =====
